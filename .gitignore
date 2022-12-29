@@ -1,0 +1,7 @@
+NY_cartopy
+data/
+ok_mesonet.csv
+.vscode/
+/src/cache
+*.sqlite
+src/cache/aiohttp_cache.sqlite
