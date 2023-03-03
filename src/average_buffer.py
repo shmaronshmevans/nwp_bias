@@ -30,8 +30,8 @@ def parallelize_get_landtype(df_split, buffer_size=5000):
 
 def main():
     geo_gdf = read_data()
-    num_cores = 30  #leave one free to not freeze machine
-    df_split = np.array_split(geo_gdf, 30)
+    num_cores = 15  #leave one free to not freeze machine
+    df_split = np.array_split(geo_gdf, 15)
     pool = multiprocessing.Pool(num_cores)
     pool.map(parallelize_get_landtype, df_split)
     pool.close()
