@@ -1,8 +1,8 @@
 import pandas as pd
 import numpy as np 
 import geopandas as gpd
-from src import landtype_buffer_trial
-from src import gpd_extract_lons_lats
+import landtype_buffer_trial
+import gpd_extract_lons_lats
 import pygeohydro as gh 
 
 
@@ -49,5 +49,3 @@ def landtype_buffer(df, distance):
         lon_lat_list = gpd_extract_lons_lats.gpd_extract_lons_lats(get_coords)
         buffer_df = gh.nlcd_bycoords(lon_lat_list)
         return buffer_df
-        
-        # return get_coords

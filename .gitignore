@@ -4,4 +4,7 @@ ok_mesonet.csv
 .vscode/
 /src/cache
 *.sqlite
+cache
+builds
+src/__pycache__/
 src/cache/aiohttp_cache.sqlite
