@@ -4,14 +4,14 @@ import os
 import pandas as pd
 
 
-def current_time_mesonet_df(mesonet_data_path)->pd.DataFrame:
+def current_time_mesonet_df(mesonet_data_path) -> pd.DataFrame:
     """
-    This will return a dataframe that contains data from the mesonet sites 
+    This will return a dataframe that contains data from the mesonet sites
 
-    Args: 
+    Args:
         Mesonet Data Path (f string)
-    
-    Returns: 
+
+    Returns:
         df (pd.DataFrame): Mesonet Data Frame
     """
 
@@ -25,8 +25,10 @@ def current_time_mesonet_df(mesonet_data_path)->pd.DataFrame:
     sort_dir_Month = sorted(dir_Month)
     data_point_Month = sort_dir_Month[-1]
 
-    # this is your directory for most recent year and month 
-    most_recent = os.listdir(f"{mesonet_data_path}/{data_point_Year}/{data_point_Month}")
+    # this is your directory for most recent year and month
+    most_recent = os.listdir(
+        f"{mesonet_data_path}/{data_point_Year}/{data_point_Month}"
+    )
 
     # most recent datapoint
     sort_most_recent = sorted(most_recent)
@@ -53,8 +55,11 @@ def current_time_mesonet_df(mesonet_data_path)->pd.DataFrame:
     day = new_day
 
     # file path
-    file = year+month+day+'.nc'
+    file = year + month + day + ".nc"
 
-    mesonet_df = xr.open_dataset(f"{mesonet_data_path}/{year}/{month}/{file}").to_dataframe().reset_index()
+    mesonet_df = (
+        xr.open_dataset(f"{mesonet_data_path}/{year}/{month}/{file}")
+        .to_dataframe()
+        .reset_index()
+    )
     return mesonet_df
-

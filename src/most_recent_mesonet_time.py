@@ -4,14 +4,14 @@ import os
 import pandas as pd
 
 
-def most_recent_time(df:pd.DataFrame, mesonet_data_path)->pd.DataFrame:
+def most_recent_time(df: pd.DataFrame, mesonet_data_path) -> pd.DataFrame:
     """
-    This will return a dataframe that contains only the timestamps with filled data from the mesonet sites 
+    This will return a dataframe that contains only the timestamps with filled data from the mesonet sites
 
-    Args: 
+    Args:
     Mesonet Data Path (f string)
 
-    Returns: 
+    Returns:
     df (pd.DataFrame): Mesonet Data Frame
     """
 
@@ -25,8 +25,10 @@ def most_recent_time(df:pd.DataFrame, mesonet_data_path)->pd.DataFrame:
     sort_dir_Month = sorted(dir_Month)
     data_point_Month = sort_dir_Month[-1]
 
-    # this is your directory for most recent year and month 
-    most_recent = os.listdir(f"{mesonet_data_path}/{data_point_Year}/{data_point_Month}")
+    # this is your directory for most recent year and month
+    most_recent = os.listdir(
+        f"{mesonet_data_path}/{data_point_Year}/{data_point_Month}"
+    )
 
     # most recent datapoint
     sort_most_recent = sorted(most_recent)
@@ -52,9 +54,9 @@ def most_recent_time(df:pd.DataFrame, mesonet_data_path)->pd.DataFrame:
     # day
     day = new_day
 
-    current_time_df = df.dropna(subset=['tair'])
+    current_time_df = df.dropna(subset=["tair"])
 
-    last_value = current_time_df['time_5M'].iat[-1]
+    last_value = current_time_df["time_5M"].iat[-1]
     hour = last_value.hour
     minute = last_value.minute
     second = last_value.second
@@ -63,10 +65,10 @@ def most_recent_time(df:pd.DataFrame, mesonet_data_path)->pd.DataFrame:
     string_minute = str(minute)
     string_sec = str(second)
 
-    #time
-    time = string_hour+':'+string_minute+':'+string_sec
+    # time
+    time = string_hour + ":" + string_minute + ":" + string_sec
     df.reset_index(inplace=True)
 
     # creating a new dataframe that is centered on the location in the dataframe
-    mesonet_single_datetime_df = df.loc[df['time_5M']==f"{year}-{month}-{day} {time}"] 
+    mesonet_single_datetime_df = df.loc[df["time_5M"] == f"{year}-{month}-{day} {time}"]
     return mesonet_single_datetime_df
