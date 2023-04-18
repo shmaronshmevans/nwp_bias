@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import argparse
 import glob
 import os.path
@@ -15,15 +16,15 @@ from botocore import UNSIGNED
 from botocore.client import Config
 
 """
- download_s3_file 
- downloads the nwp file 
+ download_s3_file
+ downloads the nwp file
 
- ARGS: 
- bucket: f string :: 
- ingest_path : fstring  :: file that has been downloaded 
- output_path : fstring :: where you want file stored 
+ ARGS:
+ bucket: f string ::
+ ingest_path : fstring  :: file that has been downloaded
+ output_path : fstring :: where you want file stored
 
- RETURNS: 
+ RETURNS:
 
  """
 
@@ -40,18 +41,18 @@ def download_s3_file(bucket, ingest_path, output_path):
 
 
 """
-list_s3_files 
-returns a list of files that have been downloaded for nwp 
+list_s3_files
+returns a list of files that have been downloaded for nwp
 
- ARGS: 
+ ARGS:
  bucket
- model : string :: the model to be downloaded 
+ model : string :: the model to be downloaded
  date : fstring :: year-month-day
  init_time : double :: 00
- data_type : string :: file format 
+ data_type : string :: file format
 
- RETURNS: 
- list :: the files that exist from dowload in a list 
+ RETURNS:
+ list :: the files that exist from dowload in a list
 
  """
 
@@ -86,29 +87,29 @@ def list_s3_files(bucket, model, date, init_time, data_type):
 
 
 """
-get_avail_files 
+get_avail_files
 
- ARGS: 
+ ARGS:
  s3_bucket
- model : string :: the model to be downloaded 
+ model : string :: the model to be downloaded
  year : string :: 0000
  month : string :: 00
  day : string  :: 00
  init_time : double :: 00
- data_type : string :: file format 
- split_loc: 
- fh_loc: 
- fxx_max: 
- zfill: 
- download_dir: fstring :: directory path where you want the  data to be downloaded 
+ data_type : string :: file format
+ split_loc:
+ fh_loc:
+ fxx_max:
+ zfill:
+ download_dir: fstring :: directory path where you want the  data to be downloaded
 
- fname_out: string :: part of datapath name to be saved in your directory 
+ fname_out: string :: part of datapath name to be saved in your directory
 
  fname_end: string :: part of datapath name
- full_filelist_len: 
+ full_filelist_len:
 
- RETURNS: 
- the files that exist for dowload 
+ RETURNS:
+ the files that exist for dowload
 
  """
 

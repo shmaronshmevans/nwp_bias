@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import glob
 import multiprocessing as mp
 import os
@@ -650,8 +651,8 @@ warnings.filterwarnings("ignore")
 # Multiprocessing Notes
 """
 Multiprocessing Pool
-RUN with 75 gb 
-4 tasks per cpu 
+RUN with 75 gb
+4 tasks per cpu
 """
 if __name__ == "__main__":
     init = "12"
