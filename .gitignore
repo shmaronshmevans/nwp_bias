@@ -21,3 +21,4 @@ notebooks/GUID-92475682-AC35-4C9A-8150-BE7656D56B35-web.png
 *.csv
 *.png
 *.pyc
+run_average_buffer.sh
