@@ -3,6 +3,22 @@ import pandas as pd
 
 
 def read_data(init, year):
+    """
+    Reads weather forecast error data from multiple parquet files and returns separate DataFrames for each type of forecast model.
+
+    Args:
+        init (str): The forecast initialization time in "HH" format (e.g. "00" for midnight).
+        year (int): The year for which to retrieve forecast error data.
+
+    Returns:
+        tuple: A tuple containing three pandas DataFrames: `gfs_fcast_and_error_df`, `nam_fcast_and_error_df`, and `hrrr_fcast_and_error_df`. Each DataFrame contains forecast error data for the corresponding forecast model, with columns for lead time (in hours), time, station, and t2m_error.
+
+    Raises:
+        FileNotFoundError: If any of the required parquet files are not found in the specified file path.
+
+    Notes:
+        This function assumes that the parquet files for each forecast model are located in the specified `savedir` directory, with file names in the format "MODEL_fcast_and_error_df_INITz_YEAR_mask_water_ny.parquet". Any forecasts with lead time 0 hours are removed from the resulting DataFrames, as they are considered random and not part of the actual forecast output.
+    """
     year = year
     savedir = "/home/aevans/ai2es/processed_data/frcst_err/"
 
