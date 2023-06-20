@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 def print_stats(index_df):
     """
     Prints the average correlational coefficient and average p-score across models for which the absolute value of the pers coefficient is less than or equal to 1.
@@ -13,7 +14,7 @@ def print_stats(index_df):
     mean_df = index_df[abs(index_df["pers"]) <= 1]
 
     # Compute the average correlational coefficient and average p-score for the selected rows
-    mean1 = mean_df["pers"].mean()
+    mean1 = abs(mean_df["pers"]).mean()
     mean2 = mean_df["p_score"].mean()
 
     # Format the string with the results

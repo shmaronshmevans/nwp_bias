@@ -5,7 +5,7 @@ import calendar
 import time
 
 
-def format_df(df):
+def format_df(df, error_var):
     """
     Formats a DataFrame containing weather forecast error data by filtering for specific criteria and aggregating by month and station.
 
@@ -18,7 +18,7 @@ def format_df(df):
     df = df[df["lead_time_DAY"] == 0]
     df = df[df["lead_time_HOUR"] <= 18]
     error_months = (
-        (df.groupby([df.time.dt.month, "station"])[f"t2m_error"].mean())
+        (df.groupby([df.time.dt.month, "station"])[error_var].mean())
         .to_frame()
         .reset_index()
     )

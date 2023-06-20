@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 import scipy.stats
@@ -23,7 +24,7 @@ def rename_columns(df):
     return new_df
 
 
-def get_corrs(df: pd.DataFrame, lulc: pd.DataFrame, keys: list) -> tuple:
+def get_corrs(df: pd.DataFrame, lulc: pd.DataFrame, keys: list, error_var) -> tuple:
     """
     Calculates the Pearson, Spearman, and Kendall's Tau correlation coefficients
     and their corresponding p-values between a dataframe of temperature errors
@@ -68,25 +69,25 @@ def get_corrs(df: pd.DataFrame, lulc: pd.DataFrame, keys: list) -> tuple:
         # Iterate over each column in the land use/land cover dataframe
         for col, val in lulc.iteritems():
             # Calculate Pearson correlation coefficient and p-value
-            p_score_pers = scipy.stats.pearsonr(lulc[col], months_df["t2m_error"])[1]
+            p_score_pers = scipy.stats.pearsonr(lulc[col], months_df[error_var])[1]
             if p_score_pers > 0.05:
                 pers = -999.99
             else:
-                pers = scipy.stats.pearsonr(lulc[col], months_df["t2m_error"])[0]
+                pers = scipy.stats.pearsonr(lulc[col], months_df[error_var])[0]
 
             # Calculate Spearman correlation coefficient and p-value
-            p_score_rho = scipy.stats.spearmanr(lulc[col], months_df["t2m_error"])[1]
+            p_score_rho = scipy.stats.spearmanr(lulc[col], months_df[error_var])[1]
             if p_score_rho > 0.05:
                 rho = -999.99
             else:
-                rho = scipy.stats.spearmanr(lulc[col], months_df["t2m_error"])[0]
+                rho = scipy.stats.spearmanr(lulc[col], months_df[error_var])[0]
 
             # Calculate Kendall's Tau correlation coefficient and p-value
-            p_score_tau = scipy.stats.kendalltau(lulc[col], months_df["t2m_error"])[1]
+            p_score_tau = scipy.stats.kendalltau(lulc[col], months_df[error_var])[1]
             if p_score_tau > 0.05:
                 tau = -999.99
             else:
-                tau = scipy.stats.kendalltau(lulc[col], months_df["t2m_error"])[0]
+                tau = scipy.stats.kendalltau(lulc[col], months_df[error_var])[0]
 
             # Append correlation coefficients and p-values to their respective lists
             pers_ls.append(pers)
