@@ -437,11 +437,11 @@ def main(month, year, model, init, mask_water=True):
             df_model_ny, nysm_1H_obs, indices_list_ny
         )
 
-    # to avoid future issues, convert lead time to float, round, and then convert to integer
-    # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
-    df_model_nysm_sites["lead time"] = (
-        df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
-    )
+        # to avoid future issues, convert lead time to float, round, and then convert to integer
+        # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
+        df_model_nysm_sites["lead time"] = (
+            df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
+        )
 
     # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
     if model == "NAM":

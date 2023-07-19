@@ -216,14 +216,10 @@ def read_data_in_one_file(fileList, model, prs):
     dict_opts = [
         {"typeOfLevel": "heightAboveGround", "level": 2},
         {"typeOfLevel": "heightAboveGround", "level": 10},
-        {"typeOfLevel": "surface", "stepType": "accum"},
-        {"typeOfLevel": "surface", "stepType": "instant"},
+        {"stepType": "accum", "typeOfLevel": "surface"},
+        {"stepType": "instant", "typeOfLevel": "surface"},
         {"typeOfLevel": "meanSea"},
         {"typeOfLevel": "atmosphere"},
-        {"typeOfLevel": "surface"},
-        # {"typeOfLevel": "surface", "cfVarName": "orog"},
-        # {"typeOfLevel": "surface", "cfVarName": "dswrf"},
-        # {"typeOfLevel": "surface", "cfVarName": "dlwrf"},
         {"typeOfLevel": "isobaricInhPa", "level": 500},
     ]
 
@@ -250,6 +246,7 @@ def read_data_in_one_file(fileList, model, prs):
                     )
                 ]
             ds = xr.merge(ds_save, compat="override")
+            print(list(ds.keys()))
             ds = drop_variables(
                 ds,
                 [
@@ -318,7 +315,6 @@ def read_data_in_one_file(fileList, model, prs):
                     "tke",
                 ],
             )
-            print(list(ds.keys()))
 
             return ds
 
@@ -411,12 +407,10 @@ def read_data(fileList, model, prs):
     dict_opts = [
         {"typeOfLevel": "heightAboveGround", "level": 2},
         {"typeOfLevel": "heightAboveGround", "level": 10},
-        {"typeOfLevel": "surface", "stepType": "accum"},
-        {"typeOfLevel": "surface", "stepType": "instant"},
+        {"stepType": "accum", "typeOfLevel": "surface"},
+        {"stepType": "instant", "typeOfLevel": "surface"},
         {"typeOfLevel": "meanSea"},
         {"typeOfLevel": "atmosphere"},
-        # {"typeOfLevel": "surface", "cfVarName": "orog"},
-        {"typeOfLevel": "surface"},
         {"typeOfLevel": "isobaricInhPa", "level": 500},
     ]
 
@@ -531,6 +525,7 @@ def read_data(fileList, model, prs):
         else:
             ds_save = []
             for opt in dict_opts:
+                print(opt)
                 ds_save += [
                     xr.open_mfdataset(
                         fileList,
@@ -843,8 +838,8 @@ def main(
     # input_path (str) - path to base location of data
     # output_path (str) - where to write new smaller clean files
     if combined_file:
-        input_path = "/home/aevans/ai2es/GFS/GFSv16_parallel"
-        output_path = "/home/aevans/ai2es/GFS/GFSv16_parallel/cleaned"
+        input_path = f"/home/aevans/ai2es/GFS/GFSv16_parallel/"
+        output_path = f"/home/aevans/ai2es/GFS/GFSv16_parallel/cleaned/"
     else:
         input_path = f"/home/aevans/ai2es/{model.upper()}/"
         output_path = f"/home/aevans/ai2es/{model.upper()}/cleaned/"
@@ -874,12 +869,12 @@ def main(
             # continue and move on if yes
             if (
                 os.path.exists(
-                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_wrfsfc_fhAll.parquet"
+                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_02.parquet"
                 )
                 == False
             ) and (
                 os.path.exists(
-                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_fhAll.parquet"
+                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}02.parquet"
                 )
                 == False
             ):
@@ -937,10 +932,12 @@ def main(
                     # create this directory if it doesn't already exist
                     Path(savepath).mkdir(parents=True, exist_ok=True)
                     if model == "hrrr":
+                        print("keys", df.keys())
                         df.to_parquet(
                             f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_wrfsfc_fhAll.parquet"
                         )
                     else:
+                        print("keys", df.keys())
                         df.to_parquet(
                             f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_fhAll.parquet"
                         )
@@ -951,8 +948,6 @@ def main(
                 )
                 continue
 
-
-main("gfs", 2018, "12", 1, 2)
 
 # # Multiprocessing v1
 # # good if need specific months cleaned
@@ -998,20 +993,20 @@ main("gfs", 2018, "12", 1, 2)
 #     p12.join()
 
 
-# main()
+main()
 
 
-# # multiprocessing v2
-# # good for bulk cleaning
-# ranger = np.arange(2022, 2024)
-# models = ["nam", "gfs", "hrrr"]
+# multiprocessing v2
+# good for bulk cleaning
+ranger = np.arange(2022, 2024)
+models = ["hrrr"]
 
-# for model in models:
-#     # Step 1: Init multiprocessing.Pool()
-#     pool = mp.Pool(mp.cpu_count())
+for model in models:
+    # Step 1: Init multiprocessing.Pool()
+    pool = mp.Pool(mp.cpu_count())
 
-#     # Step 2: `pool.apply` the `howmany_within_range()`
-#     results = [pool.apply(main, args=(model, year, "12", 1, 10)) for year in ranger]
+    # Step 2: `pool.apply` the `howmany_within_range()`
+    results = [pool.apply(main, args=(model, year, "12", 1, 10)) for year in ranger]
 
-#     # Step 3: Don't forget to close
-#     pool.close()
+    # Step 3: Don't forget to close
+    pool.close()
