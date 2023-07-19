@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from comet_ml import Experiment
 from comet_ml.integration.pytorch import log_model
 import pandas as pd
