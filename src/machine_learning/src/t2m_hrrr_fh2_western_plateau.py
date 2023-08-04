@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from comet_ml import Experiment
 from comet_ml.integration.pytorch import log_model
+from comet_ml import Optimizer
+import sys
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,6 +12,16 @@ from torch.utils.data import DataLoader
 from torch import nn
 import os
 import datetime as dt
+from datetime import date
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
+from tqdm import tqdm
+import re
+import emd
+import statistics as st
+from dateutil.parser import parse
+import warnings
 
 
 def col_drop(df):
@@ -32,23 +44,22 @@ def col_drop(df):
 
 
 def get_flag(hrrr_df):
-    stations_ls = hrrr_df["station"].unique()
     one_hour = dt.timedelta(hours=1)
     flag_ls = []
-
-    for station in stations_ls:
-        df = hrrr_df[hrrr_df["station"] == station]
-        time_ls = df["valid_time"].tolist()
-        for now, then in zip(time_ls, time_ls[1:]):
-            if now + one_hour == then:
-                flag_ls.append(True)
-            else:
-                flag_ls.append(False)
+    time_ls = hrrr_df["valid_time"].tolist()
+    for now, then in zip(time_ls, time_ls[1:]):
+        if now + one_hour == then:
+            flag_ls.append(True)
+        else:
+            flag_ls.append(False)
 
     flag_ls.append(True)
     hrrr_df["flag"] = flag_ls
-
     return hrrr_df
+
+def remove_elements_from_batch(X, y, s):
+    cond = (np.where(s))
+    return X[cond], y[cond], s[cond]
 
 
 def nwp_error(target, station, df):
@@ -68,12 +79,82 @@ def encode(data, col, max_val):
 
     return data
 
+def predict(data_loader, model):
+    output = torch.tensor([])
+    model.eval()
+    with torch.no_grad():
+        for X, _, s in data_loader:
+            y_star = model(X)
+            output = torch.cat((output, y_star), 0)
+
+    return output
+
+
+def plot_plotly(df_out, title):
+    length = len(df_out)
+    pio.templates.default = "plotly_white"
+    plot_template = dict(
+        layout=go.Layout(
+            {"font_size": 18, "xaxis_title_font_size": 24, "yaxis_title_font_size": 24}
+        )
+    )
+
+    fig = px.line(df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f'{title}')
+    fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
+    fig.add_annotation(
+        xref="paper", x=0.75, yref="paper", y=0.8, text="Test set start", showarrow=False
+    )
+    fig.update_layout(
+        template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
+    )
+
+    today = date.today()
+    today_date = today.strftime("%Y%m%d")
+
+    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
+        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}')
+
+    fig.write_image(f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png")
+
+def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, new_df, target):
+
+    train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
+
+    ystar_col = "Model forecast"
+    df_train[ystar_col] = predict(train_eval_loader, model).numpy()
+    df_test[ystar_col] = predict(test_loader, model).numpy()
+
+    df_out = pd.concat((df_train, df_test))[[target, ystar_col]]
+
+    for c in df_out.columns:
+        vals = df_out[c].values.tolist()
+        mean = st.mean(vals)
+        std = st.pstdev(vals)
+        df_out[c] = df_out[c] * std + mean
+    
+    #visualize
+    plot_plotly(df_out, title)
+
+    df_out['diff'] = df_out.iloc[:, 0] - df_out.iloc[:, 1] 
+
+    today = date.today()
+    today_date = today.strftime("%Y%m%d")
+
+
+    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
+        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}')
+
+
+    new_df.to_parquet(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet')
+
+
 
 df = pd.read_parquet(
-    "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/cleaned_rough_lstm_nysmcat_Western Plateau.parquet"
+    "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/nysm_cats/cleaned_rough_lstm_nysmcat_Western Plateau.parquet"
 )
-df = df.dropna()
+df.dropna(inplace=True)
 
+print("Data Read!")
 # columns to reintigrate back into the df after model is done running
 cols_to_carry = ["valid_time", "flag"]
 
@@ -83,45 +164,16 @@ df = get_flag(df)
 df["day_of_year"] = df["valid_time"].dt.dayofyear
 df = encode(df, "day_of_year", 366)
 df = nwp_error("t2m", "ADDI", df)
+df = get_flag(df)
 new_df = col_drop(df)
 
-# establish target
-target_sensor = "target_error"
-features = list(new_df.columns.difference([target_sensor]))
-forecast_lead = 12
-target = f"{target_sensor}_lead_{forecast_lead}"
-new_df[target] = new_df[target_sensor].shift(-forecast_lead)
-new_df = new_df.iloc[:-forecast_lead]
-
-# create train and test set
-length = len(new_df)
-test_len = int(length * 0.75)
-df_train = new_df.iloc[:test_len].copy()
-df_test = new_df.iloc[test_len:].copy()
-print("Test Set Fraction", len(df_test) / len(new_df))
-
-# normalize
-target_mean = df_train[target].mean()
-target_stdev = df_train[target].std()
-for c in df_train.columns:
-    mean = df_train[c].mean()
-    stdev = df_train[c].std()
-
-    df_train[c] = (df_train[c] - mean) / stdev
-    df_test[c] = (df_test[c] - mean) / stdev
-
-df_train = df_train.fillna(0)
-df_test = df_test.fillna(0)
-
-# bring back columns
-for c in cols_to_carry:
-    df_train[c] = df[c]
-    df_test[c] = df[c]
+print("Data Processed")
+print("--init model LSTM--")
 
 
 # create LSTM Model
 class SequenceDataset(Dataset):
-    def __init__(self, dataframe, target, features, sequence_length=5):
+    def __init__(self, dataframe, target, features, sequence_length):
         self.dataframe = dataframe
         self.features = features
         self.target = target
@@ -133,6 +185,7 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
+        keep_sample = self.dataframe.iloc[i]['flag']
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
@@ -141,15 +194,15 @@ class SequenceDataset(Dataset):
             x = self.X[0 : (i + 1), :]
             x = torch.cat((padding, x), 0)
 
-        return x, self.y[i]
+        return x, self.y[i], keep_sample
 
 
 class ShallowRegressionLSTM(nn.Module):
-    def __init__(self, num_sensors, hidden_units):
+    def __init__(self, num_sensors, hidden_units, num_layers):
         super().__init__()
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
-        self.num_layers = 7
+        self.num_layers = num_layers
 
         self.lstm = nn.LSTM(
             input_size=num_sensors,
@@ -199,15 +252,17 @@ def train_model(data_loader, model, loss_function, optimizer):
     total_loss = 0
     model.train()
 
-    for X, y in data_loader:
-        output = model(X)
-        loss = loss_function(output, y)
+    with tqdm(data_loader, unit = 'batch') as tepoch:
+        for X, y, s in tepoch:
+            X, y, s = remove_elements_from_batch(X, y, s)
+            output = model(X)
+            loss = loss_function(output, y)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        total_loss += loss.item()
+            total_loss += loss.item()
 
     # loss
     avg_loss = total_loss / num_batches
@@ -221,9 +276,11 @@ def test_model(data_loader, model, loss_function):
 
     model.eval()
     with torch.no_grad():
-        for X, y in data_loader:
-            output = model(X)
-            total_loss += loss_function(output, y).item()
+        with tqdm(data_loader, unit = 'batch') as tepoch:
+            for X, y, s in tepoch:
+                X, y, s = remove_elements_from_batch(X, y, s)
+                output = model(X)
+                total_loss += loss_function(output, y).item()
 
     # loss
     avg_loss = total_loss / num_batches
@@ -232,26 +289,61 @@ def test_model(data_loader, model, loss_function):
     return avg_loss
 
 
-def predict(data_loader, model):
-    output = torch.tensor([])
-    model.eval()
-    with torch.no_grad():
-        for X, _ in data_loader:
-            y_star = model(X)
-            output = torch.cat((output, y_star), 0)
-
-    return output
-
-
 def main(
-    df_train, df_test, batch_size, sequence_length, learning_rate, num_hidden_units
+    new_df, batch_size, sequence_length, learning_rate, num_hidden_units, num_layers, forecast_lead, station
 ):
-    torch.manual_seed(101)
+
     experiment = Experiment(
-        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="fh_2_hrrr",
-        workspace="shmaronshmevans",
+    api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+    project_name="fh_2_hrrr",
+    workspace="shmaronshmevans",
     )
+    # Report multiple hyperparameters using a dictionary:
+    hyper_params = {
+        "num_layers": num_layers,
+        "learning_rate": learning_rate,
+        "sequence_length": sequence_length,
+        "batch_size": batch_size, 
+        "num_hidden_units": num_hidden_units, 
+        "forecast_lead": forecast_lead,
+    }
+
+    # establish target
+    target_sensor = "target_error"
+    features = list(new_df.columns.difference([target_sensor]))
+    forecast_lead = forecast_lead
+    target = f"{target_sensor}_lead_{forecast_lead}"
+    new_df[target] = new_df[target_sensor].shift(-forecast_lead)
+    new_df = new_df.iloc[:-forecast_lead]
+
+    # create train and test set
+    length = len(new_df)
+    test_len = int(length * 0.75)
+    df_train = new_df.iloc[:test_len].copy()
+    df_test = new_df.iloc[test_len:].copy()
+    print("Test Set Fraction", len(df_test) / len(new_df))
+
+    # normalize
+    target_mean = df_train[target].mean()
+    target_stdev = df_train[target].std()
+    for c in df_train.columns:
+        mean = df_train[c].mean()
+        stdev = df_train[c].std()
+
+        df_train[c] = (df_train[c] - mean) / stdev
+        df_test[c] = (df_test[c] - mean) / stdev
+
+    df_train = df_train.fillna(0)
+    df_test = df_test.fillna(0)
+
+    # bring back columns
+    for c in cols_to_carry:
+        df_train[c] = df[c]
+        df_test[c] = df[c]
+    
+    print("Training")
+
+    torch.manual_seed(101)
 
     train_dataset = SequenceDataset(
         df_train, target=target, features=features, sequence_length=sequence_length
@@ -263,7 +355,7 @@ def main(
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    X, y = next(iter(train_loader))
+    X, y, s = next(iter(train_loader))
 
     print("Features shape:", X.shape)
     print("Target shape:", y.shape)
@@ -272,11 +364,11 @@ def main(
     num_hidden_units = num_hidden_units
 
     model = ShallowRegressionLSTM(
-        num_sensors=len(features), hidden_units=num_hidden_units
+        num_sensors=len(features), hidden_units=num_hidden_units, num_layers = num_layers
     )
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    early_stopper = EarlyStopper(patience=8, min_delta=0)
+    #early_stopper = EarlyStopper(patience=25, min_delta=0)
 
     print("Untrained test\n--------")
     test_model(test_loader, model, loss_function)
@@ -288,28 +380,30 @@ def main(
             train_loader, model, loss_function, optimizer=optimizer
         )
         val_loss = test_model(test_loader, model, loss_function)
+        experiment.log_parameters(hyper_params)
+        experiment.log_parameters('epoch', ix_epoch)
         print()
-        if early_stopper.early_stop(val_loss):
-            break
+        # if early_stopper.early_stop(val_loss):
+        #     break
+    
+    title = f'{station}_loss_{val_loss}'
+    # evaluate model
+    eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, new_df, target)
 
-    # Report multiple hyperparameters using a dictionary:
-    hyper_params = {
-        "learning_rate": learning_rate,
-        "steps": sequence_length,
-        "batch_size": batch_size,
-    }
-    experiment.log_parameters(hyper_params)
-
+    print("Successful Experiment")
+blac
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="exp_07192023")
+    log_model(experiment, model, model_name="exp_add_eod_climind_v1", epoch=ix_epoch)
     experiment.end()
 
 
 main(
-    df_train,
-    df_test,
-    batch_size=14,
-    sequence_length=18,
-    learning_rate=5e-4,
-    num_hidden_units=80,
-)
+        new_df,
+        batch_size=156,
+        sequence_length=143,
+        learning_rate=7e-4,
+        num_hidden_units=125,
+        num_layers=8,
+        forecast_lead = 21,
+        station = 'ADDI'
+    )

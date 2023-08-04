@@ -87,7 +87,7 @@ def main():
     nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
 
     # tabular data paths
-    nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
+    nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/ny_met_geo_clusters.csv"
     nlcd_path = "/home/aevans/nwp_bias/src/correlation/data/nlcd_nam.csv"
     aspect_path = "/home/aevans/nwp_bias/src/correlation/data/aspect_nam.csv"
     elev_path = "/home/aevans/nwp_bias/src/correlation/data/elev_nam.csv"
@@ -99,11 +99,11 @@ def main():
     nysm_cats_df = pd.read_csv(nysm_cats_path)
 
     # partition out parquets by nysm climate division
-    cats = nysm_cats_df["climate_division"].unique()
+    cats = nysm_cats_df["Cluster"].unique()
     for category in cats:
-        nysm_cats_df1 = nysm_cats_df[nysm_cats_df["climate_division"] == category]
-        category_name = nysm_cats_df1["climate_division_name"].unique()[0]
-        stations = nysm_cats_df1["stid"].tolist()
+        nysm_cats_df1 = nysm_cats_df[nysm_cats_df["Cluster"] == category]
+        category_name = nysm_cats_df1["color"].unique()[0]
+        stations = nysm_cats_df1["station"].tolist()
         hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
         nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
 
@@ -116,7 +116,7 @@ def main():
         )
 
         master_df.to_parquet(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/rough_lstm_nysmcat_{category_name}.parquet"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/rough_lstm_geo_met_cat_{category_name}.parquet"
         )
 
 
