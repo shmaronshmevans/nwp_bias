@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from comet_ml import Experiment
 from comet_ml.integration.pytorch import log_model
 from comet_ml import Optimizer
@@ -13,6 +14,7 @@ import os
 import datetime as dt
 from datetime import date
 from tqdm import tqdm
+
 
 def col_drop(df):
     df = df.drop(columns=["day_of_year", "flag"])
@@ -52,8 +54,9 @@ def get_flag(hrrr_df):
 
     return hrrr_df
 
+
 def remove_elements_from_batch(X, y, s):
-    cond = (np.where(s))
+    cond = np.where(s)
     return X[cond], y[cond], s[cond]
 
 
@@ -73,6 +76,7 @@ def encode(data, col, max_val):
     data[col + "_cos"] = np.cos(2 * np.pi * data[col] / max_val)
 
     return data
+
 
 def predict(data_loader, model):
     output = torch.tensor([])
@@ -94,10 +98,17 @@ def plot_plotly(df_out, title):
         )
     )
 
-    fig = px.line(df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f'{title}')
+    fig = px.line(
+        df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f"{title}"
+    )
     fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
     fig.add_annotation(
-        xref="paper", x=0.75, yref="paper", y=0.8, text="Test set start", showarrow=False
+        xref="paper",
+        x=0.75,
+        yref="paper",
+        y=0.8,
+        text="Test set start",
+        showarrow=False,
     )
     fig.update_layout(
         template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
@@ -106,13 +117,22 @@ def plot_plotly(df_out, title):
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}')
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+        )
 
-    fig.write_image(f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png")
+    fig.write_image(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png"
+    )
+
 
 def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title):
-
     train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
     ystar_col = "Model forecast"
@@ -123,21 +143,28 @@ def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size,
 
     for c in df_out.columns:
         df_out[c] = df_out[c] * target_stdev + target_mean
-    
-    #visualize
+
+    # visualize
     plot_plotly(df_out, title)
 
-    df_out['diff'] = df_out.iloc[:, 0] - df_out.iloc[:, 1] 
+    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
 
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}')
-
-
-    df_out.to_csv(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.csv')
+    df_out.to_csv(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.csv"
+    )
 
 
 # create LSTM Model
@@ -154,7 +181,7 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        keep_sample = self.dataframe.iloc[i]['flag']
+        keep_sample = self.dataframe.iloc[i]["flag"]
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
@@ -221,7 +248,7 @@ def train_model(data_loader, model, loss_function, optimizer):
     total_loss = 0
     model.train()
 
-    with tqdm(data_loader, unit = 'batch') as tepoch:
+    with tqdm(data_loader, unit="batch") as tepoch:
         for X, y, s in tepoch:
             X, y, s = remove_elements_from_batch(X, y, s)
             output = model(X)
@@ -245,7 +272,7 @@ def test_model(data_loader, model, loss_function):
 
     model.eval()
     with torch.no_grad():
-        with tqdm(data_loader, unit = 'batch') as tepoch:
+        with tqdm(data_loader, unit="batch") as tepoch:
             for X, y, s in tepoch:
                 X, y, s = remove_elements_from_batch(X, y, s)
                 output = model(X)
@@ -258,16 +285,14 @@ def test_model(data_loader, model, loss_function):
     return avg_loss
 
 
-
-# df_train, 
-# df_test, 
-# batch_size, 
-# sequence_length, 
-# learning_rate, 
-# num_hidden_units, 
-# station, 
+# df_train,
+# df_test,
+# batch_size,
+# sequence_length,
+# learning_rate,
+# num_hidden_units,
+# station,
 # num_layers
-
 
 
 # def main(num_layers, learning_rate, sequence_length, batch_size, num_hidden_units, forecast_lead, epoch):
@@ -341,7 +366,7 @@ learning_rate = learning_rate
 num_hidden_units = num_hidden_units
 
 model = ShallowRegressionLSTM(
-    num_sensors=len(features), hidden_units=num_hidden_units, num_layers = num_layers
+    num_sensors=len(features), hidden_units=num_hidden_units, num_layers=num_layers
 )
 loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -351,6 +376,6 @@ opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
 for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
-    loss =  test_model(test_loader, model, loss_function)
+    loss = test_model(test_loader, model, loss_function)
     experiment.log_metric("loss", loss)
     experiment.end()

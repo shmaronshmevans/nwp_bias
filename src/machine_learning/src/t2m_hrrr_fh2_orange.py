@@ -24,11 +24,87 @@ from dateutil.parser import parse
 import warnings
 
 # Settings the warnings to be ignored
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 def col_drop(df):
-    df = df.drop(columns=["day_of_year", "flag", "station", "latitude", 'longitude', 't2m', 'sh2', 'd2m', 'r2', 'u10', 'v10', 'tp', 'mslma', 'orog', 'tcc', 'asnow', 'cape', 'dswrf', 'dlwrf', 'gh', 'u_total', 'u_dir', 'new_tp', 'lat', 'lon', 'elev', 'tair', 'ta9m', 'td', 'relh', 'srad', 'pres', 'mslp', 'wspd_sonic', 'wmax_sonic', 'wdir_sonic', 'precip_total','snow_depth', 'day_of_year', 'day_of_year_sin', 'day_of_year_cos', '11_nlcd', '21_nlcd', '22_nlcd', '23_nlcd', '24_nlcd', '31_nlcd', '41_nlcd', '42_nlcd', '43_nlcd', '52_nlcd', '71_nlcd', '81_nlcd','82_nlcd','90_nlcd','95_nlcd','19_aspect', '21_aspect','24_aspect', '27_aspect', '28_aspect', '22_aspect', '23_aspect', '25_aspect', '26_aspect', '31_aspect', '33_aspect', '32_aspect', '34_aspect', '38_aspect', 'std_elev', 'variance_elev', 'skew_elev', 'med_dist_elev'])
+    df = df.drop(
+        columns=[
+            "day_of_year",
+            "flag",
+            "station",
+            "latitude",
+            "longitude",
+            "t2m",
+            "sh2",
+            "d2m",
+            "r2",
+            "u10",
+            "v10",
+            "tp",
+            "mslma",
+            "orog",
+            "tcc",
+            "asnow",
+            "cape",
+            "dswrf",
+            "dlwrf",
+            "gh",
+            "u_total",
+            "u_dir",
+            "new_tp",
+            "lat",
+            "lon",
+            "elev",
+            "tair",
+            "ta9m",
+            "td",
+            "relh",
+            "srad",
+            "pres",
+            "mslp",
+            "wspd_sonic",
+            "wmax_sonic",
+            "wdir_sonic",
+            "precip_total",
+            "snow_depth",
+            "day_of_year_sin",
+            "day_of_year_cos",
+            "11_nlcd",
+            "21_nlcd",
+            "22_nlcd",
+            "23_nlcd",
+            "24_nlcd",
+            "31_nlcd",
+            "41_nlcd",
+            "42_nlcd",
+            "43_nlcd",
+            "52_nlcd",
+            "71_nlcd",
+            "81_nlcd",
+            "82_nlcd",
+            "90_nlcd",
+            "95_nlcd",
+            "19_aspect",
+            "21_aspect",
+            "24_aspect",
+            "27_aspect",
+            "28_aspect",
+            "22_aspect",
+            "23_aspect",
+            "25_aspect",
+            "26_aspect",
+            "31_aspect",
+            "33_aspect",
+            "32_aspect",
+            "34_aspect",
+            "38_aspect",
+            "std_elev",
+            "variance_elev",
+            "skew_elev",
+            "med_dist_elev",
+        ]
+    )
 
     df = df[df.columns.drop(list(df.filter(regex="time")))]
     df = df[df.columns.drop(list(df.filter(regex="station")))]
@@ -61,8 +137,9 @@ def get_flag(hrrr_df):
     hrrr_df["flag"] = flag_ls
     return hrrr_df
 
+
 def remove_elements_from_batch(X, y, s):
-    cond = (np.where(s))
+    cond = np.where(s)
     return X[cond], y[cond], s[cond]
 
 
@@ -83,6 +160,7 @@ def encode(data, col, max_val):
 
     return data
 
+
 def format_climate_df(data_path):
     """
     Formats a climate data file located at the specified `data_path` into a pandas DataFrame.
@@ -97,6 +175,7 @@ def format_climate_df(data_path):
     cl_index = pd.DataFrame(raw_index)
     cl_index = cl_index.rename(columns={0: "year"})
     return cl_index
+
 
 def get_clim_indexes(df):
     """
@@ -114,25 +193,25 @@ def get_clim_indexes(df):
     pandas.DataFrame: The input DataFrame with additional columns for each climate index containing their values.
     """
 
-    clim_df_path = '/home/aevans/nwp_bias/src/correlation/data/indexes/'
+    clim_df_path = "/home/aevans/nwp_bias/src/correlation/data/indexes/"
     directory = os.listdir(clim_df_path)
 
     # Loop through each file in the specified directory
     for d in directory:
         if d.endswith(".txt"):
             # Read the climate index data from the file and format it into a DataFrame
-            clim_df = format_climate_df(f'{clim_df_path}{d}')
-            index_name = d.split('.')[0]
+            clim_df = format_climate_df(f"{clim_df_path}{d}")
+            index_name = d.split(".")[0]
 
             clim_ind_ls = []
-            for t, _ in enumerate(df['valid_time']):
-                time_obj = df['valid_time'].iloc[t]
+            for t, _ in enumerate(df["valid_time"]):
+                time_obj = df["valid_time"].iloc[t]
                 dt_object = parse(str(time_obj))
-                year = dt_object.strftime('%Y')
-                month = dt_object.strftime('%m')
+                year = dt_object.strftime("%Y")
+                month = dt_object.strftime("%m")
                 # Filter the climate DataFrame to get data for the specific year
-                df1 = clim_df.loc[clim_df['year'] == int(year)]
-                df1 = df1.drop(columns='year')
+                df1 = clim_df.loc[clim_df["year"] == int(year)]
+                df1 = df1.drop(columns="year")
                 row_list = df1.values
                 keys = df1.keys()
                 key_vals = keys.tolist()
@@ -153,10 +232,11 @@ def get_clim_indexes(df):
 
     return df
 
+
 def normalize_df(df):
     print("init normalizer")
     the_df = df.dropna()
-    for (k,r) in the_df.items():
+    for k, r in the_df.items():
         if len(the_df[k].unique()) == 1:
             org_str = str(k)
             my_str = org_str[:-5]
@@ -167,27 +247,26 @@ def normalize_df(df):
             the_df[k] = (the_df[k] - means) / stdevs
 
             the_df = the_df.fillna(0)
-        if re.search('t2m|sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp', k):
-
+        if re.search(
+            "t2m|sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp",
+            k,
+        ):
             ind_val = the_df.columns.get_loc(k)
             x = the_df[k]
             imf = emd.sift.sift(x)
             the_df = the_df.drop(columns=k)
             for i in range(imf.shape[1]):
-                imf_ls = imf[:,i].tolist()
+                imf_ls = imf[:, i].tolist()
                 # Inserting the column at the
                 # beginning in the DataFrame
                 my_loc = ind_val + i
-                the_df.insert(loc = (my_loc),
-                        column = f'{k}_imf_{i}',
-                        value = imf_ls)      
-            
+                the_df.insert(loc=(my_loc), column=f"{k}_imf_{i}", value=imf_ls)
+
         else:
-            
             means = st.mean(the_df[k])
             stdevs = st.pstdev(the_df[k])
             the_df[k] = (the_df[k] - means) / stdevs
-    
+
     final_df = the_df.fillna(0)
     print("!!! Dropping Columns !!!")
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="latitude")))]
@@ -195,9 +274,10 @@ def normalize_df(df):
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="u_total")))]
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="mslp")))]
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="orog")))]
-    new_features = list(final_df.columns.difference(['target_error']))
-    print('---normalize successful---')
-    return final_df, new_features 
+    new_features = list(final_df.columns.difference(["target_error"]))
+    print("---normalize successful---")
+    return final_df, new_features
+
 
 def predict(data_loader, model):
     output = torch.tensor([])
@@ -219,10 +299,17 @@ def plot_plotly(df_out, title):
         )
     )
 
-    fig = px.line(df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f'{title}')
+    fig = px.line(
+        df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f"{title}"
+    )
     fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
     fig.add_annotation(
-        xref="paper", x=0.75, yref="paper", y=0.8, text="Test set start", showarrow=False
+        xref="paper",
+        x=0.75,
+        yref="paper",
+        y=0.8,
+        text="Test set start",
+        showarrow=False,
     )
     fig.update_layout(
         template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
@@ -231,13 +318,33 @@ def plot_plotly(df_out, title):
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}')
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+        )
 
-    fig.write_image(f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png")
+    fig.write_image(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png"
+    )
 
-def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, target, new_df, target):
 
+def eval_model(
+    train_dataset,
+    df_train,
+    df_test,
+    test_loader,
+    model,
+    batch_size,
+    title,
+    target,
+    new_df,
+    target,
+):
     train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
     ystar_col = "Model forecast"
@@ -251,22 +358,28 @@ def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size,
         mean = st.mean(vals)
         std = st.pstdev(vals)
         df_out[c] = df_out[c] * std + mean
-    
-    #visualize
+
+    # visualize
     plot_plotly(df_out, title)
 
-    df_out['diff'] = df_out.iloc[:, 0] - df_out.iloc[:, 1] 
+    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
 
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}')
-
-
-    new_df.to_parquet(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet')
-
+    new_df.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet"
+    )
 
 
 df = pd.read_parquet(
@@ -305,7 +418,7 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        keep_sample = self.dataframe.iloc[i]['flag']
+        keep_sample = self.dataframe.iloc[i]["flag"]
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
@@ -372,7 +485,7 @@ def train_model(data_loader, model, loss_function, optimizer):
     total_loss = 0
     model.train()
 
-    with tqdm(data_loader, unit = 'batch') as tepoch:
+    with tqdm(data_loader, unit="batch") as tepoch:
         for X, y, s in tepoch:
             X, y, s = remove_elements_from_batch(X, y, s)
             output = model(X)
@@ -396,7 +509,7 @@ def test_model(data_loader, model, loss_function):
 
     model.eval()
     with torch.no_grad():
-        with tqdm(data_loader, unit = 'batch') as tepoch:
+        with tqdm(data_loader, unit="batch") as tepoch:
             for X, y, s in tepoch:
                 X, y, s = remove_elements_from_batch(X, y, s)
                 output = model(X)
@@ -410,15 +523,22 @@ def test_model(data_loader, model, loss_function):
 
 
 def main(
-    new_df, batch_size, sequence_length, learning_rate, num_hidden_units, num_layers, forecast_lead, station
+    new_df,
+    batch_size,
+    sequence_length,
+    learning_rate,
+    num_hidden_units,
+    num_layers,
+    forecast_lead,
+    station,
 ):
     print("--- Experiment Begin ---")
 
     experiment = Experiment(
-    api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-    project_name="fh_2_hrrr",
-    workspace="shmaronshmevans",
-)
+        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+        project_name="fh_2_hrrr",
+        workspace="shmaronshmevans",
+    )
     # establish target
     target_sensor = "target_error"
 
@@ -426,7 +546,7 @@ def main(
     target = f"{target_sensor}_lead_{forecast_lead}"
     new_df[target] = new_df[target_sensor].shift(-forecast_lead)
     new_df = new_df.iloc[:-forecast_lead]
-    print('--Normalizing Data--')
+    print("--Normalizing Data--")
 
     new_df, features = normalize_df(new_df)
 
@@ -444,7 +564,7 @@ def main(
     for c in cols_to_carry:
         df_train[c] = df[c]
         df_test[c] = df[c]
-    
+
     print("Training")
 
     torch.manual_seed(101)
@@ -468,7 +588,7 @@ def main(
     num_hidden_units = num_hidden_units
 
     model = ShallowRegressionLSTM(
-        num_sensors=len(features), hidden_units=num_hidden_units, num_layers = num_layers
+        num_sensors=len(features), hidden_units=num_hidden_units, num_layers=num_layers
     )
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
@@ -487,18 +607,29 @@ def main(
         print()
         if early_stopper.early_stop(val_loss):
             break
-    
-    title = f'{station}_loss_{val_loss}'
+
+    title = f"{station}_loss_{val_loss}"
     # evaluate model
-    eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, target, new_df, target)
+    eval_model(
+        train_dataset,
+        df_train,
+        df_test,
+        test_loader,
+        model,
+        batch_size,
+        title,
+        target,
+        new_df,
+        target,
+    )
 
     # Report multiple hyperparameters using a dictionary:
     hyper_params = {
         "num_layers": num_layers,
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
-        "batch_size": batch_size, 
-        "num_hidden_units": num_hidden_units, 
+        "batch_size": batch_size,
+        "num_hidden_units": num_hidden_units,
         "forecast_lead": forecast_lead,
     }
     experiment.log_parameters(hyper_params)
@@ -510,8 +641,6 @@ def main(
     experiment.end()
 
 
-
-
 main(
     new_df,
     batch_size=14,
@@ -519,6 +648,6 @@ main(
     learning_rate=7e-4,
     num_hidden_units=175,
     num_layers=1,
-    forecast_lead = 476,
-    station = 'ADDI'
+    forecast_lead=476,
+    station="ADDI",
 )

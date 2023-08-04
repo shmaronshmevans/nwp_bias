@@ -57,8 +57,9 @@ def get_flag(hrrr_df):
     hrrr_df["flag"] = flag_ls
     return hrrr_df
 
+
 def remove_elements_from_batch(X, y, s):
-    cond = (np.where(s))
+    cond = np.where(s)
     return X[cond], y[cond], s[cond]
 
 
@@ -78,6 +79,7 @@ def encode(data, col, max_val):
     data[col + "_cos"] = np.cos(2 * np.pi * data[col] / max_val)
 
     return data
+
 
 def predict(data_loader, model):
     output = torch.tensor([])
@@ -99,10 +101,17 @@ def plot_plotly(df_out, title):
         )
     )
 
-    fig = px.line(df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f'{title}')
+    fig = px.line(
+        df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f"{title}"
+    )
     fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
     fig.add_annotation(
-        xref="paper", x=0.75, yref="paper", y=0.8, text="Test set start", showarrow=False
+        xref="paper",
+        x=0.75,
+        yref="paper",
+        y=0.8,
+        text="Test set start",
+        showarrow=False,
     )
     fig.update_layout(
         template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
@@ -111,13 +120,32 @@ def plot_plotly(df_out, title):
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}')
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+        )
 
-    fig.write_image(f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png")
+    fig.write_image(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png"
+    )
 
-def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, new_df, target):
 
+def eval_model(
+    train_dataset,
+    df_train,
+    df_test,
+    test_loader,
+    model,
+    batch_size,
+    title,
+    new_df,
+    target,
+):
     train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
     ystar_col = "Model forecast"
@@ -131,22 +159,28 @@ def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size,
         mean = st.mean(vals)
         std = st.pstdev(vals)
         df_out[c] = df_out[c] * std + mean
-    
-    #visualize
+
+    # visualize
     plot_plotly(df_out, title)
 
-    df_out['diff'] = df_out.iloc[:, 0] - df_out.iloc[:, 1] 
+    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
 
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
 
-    if os.path.exists(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}') == False:
-        os.mkdir(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}')
-
-
-    new_df.to_parquet(f'/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet')
-
+    new_df.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet"
+    )
 
 
 df = pd.read_parquet(
@@ -156,7 +190,7 @@ df.dropna(inplace=True)
 
 print("Data Read!")
 # columns to reintigrate back into the df after model is done running
-cols_to_carry = ["valid_time", "flag"]
+cols_to_carry = ["valid_time", "flag", "day_of_year_sin", 'day_of_year_cos']
 
 # edit dataframe
 df = df[df.columns.drop(list(df.filter(regex="day")))]
@@ -185,7 +219,7 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        keep_sample = self.dataframe.iloc[i]['flag']
+        keep_sample = self.dataframe.iloc[i]["flag"]
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
@@ -252,7 +286,7 @@ def train_model(data_loader, model, loss_function, optimizer):
     total_loss = 0
     model.train()
 
-    with tqdm(data_loader, unit = 'batch') as tepoch:
+    with tqdm(data_loader, unit="batch") as tepoch:
         for X, y, s in tepoch:
             X, y, s = remove_elements_from_batch(X, y, s)
             output = model(X)
@@ -276,7 +310,7 @@ def test_model(data_loader, model, loss_function):
 
     model.eval()
     with torch.no_grad():
-        with tqdm(data_loader, unit = 'batch') as tepoch:
+        with tqdm(data_loader, unit="batch") as tepoch:
             for X, y, s in tepoch:
                 X, y, s = remove_elements_from_batch(X, y, s)
                 output = model(X)
@@ -290,21 +324,27 @@ def test_model(data_loader, model, loss_function):
 
 
 def main(
-    new_df, batch_size, sequence_length, learning_rate, num_hidden_units, num_layers, forecast_lead, station
+    new_df,
+    batch_size,
+    sequence_length,
+    learning_rate,
+    num_hidden_units,
+    num_layers,
+    forecast_lead,
+    station,
 ):
-
     experiment = Experiment(
-    api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-    project_name="fh_2_hrrr",
-    workspace="shmaronshmevans",
+        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+        project_name="fh_2_hrrr",
+        workspace="shmaronshmevans",
     )
     # Report multiple hyperparameters using a dictionary:
     hyper_params = {
         "num_layers": num_layers,
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
-        "batch_size": batch_size, 
-        "num_hidden_units": num_hidden_units, 
+        "batch_size": batch_size,
+        "num_hidden_units": num_hidden_units,
         "forecast_lead": forecast_lead,
     }
 
@@ -340,7 +380,7 @@ def main(
     for c in cols_to_carry:
         df_train[c] = df[c]
         df_test[c] = df[c]
-    
+
     print("Training")
 
     torch.manual_seed(101)
@@ -364,11 +404,11 @@ def main(
     num_hidden_units = num_hidden_units
 
     model = ShallowRegressionLSTM(
-        num_sensors=len(features), hidden_units=num_hidden_units, num_layers = num_layers
+        num_sensors=len(features), hidden_units=num_hidden_units, num_layers=num_layers
     )
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    #early_stopper = EarlyStopper(patience=25, min_delta=0)
+    # early_stopper = EarlyStopper(patience=25, min_delta=0)
 
     print("Untrained test\n--------")
     test_model(test_loader, model, loss_function)
@@ -380,30 +420,39 @@ def main(
             train_loader, model, loss_function, optimizer=optimizer
         )
         val_loss = test_model(test_loader, model, loss_function)
-        experiment.log_parameters(hyper_params)
-        experiment.log_parameters('epoch', ix_epoch)
+        experiment.log_parameters(hyper_params, step=ix_epoch)
+        experiment.log_metric("epoch", ix_epoch)
         print()
         # if early_stopper.early_stop(val_loss):
         #     break
-    
-    title = f'{station}_loss_{val_loss}'
+
+    title = f"{station}_loss_{val_loss}"
     # evaluate model
-    eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title, new_df, target)
+    eval_model(
+        train_dataset,
+        df_train,
+        df_test,
+        test_loader,
+        model,
+        batch_size,
+        title,
+        new_df,
+        target,
+    )
 
     print("Successful Experiment")
-blac
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="exp_add_eod_climind_v1", epoch=ix_epoch)
+    log_model(experiment, model, model_name="exp_add_eod_climind_v1")
     experiment.end()
 
 
 main(
-        new_df,
-        batch_size=156,
-        sequence_length=143,
-        learning_rate=7e-4,
-        num_hidden_units=125,
-        num_layers=8,
-        forecast_lead = 21,
-        station = 'ADDI'
-    )
+    new_df,
+    batch_size=156,
+    sequence_length=143,
+    learning_rate=7e-4,
+    num_hidden_units=125,
+    num_layers=8,
+    forecast_lead=21,
+    station="ADDI",
+)
