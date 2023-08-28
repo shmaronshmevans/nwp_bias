@@ -30,7 +30,6 @@ warnings.filterwarnings("ignore")
 def col_drop(df):
     df = df.drop(
         columns=[
-            "day_of_year",
             "flag",
             "station",
             "latitude",
@@ -68,8 +67,6 @@ def col_drop(df):
             "wdir_sonic",
             "precip_total",
             "snow_depth",
-            "day_of_year_sin",
-            "day_of_year_cos",
             "11_nlcd",
             "21_nlcd",
             "22_nlcd",
@@ -154,9 +151,14 @@ def nwp_error(target, station, df):
     return df
 
 
-def encode(data, col, max_val):
+def encode(data, col, max_val, valid_times):
+    data["valid_time"] = valid_times
+    data = data[data.columns.drop(list(data.filter(regex="day")))]
+    data["day_of_year"] = data["valid_time"].dt.dayofyear
+    data = data.drop(columns=["valid_time", "day_of_year"])
     data[col + "_sin"] = np.sin(2 * np.pi * data[col] / max_val)
     data[col + "_cos"] = np.cos(2 * np.pi * data[col] / max_val)
+    data = data.drop(columns="day_of_year")
 
     return data
 
@@ -247,8 +249,9 @@ def normalize_df(df):
             the_df[k] = (the_df[k] - means) / stdevs
 
             the_df = the_df.fillna(0)
+            # |sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp
         if re.search(
-            "t2m|sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp",
+            "t2m",
             k,
         ):
             ind_val = the_df.columns.get_loc(k)
@@ -274,6 +277,57 @@ def normalize_df(df):
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="u_total")))]
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="mslp")))]
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="orog")))]
+
+    print("--- configuring data ---")
+    # needs valid_time
+    final_df = encode(final_df, "day_of_year", 366, valid_times)
+    final_df = nwp_error("t2m", "ADDI", final_df)
+    final_df = get_clim_indexes(final_df)
+    new_features = list(final_df.columns.difference(["target_error"]))
+    print("---normalize successful---")
+
+    return final_df, new_features
+
+
+def normalize_df_station(df):
+    print("init normalizer")
+    the_df = df.dropna()
+    for k, r in the_df.items():
+        if len(the_df[k].unique()) == 1:
+            org_str = str(k)
+            my_str = org_str[:-5]
+            vals = the_df.filter(regex=my_str)
+            vals = vals.loc[0].tolist()
+            means = st.mean(vals)
+            stdevs = st.pstdev(vals)
+            the_df[k] = (the_df[k] - means) / stdevs
+
+            the_df = the_df.fillna(0)
+        if not (len(the_df[k].unique()) == 1) and re.search("_ADDI", k):
+            ind_val = the_df.columns.get_loc(k)
+            x = the_df[k]
+            imf = emd.sift.sift(x)
+            the_df = the_df.drop(columns=k)
+            for i in range(imf.shape[1]):
+                imf_ls = imf[:, i].tolist()
+                # Inserting the column at the
+                # beginning in the DataFrame
+                my_loc = ind_val + i
+                the_df.insert(loc=(my_loc), column=f"{k}_imf_{i}", value=imf_ls)
+
+        else:
+            means = st.mean(the_df[k])
+            stdevs = st.pstdev(the_df[k])
+            the_df[k] = (the_df[k] - means) / stdevs
+
+    final_df = the_df.fillna(0)
+    print("!!! Dropping Columns !!!")
+    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="latitude")))]
+    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="longitude")))]
+    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="u_total")))]
+    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="mslp")))]
+    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="orog")))]
+
     new_features = list(final_df.columns.difference(["target_error"]))
     print("---normalize successful---")
     return final_df, new_features
@@ -292,7 +346,7 @@ def predict(data_loader, model):
 
 def plot_plotly(df_out, title):
     length = len(df_out)
-    pio.templates.default = "plotly_white"
+    pio.templates.default = "seaborn"
     plot_template = dict(
         layout=go.Layout(
             {"font_size": 18, "xaxis_title_font_size": 24, "yaxis_title_font_size": 24}
@@ -300,8 +354,13 @@ def plot_plotly(df_out, title):
     )
 
     fig = px.line(
-        df_out, labels=dict(created_at="Date", value="Forecast Error"), title=f"{title}"
+        df_out,
+        labels=dict(created_at="Date", value="Forecast Error"),
+        title=f"{title}",
+        width=1200,
+        height=400,
     )
+
     fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
     fig.add_annotation(
         xref="paper",
@@ -328,8 +387,11 @@ def plot_plotly(df_out, title):
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
         )
 
+    os.mkdir(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}/"
+    )
     fig.write_image(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}/{title}.png"
     )
 
 
@@ -343,7 +405,6 @@ def eval_model(
     title,
     target,
     new_df,
-    target,
 ):
     train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
@@ -363,45 +424,12 @@ def eval_model(
     plot_plotly(df_out, title)
 
     df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
-
     today = date.today()
     today_date = today.strftime("%Y%m%d")
 
-    if (
-        os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-        == False
-    ):
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-
     new_df.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}/{title}.parquet"
     )
-
-
-df = pd.read_parquet(
-    "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/met_geo_cats/cleaned_rough_lstm_geo_met_cat_orange.parquet"
-)
-df.dropna(inplace=True)
-
-print("Data Read!")
-# columns to reintigrate back into the df after model is done running
-cols_to_carry = ["valid_time", "flag"]
-
-# edit dataframe
-df = df[df.columns.drop(list(df.filter(regex="day")))]
-df["day_of_year"] = df["valid_time"].dt.dayofyear
-df = encode(df, "day_of_year", 366)
-df = nwp_error("t2m", "ADDI", df)
-df = get_clim_indexes(df)
-df = get_flag(df)
-new_df = col_drop(df)
-
-print("Data Processed")
-print("--init model LSTM--")
 
 
 # create LSTM Model
@@ -522,6 +550,26 @@ def test_model(data_loader, model, loss_function):
     return avg_loss
 
 
+# read in LSTM data
+df = pd.read_parquet(
+    "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/met_geo_cats/cleaned_rough_lstm_geo_met_cat_orange.parquet"
+)
+df.dropna(inplace=True)
+
+print("Data Read!")
+# columns to reintigrate back into the df after model is done running
+cols_to_carry = ["valid_time", "flag", "day_of_year_sin", "day_of_year_cos"]
+
+
+# configure data and add data
+df = get_flag(df)
+df = encode(df)
+new_df = col_drop(df)
+
+print("Data Processed")
+print("--init model LSTM--")
+
+
 def main(
     new_df,
     batch_size,
@@ -539,16 +587,27 @@ def main(
         project_name="fh_2_hrrr",
         workspace="shmaronshmevans",
     )
+    # Report multiple hyperparameters using a dictionary:
+    hyper_params = {
+        "num_layers": num_layers,
+        "learning_rate": learning_rate,
+        "sequence_length": sequence_length,
+        "batch_size": batch_size,
+        "num_hidden_units": num_hidden_units,
+        "forecast_lead": forecast_lead,
+    }
     # establish target
     target_sensor = "target_error"
 
+    # normalize data
+    print("--Normalizing Data--")
+    new_df, features = normalize_df_station(new_df)
+
+    # create forecast lag within data
     forecast_lead = forecast_lead
     target = f"{target_sensor}_lead_{forecast_lead}"
     new_df[target] = new_df[target_sensor].shift(-forecast_lead)
     new_df = new_df.iloc[:-forecast_lead]
-    print("--Normalizing Data--")
-
-    new_df, features = normalize_df(new_df)
 
     # create train and test set
     length = len(new_df)
@@ -556,11 +615,10 @@ def main(
     df_train = new_df.iloc[:test_len].copy()
     df_test = new_df.iloc[test_len:].copy()
     print("Test Set Fraction", len(df_test) / len(new_df))
-
     df_train = df_train.fillna(0)
     df_test = df_test.fillna(0)
 
-    # bring back columns
+    # bring back columns flag and valid_time
     for c in cols_to_carry:
         df_train[c] = df[c]
         df_test[c] = df[c]
@@ -598,17 +656,20 @@ def main(
     test_model(test_loader, model, loss_function)
     print()
 
-    for ix_epoch in range(3):
+    for ix_epoch in range(5):
         print(f"Epoch {ix_epoch}\n---------")
         train_loss = train_model(
             train_loader, model, loss_function, optimizer=optimizer
         )
         val_loss = test_model(test_loader, model, loss_function)
         print()
+        experiment.log_epoch_end(ix_epoch)
+        experiment.log_parameters(hyper_params, step=ix_epoch)
         if early_stopper.early_stop(val_loss):
             break
 
     title = f"{station}_loss_{val_loss}"
+
     # evaluate model
     eval_model(
         train_dataset,
@@ -620,24 +681,13 @@ def main(
         title,
         target,
         new_df,
-        target,
     )
-
-    # Report multiple hyperparameters using a dictionary:
-    hyper_params = {
-        "num_layers": num_layers,
-        "learning_rate": learning_rate,
-        "sequence_length": sequence_length,
-        "batch_size": batch_size,
-        "num_hidden_units": num_hidden_units,
-        "forecast_lead": forecast_lead,
-    }
-    experiment.log_parameters(hyper_params)
 
     print("Successful Experiment")
 
     # Seamlessly log your Pytorch model
     log_model(experiment, model, model_name="exp_07222023")
+
     experiment.end()
 
 
@@ -647,7 +697,7 @@ main(
     sequence_length=75,
     learning_rate=7e-4,
     num_hidden_units=175,
-    num_layers=1,
-    forecast_lead=476,
+    num_layers=8,
+    forecast_lead=24,
     station="ADDI",
 )

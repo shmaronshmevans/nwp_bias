@@ -39,7 +39,7 @@ def add_suffix(df, stations):
 
 
 def main():
-    path = "/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/met_geo_cats"
+    path = "/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/no_geo"
     directory = os.listdir(path)
 
     for n in directory:
@@ -60,7 +60,7 @@ def main():
             )
 
         master_df.to_parquet(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/met_geo_cats/cleaned_{n}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/no_geo/cleaned_{n}"
         )
 
 

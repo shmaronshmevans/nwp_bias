@@ -130,41 +130,6 @@ def plot_plotly(df_out, title):
     )
 
 
-def eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title):
-    train_eval_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-
-    ystar_col = "Model forecast"
-    df_train[ystar_col] = predict(train_eval_loader, model).numpy()
-    df_test[ystar_col] = predict(test_loader, model).numpy()
-
-    df_out = pd.concat((df_train, df_test))[[target, ystar_col]]
-
-    for c in df_out.columns:
-        df_out[c] = df_out[c] * target_stdev + target_mean
-
-    # visualize
-    plot_plotly(df_out, title)
-
-    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
-
-    today = date.today()
-    today_date = today.strftime("%Y%m%d")
-
-    if (
-        os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-        == False
-    ):
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-
-    df_out.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}.csv"
-    )
-
-
 df = pd.read_parquet(
     "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/met_geo_cats/cleaned_rough_lstm_geo_met_cat_orange.parquet"
 )
@@ -392,8 +357,6 @@ def main(
         #     break
 
     title = f"{station}_loss_{val_loss}"
-    # evaluate model
-    eval_model(train_dataset, df_train, df_test, test_loader, model, batch_size, title)
 
     # Report multiple hyperparameters using a dictionary:
     hyper_params = {

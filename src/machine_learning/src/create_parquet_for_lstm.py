@@ -108,15 +108,15 @@ def main():
         nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
 
         master_df = hrrr_df1.merge(nysm_df1, on="valid_time", suffixes=(None, "_nysm"))
-        master_df = add_tabular(master_df, nlcd_df, "nlcd")
-        master_df = add_tabular(master_df, aspect_df, "aspect")
-        master_df = add_tabular(master_df, elev_df, "elev")
+        # master_df = add_tabular(master_df, nlcd_df, "nlcd")
+        # master_df = add_tabular(master_df, aspect_df, "aspect")
+        # master_df = add_tabular(master_df, elev_df, "elev")
         master_df = master_df.drop_duplicates(
             subset=["valid_time", "station", "t2m"], keep="first"
         )
 
         master_df.to_parquet(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/rough_lstm_geo_met_cat_{category_name}.parquet"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/rough_parquets/no_geo/{category_name}.parquet"
         )
 
 
