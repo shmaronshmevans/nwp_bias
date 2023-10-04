@@ -302,7 +302,7 @@ def normalize_df(df, valid_times, mi_score_flag=False):
             the_df = the_df.fillna(0)
             # |sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp
         if re.search(
-            "t2m",
+            "t2m|u10|v10",
             k,
         ):
             ind_val = the_df.columns.get_loc(k)
@@ -544,21 +544,14 @@ df = pd.read_parquet(
 df.dropna(inplace=True)
 print("Data Read!")
 df = get_flag(df)
-df = nwp_error("t2m", "ADDI", df)
+df = nwp_error("t2m", "OLEA", df)
 new_df = df.copy()
 
 print("Data Processed")
 print("--init model LSTM--")
 
 
-def main(
-    new_df,
-    learning_rate,
-    num_hidden_units,
-    num_layers,
-    forecast_lead,
-    station,
-):
+def main(new_df, learning_rate, num_layers, forecast_lead, station, weight_decay):
     sequence_length = 150
     batch_size = 200
     valid_times = new_df["valid_time"].tolist()
@@ -607,20 +600,22 @@ def main(
     print("Target shape:", y.shape)
 
     learning_rate = learning_rate
-    num_hidden_units = num_hidden_units
+    num_hidden_units = len(features)
 
     model = ShallowRegressionLSTM(
         num_sensors=len(features), hidden_units=num_hidden_units, num_layers=num_layers
     )
     loss_function = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
     early_stopper = EarlyStopper(patience=25, min_delta=0)
 
     print("Untrained test\n--------")
     test_model(test_loader, model, loss_function)
     print()
 
-    for ix_epoch in range(200):
+    for ix_epoch in range(150):
         print(f"Epoch {ix_epoch}\n---------")
         train_loss = train_model(
             train_loader, model, loss_function, optimizer=optimizer
@@ -641,8 +636,8 @@ config = {
     "parameters": {
         "num_layers": {"type": "integer", "min": 1, "max": 15},
         "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-3},
-        "num_hidden_units": {"type": "integer", "min": 1, "max": 1000},
         "forecast_lead": {"type": "integer", "min": 1, "max": 1000},
+        "weight_decay": {"type": "float", "min": 5e-20, "max": 1e-3},
     },
     # Declare what to optimize, and how:
     "spec": {
@@ -660,10 +655,10 @@ for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-ls
     loss = main(
         new_df,
         learning_rate=experiment.get_parameter("learning_rate"),
-        num_hidden_units=experiment.get_parameter("num_hidden_units"),
         num_layers=experiment.get_parameter("num_layers"),
         forecast_lead=experiment.get_parameter("forecast_lead"),
-        station="ADDI",
+        station="OLEA",
+        weight_decay=experiment.get_parameter("weight_decay"),
     )
 
     experiment.log_metric("loss", loss)

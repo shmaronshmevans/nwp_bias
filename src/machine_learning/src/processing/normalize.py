@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import numpy as np
 import pandas as pd
 import os
@@ -47,42 +48,6 @@ def col_drop(df):
             "wdir_sonic",
             "precip_total",
             "snow_depth",
-            # "day_of_year",
-            # "day_of_year_sin",
-            # "day_of_year_cos",
-            # "11_nlcd",
-            # "21_nlcd",
-            # "22_nlcd",
-            # "23_nlcd",
-            # "24_nlcd",
-            # "31_nlcd",
-            # "41_nlcd",
-            # "42_nlcd",
-            # "43_nlcd",
-            # "52_nlcd",
-            # "71_nlcd",
-            # "81_nlcd",
-            # "82_nlcd",
-            # "90_nlcd",
-            # "95_nlcd",
-            # "19_aspect",
-            # "21_aspect",
-            # "24_aspect",
-            # "27_aspect",
-            # "28_aspect",
-            # "22_aspect",
-            # "23_aspect",
-            # "25_aspect",
-            # "26_aspect",
-            # "31_aspect",
-            # "33_aspect",
-            # "32_aspect",
-            # "34_aspect",
-            # "38_aspect",
-            # "std_elev",
-            # "variance_elev",
-            # "skew_elev",
-            # "med_dist_elev",
         ]
     )
     df = df[df.columns.drop(list(df.filter(regex="time")))]
@@ -187,7 +152,7 @@ def encode(data, col, max_val, valid_times):
     return data
 
 
-def normalize_df(df, valid_times, mi_score_flag=False):
+def normalize_df(df, valid_times):
     print("init normalizer")
     df = col_drop(df)
     the_df = df.dropna()
@@ -204,7 +169,7 @@ def normalize_df(df, valid_times, mi_score_flag=False):
             the_df = the_df.fillna(0)
             # |sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp
         if re.search(
-            "placeholder",
+            "t2m|u10|v10",
             k,
         ):
             ind_val = the_df.columns.get_loc(k)
@@ -233,13 +198,9 @@ def normalize_df(df, valid_times, mi_score_flag=False):
 
     print("--- configuring data ---")
     final_df = encode(final_df, "day_of_year", 366, valid_times)
-    # final_df = get_clim_indexes(final_df, valid_times)
+    final_df = get_clim_indexes(final_df, valid_times)
     og_features = list(final_df.columns.difference(["target_error"]))
     new_features = og_features
-
-    if mi_score_flag == True:
-        print("---mi feature selection init---")
-        new_features = get_mi_scores(final_df, "target_error", og_features)
 
     print("---normalize successful---")
 

@@ -16,6 +16,7 @@ from torch import nn
 import os
 import datetime as dt
 from datetime import date
+from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -283,7 +284,7 @@ def get_clim_indexes(df, valid_times):
     return df
 
 
-def normalize_df(df, valid_times, mi_score_flag=True):
+def normalize_df(df, valid_times, mi_score_flag=False):
     print("init normalizer")
     df = col_drop(df)
     the_df = df.dropna()
@@ -383,7 +384,7 @@ def plot_plotly(df_out, title):
         template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
     )
 
-    today = dt.now()
+    today = datetime.now()
     today_date = today.strftime("%Y%m%d")
     today_date_hr = today.strftime("%Y%m%d_%H:%M:%S")
 
@@ -435,7 +436,7 @@ def eval_model(
     plot_plotly(df_out, title)
 
     df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
-    today = dt.now()
+    today = datetime.now()
     today_date = today.strftime("%Y%m%d")
     today_date_hr = today.strftime("%Y%m%d_%H:%M:%S")
 
@@ -660,6 +661,9 @@ def main(
         df_train[c] = df[c]
         df_test[c] = df[c]
 
+    print("Train Keys")
+    for k in df_train.keys():
+        print(k)
     print("Training")
 
     torch.manual_seed(101)
@@ -693,7 +697,7 @@ def main(
     test_model(test_loader, model, loss_function)
     print()
 
-    for ix_epoch in range(200):
+    for ix_epoch in range(5):
         print(f"Epoch {ix_epoch}\n---------")
         train_loss = train_model(
             train_loader, model, loss_function, optimizer=optimizer
