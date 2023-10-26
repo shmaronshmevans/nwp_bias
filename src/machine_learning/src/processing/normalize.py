@@ -8,7 +8,7 @@ import statistics as st
 from dateutil.parser import parse
 
 
-def col_drop(df):
+def col_drop(df, fl):
     df = df.drop(
         columns=[
             "flag",
@@ -50,20 +50,28 @@ def col_drop(df):
             "snow_depth",
         ]
     )
+
+    for k, r in df.items():
+        if re.search(
+            "tair|ta9m|td|relh|srad|pres|wspd|wmax|wdir|precip_total|snow_depth",
+            k,
+        ):
+            df[k] = df[k].shift(-fl)
     df = df[df.columns.drop(list(df.filter(regex="time")))]
     df = df[df.columns.drop(list(df.filter(regex="station")))]
-    df = df[df.columns.drop(list(df.filter(regex="tair")))]
-    df = df[df.columns.drop(list(df.filter(regex="ta9m")))]
-    df = df[df.columns.drop(list(df.filter(regex="td")))]
-    df = df[df.columns.drop(list(df.filter(regex="relh")))]
-    df = df[df.columns.drop(list(df.filter(regex="srad")))]
-    df = df[df.columns.drop(list(df.filter(regex="pres")))]
-    df = df[df.columns.drop(list(df.filter(regex="wspd")))]
-    df = df[df.columns.drop(list(df.filter(regex="wmax")))]
-    df = df[df.columns.drop(list(df.filter(regex="wdir")))]
-    df = df[df.columns.drop(list(df.filter(regex="precip_total")))]
-    df = df[df.columns.drop(list(df.filter(regex="snow_depth")))]
+    # df = df[df.columns.drop(list(df.filter(regex="tair")))]
+    # df = df[df.columns.drop(list(df.filter(regex="ta9m")))]
+    # df = df[df.columns.drop(list(df.filter(regex="td")))]
+    # df = df[df.columns.drop(list(df.filter(regex="relh")))]
+    # df = df[df.columns.drop(list(df.filter(regex="srad")))]
+    # df = df[df.columns.drop(list(df.filter(regex="pres")))]
+    # df = df[df.columns.drop(list(df.filter(regex="wspd")))]
+    # df = df[df.columns.drop(list(df.filter(regex="wmax")))]
+    # df = df[df.columns.drop(list(df.filter(regex="wdir")))]
+    # df = df[df.columns.drop(list(df.filter(regex="precip_total")))]
+    # df = df[df.columns.drop(list(df.filter(regex="snow_depth")))]
 
+    df = df.iloc[:-fl]
     return df
 
 
@@ -101,7 +109,7 @@ def get_clim_indexes(df, valid_times):
 
     clim_df_path = "/home/aevans/nwp_bias/src/correlation/data/indexes/"
     directory = os.listdir(clim_df_path)
-    df["valid_time"] = valid_times
+    df["valid_time"] = valid_times[5:]
 
     # Loop through each file in the specified directory
     for d in directory:
@@ -142,7 +150,7 @@ def get_clim_indexes(df, valid_times):
 
 
 def encode(data, col, max_val, valid_times):
-    data["valid_time"] = valid_times
+    data["valid_time"] = valid_times[5:]
     data = data[data.columns.drop(list(data.filter(regex="day")))]
     data["day_of_year"] = data["valid_time"].dt.dayofyear
     data[col + "_sin"] = np.sin(2 * np.pi * data[col] / max_val).astype(float)
@@ -152,22 +160,20 @@ def encode(data, col, max_val, valid_times):
     return data
 
 
-def normalize_df(df, valid_times):
+def normalize_df(df, valid_times, fl):
     print("init normalizer")
-    df = col_drop(df)
+    df = col_drop(df, fl)
     the_df = df.dropna()
     for k, r in the_df.items():
         if len(the_df[k].unique()) == 1:
-            org_str = str(k)
-            my_str = org_str[:-5]
-            vals = the_df.filter(regex=my_str)
-            vals = vals.loc[0].tolist()
-            means = st.mean(vals)
-            stdevs = st.pstdev(vals)
-            the_df[k] = (the_df[k] - means) / stdevs
-
+            # org_str = str(k)
+            # my_str = org_str[:-5]
+            # vals = the_df.filter(regex=my_str)
+            # vals = vals.loc[0].tolist()
+            # means = st.mean(vals)
+            # stdevs = st.pstdev(vals)
+            # the_df[k] = (the_df[k] - means) / stdevs
             the_df = the_df.fillna(0)
-            # |sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp
         if re.search(
             "t2m|u10|v10",
             k,
@@ -182,11 +188,13 @@ def normalize_df(df, valid_times):
                 # beginning in the DataFrame
                 my_loc = ind_val + i
                 the_df.insert(loc=(my_loc), column=f"{k}_imf_{i}", value=imf_ls)
-
         else:
-            means = st.mean(the_df[k])
-            stdevs = st.pstdev(the_df[k])
-            the_df[k] = (the_df[k] - means) / stdevs
+            continue
+
+    for k, r in the_df.items():
+        means = st.mean(the_df[k])
+        stdevs = st.pstdev(the_df[k])
+        the_df[k] = (the_df[k] - means) / stdevs
 
     final_df = the_df.fillna(0)
     print("!!! Dropping Columns !!!")

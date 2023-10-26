@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import pandas as pd
 import numpy as np
 from scipy.interpolate import griddata
@@ -54,13 +55,13 @@ def read_hrrr_data(year):
 def load_nysm_data(year):
     # these parquet files are created by running "get_resampled_nysm_data.ipynb"
     nysm_path = "/home/aevans/nwp_bias/data/nysm/"
-
     nysm_1H = []
     df = pd.read_parquet(f"{nysm_path}nysm_1H_obs_{year}.parquet")
     df.reset_index(inplace=True)
     nysm_1H.append(df)
     nysm_1H_obs = pd.concat(nysm_1H)
-    nysm_1H_obs = nysm_1H_obs.dropna()
+    nysm_1H_obs["snow_depth"] = nysm_1H_obs["snow_depth"].fillna(0)
+    nysm_1H_obs.dropna(inplace=True)
     return nysm_1H_obs
 
 
@@ -199,7 +200,8 @@ def make_arrays(the_df, ob1, shp):
         "tp",
     ]
 
-    all_arrays = np.empty((7443, 5))
+    all_arrays = np.empty((7443, 15))
+    j = 0
     for v in vars_of_interest:
         print(v)
         cols = the_df.columns
@@ -248,9 +250,9 @@ def make_arrays(the_df, ob1, shp):
         gridinside = gpd.sjoin(gpd.GeoDataFrame(gdf), shp[["geometry"]], how="inner")
         gridinside.pivot(index="x", columns="y", values="z")
         gridinside = gridinside.drop(columns=["geometry", "index_right"])
-        arr1 = gridinside.to_numpy()
-        all_arrays = np.concatenate((all_arrays, arr1), axis=1)
-
+        arr1 = gridinside["z"].to_numpy()
+        all_arrays[:, j] = arr1
+        j += 1
     return all_arrays
 
 

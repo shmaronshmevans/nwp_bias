@@ -1,3 +1,13 @@
+# switchboard
+import sys
+
+sys.path.append("..")
+from processing import col_drop
+from processing import get_flag
+from processing import encode
+from processing import normalize
+
+
 # -*- coding: utf-8 -*-
 from comet_ml import Experiment
 from comet_ml.integration.pytorch import log_model
@@ -25,163 +35,94 @@ import emd
 import statistics as st
 from dateutil.parser import parse
 import warnings
+import os
+import xarray as xr
+import glob
+import metpy.calc as mpcalc
+from metpy.units import units
+import multiprocessing as mp
 
 sys.path.append("..")
 
 
-def col_drop(df):
+def read_hrrr_data():
+    """
+    Reads and concatenates parquet files containing forecast and error data for HRRR weather models
+    for the years 2018 to 2022.
+
+    Returns:
+        pandas.DataFrame: of hrrr weather forecast information for each NYSM site.
+    """
+
+    years = ["2018", "2019", "2020", "2021", "2022"]
+    savedir = "/home/aevans/ai2es/processed_data/HRRR/ny/"
+
+    print(os.listdir(savedir))
+
+    # create empty lists to hold dataframes for each model
+    hrrr_fcast_and_error = []
+
+    # loop over years and read in parquet files for each model
+    for year in years:
+        for month in np.arange(1, 13):
+            str_month = str(month).zfill(2)
+            if (
+                os.path.exists(
+                    f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
+                )
+                == True
+            ):
+                hrrr_fcast_and_error.append(
+                    pd.read_parquet(
+                        f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
+                    )
+                )
+            else:
+                continue
+
+    # concatenate dataframes for each model
+    hrrr_fcast_and_error_df = pd.concat(hrrr_fcast_and_error)
+    hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.reset_index().dropna()
+
+    # return dataframes for each model
+    return hrrr_fcast_and_error_df
+
+
+def columns_drop(df):
     df = df.drop(
         columns=[
-            "day_of_year",
-            "flag",
-            "station",
-            "latitude",
-            "longitude",
-            "t2m",
-            "sh2",
-            "d2m",
-            "r2",
-            "u10",
-            "v10",
-            "tp",
-            "mslma",
-            "orog",
-            "tcc",
-            "asnow",
-            "cape",
-            "dswrf",
-            "dlwrf",
-            "gh",
-            "u_total",
-            "u_dir",
-            "new_tp",
-            "lat",
-            "lon",
-            "elev",
-            "tair",
-            "ta9m",
-            "td",
-            "relh",
-            "srad",
-            "pres",
-            "mslp",
-            "wspd_sonic",
-            "wmax_sonic",
-            "wdir_sonic",
-            "precip_total",
-            "snow_depth",
-            "day_of_year",
-            "day_of_year_sin",
-            "day_of_year_cos",
-            "11_nlcd",
-            "21_nlcd",
-            "22_nlcd",
-            "23_nlcd",
-            "24_nlcd",
-            "31_nlcd",
-            "41_nlcd",
-            "42_nlcd",
-            "43_nlcd",
-            "52_nlcd",
-            "71_nlcd",
-            "81_nlcd",
-            "82_nlcd",
-            "90_nlcd",
-            "95_nlcd",
-            "19_aspect",
-            "21_aspect",
-            "24_aspect",
-            "27_aspect",
-            "28_aspect",
-            "22_aspect",
-            "23_aspect",
-            "25_aspect",
-            "26_aspect",
-            "31_aspect",
-            "33_aspect",
-            "32_aspect",
-            "34_aspect",
-            "38_aspect",
-            "std_elev",
-            "variance_elev",
-            "skew_elev",
-            "med_dist_elev",
+            "level_0",
+            "index",
+            "lead time",
+            "lsm",
+            "index_nysm",
+            "station_nysm",
         ]
     )
-    df = df[df.columns.drop(list(df.filter(regex="time")))]
-    df = df[df.columns.drop(list(df.filter(regex="station")))]
-    df = df[df.columns.drop(list(df.filter(regex="tair")))]
-    df = df[df.columns.drop(list(df.filter(regex="ta9m")))]
-    df = df[df.columns.drop(list(df.filter(regex="td")))]
-    df = df[df.columns.drop(list(df.filter(regex="relh")))]
-    df = df[df.columns.drop(list(df.filter(regex="srad")))]
-    df = df[df.columns.drop(list(df.filter(regex="pres")))]
-    df = df[df.columns.drop(list(df.filter(regex="wspd")))]
-    df = df[df.columns.drop(list(df.filter(regex="wmax")))]
-    df = df[df.columns.drop(list(df.filter(regex="wdir")))]
-    df = df[df.columns.drop(list(df.filter(regex="precip_total")))]
-    df = df[df.columns.drop(list(df.filter(regex="snow_depth")))]
-
     return df
 
 
-def get_flag(hrrr_df):
-    """
-    Create a flag column in the input DataFrame indicating consecutive hourly time intervals.
+def add_suffix(df, stations):
+    cols = ["valid_time", "time"]
+    df = df.rename(
+        columns={c: c + f"_{stations[0]}" for c in df.columns if c not in cols}
+    )
+    return df
 
-    This function takes a DataFrame containing weather data for different stations, with a 'station' column
-    representing the station ID and a 'valid_time' column containing timestamps of the weather data.
-    It calculates the time difference between consecutive timestamps for each station and marks it as 'True'
-    in a new 'flag' column if the difference is exactly one hour, indicating consecutive hourly time intervals.
-    Otherwise, it marks the 'flag' as 'False'.
 
-    Parameters:
-    hrrr_df (pandas.DataFrame): Input DataFrame containing weather data for different stations.
+def load_nysm_data():
+    # these parquet files are created by running "get_resampled_nysm_data.ipynb"
+    nysm_path = "/home/aevans/nwp_bias/data/nysm/"
 
-    Returns:
-    pandas.DataFrame: The input DataFrame with an additional 'flag' column indicating consecutive hourly time intervals.
-
-    Example:
-      station           valid_time   flag
-    0        1 2023-08-01 00:00:00   True
-    1        1 2023-08-01 01:00:00   False
-    2        1 2023-08-01 03:00:00   False
-    3        2 2023-08-01 08:00:00   True
-    4        2 2023-08-01 09:00:00   False
-    5        2 2023-08-01 11:00:00   True
-    """
-
-    # Get unique station IDs
-    stations_ls = hrrr_df["station"].unique()
-
-    # Define a time interval of one hour
-    one_hour = dt.timedelta(hours=1)
-
-    # Initialize a list to store flags for each time interval
-    flag_ls = []
-
-    # Loop through each station and calculate flags for consecutive hourly time intervals
-    for station in stations_ls:
-        # Filter DataFrame for the current station
-        df = hrrr_df[hrrr_df["station"] == station]
-
-        # Get the list of valid_time timestamps for the current station
-        time_ls = df["valid_time"].tolist()
-
-        # Compare each timestamp with the next one to determine consecutive intervals
-        for now, then in zip(time_ls, time_ls[1:]):
-            if now + one_hour == then:
-                flag_ls.append(True)
-            else:
-                flag_ls.append(False)
-
-    # Append an extra True to indicate the last time interval (since it has no next timestamp for comparison)
-    flag_ls.append(True)
-
-    # Add the 'flag' column to the DataFrame
-    hrrr_df["flag"] = flag_ls
-
-    return hrrr_df
+    nysm_1H = []
+    for year in np.arange(2018, 2023):
+        df = pd.read_parquet(f"{nysm_path}nysm_1H_obs_{year}.parquet")
+        df.reset_index(inplace=True)
+        nysm_1H.append(df)
+    nysm_1H_obs = pd.concat(nysm_1H)
+    nysm_1H_obs["snow_depth"] = nysm_1H_obs["snow_depth"].fillna(-999)
+    nysm_1H_obs.dropna(inplace=True)
+    return nysm_1H_obs
 
 
 def remove_elements_from_batch(X, y, s):
@@ -196,151 +137,10 @@ def nwp_error(target, station, df):
     }
     nysm_var = vars_dict.get(target)
 
+    df = df[df[target] > -999]
+
     df["target_error"] = df[f"{target}_{station}"] - df[f"{nysm_var}_{station}"]
     return df
-
-
-def encode(data, col, max_val, valid_times):
-    data["valid_time"] = valid_times
-    data = data[data.columns.drop(list(data.filter(regex="day")))]
-    data["day_of_year"] = data["valid_time"].dt.dayofyear
-    data[col + "_sin"] = np.sin(2 * np.pi * data[col] / max_val).astype(float)
-    data[col + "_cos"] = np.cos(2 * np.pi * data[col] / max_val)
-    data = data.drop(columns=["valid_time", "day_of_year"]).astype(float)
-
-    return data
-
-
-def format_climate_df(data_path):
-    """
-    Formats a climate data file located at the specified `data_path` into a pandas DataFrame.
-
-    Args:
-        data_path (str): The file path for the climate data file.
-
-    Returns:
-        pandas.DataFrame: A DataFrame containing the climate data, with the first column renamed to "year".
-    """
-    raw_index = np.loadtxt(f"{data_path}")
-    cl_index = pd.DataFrame(raw_index)
-    cl_index = cl_index.rename(columns={0: "year"})
-    return cl_index
-
-
-def get_clim_indexes(df, valid_times):
-    """
-    Fetch climate indexes data and add corresponding index values to the input DataFrame.
-
-    This function takes a DataFrame (`df`) containing weather data with a 'valid_time' column representing
-    timestamps. It reads climate indexes data from text files in the specified directory and extracts index
-    values corresponding to the month and year of each timestamp in the DataFrame. The extracted index values
-    are then added to the DataFrame with new columns named after each index.
-
-    Parameters:
-    df (pandas.DataFrame): Input DataFrame containing weather data with a 'valid_time' column.
-
-    Returns:
-    pandas.DataFrame: The input DataFrame with additional columns for each climate index containing their values.
-    """
-
-    clim_df_path = "/home/aevans/nwp_bias/src/correlation/data/indexes/"
-    directory = os.listdir(clim_df_path)
-    df["valid_time"] = valid_times
-
-    # Loop through each file in the specified directory
-    for d in directory:
-        if d.endswith(".txt"):
-            # Read the climate index data from the file and format it into a DataFrame
-            clim_df = format_climate_df(f"{clim_df_path}{d}")
-            index_name = d.split(".")[0]
-
-            clim_ind_ls = []
-            for t, _ in enumerate(df["valid_time"]):
-                time_obj = df["valid_time"].iloc[t]
-                dt_object = parse(str(time_obj))
-                year = dt_object.strftime("%Y")
-                month = dt_object.strftime("%m")
-                # Filter the climate DataFrame to get data for the specific year
-                df1 = clim_df.loc[clim_df["year"] == int(year)]
-                df1 = df1.drop(columns="year")
-                row_list = df1.values
-                keys = df1.keys()
-                key_vals = keys.tolist()
-
-                # Extract the index value corresponding to the month of the timestamp
-                the_list = []
-                for n, _ in enumerate(key_vals):
-                    val1 = key_vals[n]
-                    val2 = row_list[0, n]
-                    tup = (val1, val2)
-                    the_list.append(tup)
-                for k, r in the_list:
-                    if str(k).zfill(2) == month:
-                        clim_ind_ls.append(r)
-
-            # Add the climate index values as a new column in the DataFrame
-            df[index_name] = clim_ind_ls
-
-    df = df.drop(columns="valid_time")
-    return df
-
-
-def normalize_df(df, valid_times, mi_score_flag=False):
-    print("init normalizer")
-    df = col_drop(df)
-    the_df = df.dropna()
-    for k, r in the_df.items():
-        if len(the_df[k].unique()) == 1:
-            org_str = str(k)
-            my_str = org_str[:-5]
-            vals = the_df.filter(regex=my_str)
-            vals = vals.loc[0].tolist()
-            means = st.mean(vals)
-            stdevs = st.pstdev(vals)
-            the_df[k] = (the_df[k] - means) / stdevs
-
-            the_df = the_df.fillna(0)
-            # |sh2|d2m|r2|u10|v10|tp|mslma|tcc|asnow|cape|dswrf|dlwrf|gh|utotal|u_dir|new_tp
-        if re.search(
-            "t2m|u10|v10",
-            k,
-        ):
-            ind_val = the_df.columns.get_loc(k)
-            x = the_df[k]
-            imf = emd.sift.sift(x)
-            # the_df = the_df.drop(columns=k)
-            for i in range(imf.shape[1]):
-                imf_ls = imf[:, i].tolist()
-                # Inserting the column at the
-                # beginning in the DataFrame
-                my_loc = ind_val + i
-                the_df.insert(loc=(my_loc), column=f"{k}_imf_{i}", value=imf_ls)
-
-        else:
-            means = st.mean(the_df[k])
-            stdevs = st.pstdev(the_df[k])
-            the_df[k] = (the_df[k] - means) / stdevs
-
-    final_df = the_df.fillna(0)
-    print("!!! Dropping Columns !!!")
-    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="latitude")))]
-    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="longitude")))]
-    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="u_total")))]
-    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="mslp")))]
-    final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="orog")))]
-
-    print("--- configuring data ---")
-    final_df = encode(final_df, "day_of_year", 366, valid_times)
-    final_df = get_clim_indexes(final_df, valid_times)
-    og_features = list(final_df.columns.difference(["target_error"]))
-    new_features = og_features
-
-    print("---mi feature selection init---")
-    if mi_score_flag == True:
-        new_features = get_mi_scores(final_df, "target_error", og_features)
-
-    print("---normalize successful---")
-    return final_df, new_features
 
 
 def predict(data_loader, model):
@@ -352,57 +152,6 @@ def predict(data_loader, model):
             output = torch.cat((output, y_star), 0)
 
     return output
-
-
-def plot_plotly(df_out, title):
-    length = len(df_out)
-    pio.templates.default = "seaborn"
-    plot_template = dict(
-        layout=go.Layout(
-            {"font_size": 18, "xaxis_title_font_size": 24, "yaxis_title_font_size": 24}
-        )
-    )
-
-    fig = px.line(
-        df_out,
-        labels=dict(created_at="Date", value="Forecast Error"),
-        title=f"{title}",
-        width=1200,
-        height=400,
-    )
-
-    fig.add_vline(x=(length * 0.75), line_width=4, line_dash="dash")
-    fig.add_annotation(
-        xref="paper",
-        x=0.75,
-        yref="paper",
-        y=0.8,
-        text="Test set start",
-        showarrow=False,
-    )
-    fig.update_layout(
-        template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
-    )
-
-    today = date.today()
-    today_date = today.strftime("%Y%m%d")
-
-    if (
-        os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-        == False
-    ):
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
-        )
-
-    os.mkdir(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}/"
-    )
-    fig.write_image(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}/{title}.png"
-    )
 
 
 # create LSTM Model
@@ -523,62 +272,90 @@ def test_model(data_loader, model, loss_function):
     return avg_loss
 
 
-def get_mi_scores(df, target_error, old_features):
-    X = df.loc[:, df.columns != f"{target_error}"]
-    y = df[f"{target_error}"]
-    lab = preprocessing.LabelEncoder()
-    y_transformed = lab.fit_transform(y)
-    mi_score = MIC(X, y_transformed)
+print("-- loading data from nysm --")
+# read in hrrr and nysm data
+nysm_df = load_nysm_data()
+nysm_df.reset_index(inplace=True)
+print("-- loading data from hrrr --")
+hrrr_df = read_hrrr_data()
+nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
+mytimes = hrrr_df["valid_time"].tolist()
+nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
+nysm_df.to_csv("/home/aevans/nwp_bias/src/machine_learning/frankenstein/test.csv")
 
-    new_df = pd.DataFrame()
-    new_df["feature"] = old_features
-    new_df["mi_score"] = mi_score
-    sorted_df = new_df[new_df["mi_score"] > 0.3]
-    new_features = sorted_df["feature"].to_list()
-    return new_features
+# tabular data paths
+nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
 
+# tabular data dataframes
+print("-- adding geo data --")
+nysm_cats_df = pd.read_csv(nysm_cats_path)
 
-df = pd.read_parquet(
-    "/home/aevans/nwp_bias/src/machine_learning/data/clean_parquets/nysm_cats/cleaned_rough_lstm_nysmcat_Western Plateau.parquet"
+print("-- locating target data --")
+# partition out parquets by nysm climate division
+category = "Western Plateau"
+nysm_cats_df1 = nysm_cats_df[nysm_cats_df["climate_division_name"] == category]
+stations = nysm_cats_df1["stid"].tolist()
+# stations = ['RAND','OLEA', 'DELE']
+hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
+nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
+print("-- cleaning target data --")
+master_df = hrrr_df1.merge(nysm_df1, on="valid_time", suffixes=(None, "_nysm"))
+master_df = master_df.drop_duplicates(
+    subset=["valid_time", "station", "t2m"], keep="first"
 )
-df.dropna(inplace=True)
-print("Data Read!")
-df = get_flag(df)
-df = nwp_error("t2m", "OLEA", df)
-new_df = df.copy()
+print("-- finalizing dataframe --")
+df = columns_drop(master_df)
+stations = df["station"].unique()
+
+master_df = df[df["station"] == stations[0]]
+master_df = add_suffix(master_df, stations)
+
+for station in stations:
+    df1 = df[df["station"] == station]
+    master_df = master_df.merge(df1, on="valid_time", suffixes=(None, f"_{station}"))
+
+the_df = master_df.copy()
+
+the_df.dropna(inplace=True)
+print("getting flag and error")
+the_df = get_flag.get_flag(the_df)
+
+the_df = nwp_error("t2m", "OLEA", the_df)
+new_df = the_df.copy()
 
 print("Data Processed")
-print("--init model LSTM--")
+print("--init optimizer--")
 
 
-def main(new_df, learning_rate, num_layers, forecast_lead, station, weight_decay):
-    sequence_length = 150
-    batch_size = 200
+def main(new_df, learning_rate, num_layers, station, weight_decay, delta, the_df):
+    sequence_length = 250
+    batch_size = 15
+
     valid_times = new_df["valid_time"].tolist()
     # columns to reintigrate back into the df after model is done running
-    cols_to_carry = ["valid_time", "flag", "day_of_year_sin", "day_of_year_cos"]
+    cols_to_carry = ["valid_time", "flag"]
 
     # establish target
     target_sensor = "target_error"
-    new_df, features = normalize_df(new_df, valid_times)
-    forecast_lead = forecast_lead
+    lstm_df, features = normalize.normalize_df(new_df, valid_times)
+    forecast_lead = 5
     target = f"{target_sensor}_lead_{forecast_lead}"
-    new_df[target] = new_df[target_sensor].shift(-forecast_lead)
-    new_df = new_df.iloc[:-forecast_lead]
+    lstm_df[target] = lstm_df[target_sensor].shift(-forecast_lead)
+    lstm_df = lstm_df.iloc[:-forecast_lead]
 
     # create train and test set
-    length = len(new_df)
-    test_len = int(length * 0.75)
-    df_train = new_df.iloc[:test_len].copy()
-    df_test = new_df.iloc[test_len:].copy()
-    print("Test Set Fraction", len(df_test) / len(new_df))
+    length = len(lstm_df)
+    test_len = int(length * 0.2)
+    df_train = lstm_df.iloc[test_len:].copy()
+    df_test = lstm_df.iloc[:test_len].copy()
+    print("Test Set Fraction", len(df_test) / len(lstm_df))
     df_train = df_train.fillna(0)
     df_test = df_test.fillna(0)
 
     # bring back columns
     for c in cols_to_carry:
-        df_train[c] = df[c]
-        df_test[c] = df[c]
+        df_train[c] = the_df[c]
+        df_test[c] = the_df[c]
 
     print("Training")
 
@@ -605,7 +382,7 @@ def main(new_df, learning_rate, num_layers, forecast_lead, station, weight_decay
     model = ShallowRegressionLSTM(
         num_sensors=len(features), hidden_units=num_hidden_units, num_layers=num_layers
     )
-    loss_function = nn.MSELoss()
+    loss_function = nn.HuberLoss(delta=delta)
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
@@ -615,7 +392,7 @@ def main(new_df, learning_rate, num_layers, forecast_lead, station, weight_decay
     test_model(test_loader, model, loss_function)
     print()
 
-    for ix_epoch in range(150):
+    for ix_epoch in range(50):
         print(f"Epoch {ix_epoch}\n---------")
         train_loss = train_model(
             train_loader, model, loss_function, optimizer=optimizer
@@ -631,22 +408,24 @@ def main(new_df, learning_rate, num_layers, forecast_lead, station, weight_decay
 
 config = {
     # Pick the Bayes algorithm:
-    "algorithm": "bayes",
-    # Declare your hyperparameters:
-    "parameters": {
-        "num_layers": {"type": "integer", "min": 1, "max": 15},
-        "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-3},
-        "forecast_lead": {"type": "integer", "min": 1, "max": 1000},
-        "weight_decay": {"type": "float", "min": 5e-20, "max": 1e-3},
-    },
+    "algorithm": "grid",
     # Declare what to optimize, and how:
     "spec": {
         "metric": "loss",
         "objective": "minimize",
     },
+    # Declare your hyperparameters:
+    "parameters": {
+        "num_layers": {"type": "integer", "min": 1, "max": 5},
+        "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-3},
+        "weight_decay": {"type": "float", "min": 0, "max": 5e-5},
+        "delta": {"type": "float", "min": 0.0, "max": 5.0},
+    },
+    "trials": 30,
 }
 
 print("!!! begin optimizer !!!")
+
 opt = Optimizer(config)
 
 
@@ -656,9 +435,10 @@ for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-ls
         new_df,
         learning_rate=experiment.get_parameter("learning_rate"),
         num_layers=experiment.get_parameter("num_layers"),
-        forecast_lead=experiment.get_parameter("forecast_lead"),
         station="OLEA",
         weight_decay=experiment.get_parameter("weight_decay"),
+        delta=experiment.get_parameter("delta"),
+        the_df=the_df,
     )
 
     experiment.log_metric("loss", loss)
