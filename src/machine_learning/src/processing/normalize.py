@@ -91,7 +91,7 @@ def format_climate_df(data_path):
     return cl_index
 
 
-def get_clim_indexes(df, valid_times):
+def get_clim_indexes(df, valid_times, fl):
     """
     Fetch climate indexes data and add corresponding index values to the input DataFrame.
 
@@ -109,7 +109,7 @@ def get_clim_indexes(df, valid_times):
 
     clim_df_path = "/home/aevans/nwp_bias/src/correlation/data/indexes/"
     directory = os.listdir(clim_df_path)
-    df["valid_time"] = valid_times[5:]
+    df["valid_time"] = valid_times[fl:]
 
     # Loop through each file in the specified directory
     for d in directory:
@@ -149,8 +149,8 @@ def get_clim_indexes(df, valid_times):
     return df
 
 
-def encode(data, col, max_val, valid_times):
-    data["valid_time"] = valid_times[5:]
+def encode(data, col, max_val, valid_times, fl):
+    data["valid_time"] = valid_times[fl:]
     data = data[data.columns.drop(list(data.filter(regex="day")))]
     data["day_of_year"] = data["valid_time"].dt.dayofyear
     data[col + "_sin"] = np.sin(2 * np.pi * data[col] / max_val).astype(float)
@@ -205,8 +205,8 @@ def normalize_df(df, valid_times, fl):
     final_df = final_df[final_df.columns.drop(list(final_df.filter(regex="orog")))]
 
     print("--- configuring data ---")
-    final_df = encode(final_df, "day_of_year", 366, valid_times)
-    final_df = get_clim_indexes(final_df, valid_times)
+    final_df = encode(final_df, "day_of_year", 366, valid_times, fl)
+    final_df = get_clim_indexes(final_df, valid_times, fl)
     og_features = list(final_df.columns.difference(["target_error"]))
     new_features = og_features
 

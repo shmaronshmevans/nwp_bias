@@ -11,6 +11,7 @@ import os
 import re
 import datetime
 import multiprocessing
+import statistics as st
 
 
 def read_hrrr_data(year):
@@ -183,7 +184,6 @@ def create_data(year):
 
 def make_arrays(the_df, ob1, shp):
     vars_of_interest = [
-        "target_error",
         "t2m",
         "sh2",
         "d2m",
@@ -198,9 +198,18 @@ def make_arrays(the_df, ob1, shp):
         "dlwrf",
         "gh",
         "tp",
+        "tair",
+        "td",
+        "relh",
+        "srad", 
+        "mslp",
+        "wspd_sonic",
+        "wdir_sonic", 
+        "precip_total",
+        "snow_depth"
     ]
 
-    all_arrays = np.empty((7443, 15))
+    all_arrays = np.empty((7443, len(vars_of_interest)))
     j = 0
     for v in vars_of_interest:
         print(v)
@@ -278,8 +287,22 @@ def make_dirs(year, month):
         )
         print(f"compiling {month}")
 
+def get_err_label(the_df, nysm_df):
+    final_df = pd.DataFrame()
+    cl_groups = nysm_df['climate_division_name'].unique()
+    for c in cl_groups:
+        df1 = nysm_df[nysm_df['climate_division_name']==c]
+        errs = []
+        for k,r in the_df.items():
+            if re.search("target_error", k):
+                ind_val = the_df[k]
+                errs.append(ind_val)
+        mean_error = st.mean(errs)
+        final_df[c] = mean_error
+    return final_df
 
 def main_func(y):
+    label_df = pd.DataFrame()
     shapefile = "/home/aevans/nwp_bias/src/landtype/data/State.dbf"
     shp = gpd.read_file(shapefile)
     # Set the geometry column to lon-lat
@@ -288,8 +311,11 @@ def main_func(y):
     shp = shp.to_crs("EPSG:4326")
     print(y)
     the_df = create_data(y)
+    nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
+    nysm_cats_df = pd.read_csv(nysm_cats_path)
     for i, _ in enumerate(the_df["valid_time"]):
         ob1 = the_df.iloc[i]
+
         date_time = ob1[0].strftime("%m%d%Y_%H:%M:%S")
         year = ob1[0].strftime("%Y")
         month = ob1[0].strftime("%m")
@@ -309,6 +335,11 @@ def main_func(y):
                 all_arrays,
                 fmt="%.18e",
             )
+            label_df1 = get_err_label(ob1, nysm_cats_df)
+            label_df1['filepath'] = f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/{year}/{month}/{date_time}.txt"
+            label_df = pd.concat([label_df1, label_df])
+    
+    label_df.to_parquet('f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/error_labels.parquet')
 
 
 if __name__ == "__main__":
