@@ -334,13 +334,6 @@ def fsdp_main(rank, world_size, args):
     )
     setup(rank, world_size)
 
-    train_kwargs = {'batch_size': args.batch_size, 'shuffle':True}
-    test_kwargs = {'batch_size': args.batch_size, 'shuffle': False}
-    cuda_kwargs = {'num_workers': 2,
-                    'pin_memory': True,
-                    'shuffle': False}
-    train_kwargs.update(cuda_kwargs)
-    test_kwargs.update(cuda_kwargs)
     train_dataset = SequenceDataset(
         df_train,
         target=args.target,
@@ -356,12 +349,21 @@ def fsdp_main(rank, world_size, args):
         device=device,
     )
 
-
     sampler1 = DistributedSampler(train_dataset, rank=rank, num_replicas=world_size, shuffle=True)
     sampler2 = DistributedSampler(test_dataset, rank=rank, num_replicas=world_size)
 
+
+    train_kwargs = {'batch_size': args.batch_size, 'shuffle':True, 'sampler': sampler1}
+    test_kwargs = {'batch_size': args.batch_size, 'shuffle': False, 'sampler': sampler2}
+    cuda_kwargs = {'num_workers': 2,
+                    'pin_memory': True,
+                    'shuffle': False}
+    train_kwargs.update(cuda_kwargs)
+    test_kwargs.update(cuda_kwargs)
+
     train_loader = torch.utils.data.DataLoader(train_dataset,**train_kwargs)
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
+
     auto_wrap_policy = functools.partial(
         size_based_auto_wrap_policy, min_num_params=1_000
     )
