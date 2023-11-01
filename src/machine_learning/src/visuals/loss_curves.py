@@ -1,10 +1,10 @@
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import datetime as dt
 from datetime import date
 from datetime import datetime
-import os 
+import os
 
 
 def loss_curves(train_loss_ls, test_loss_ls, today_date, title, today_date_hr):

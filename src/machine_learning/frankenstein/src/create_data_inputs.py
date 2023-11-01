@@ -201,12 +201,12 @@ def make_arrays(the_df, ob1, shp):
         "tair",
         "td",
         "relh",
-        "srad", 
+        "srad",
         "mslp",
         "wspd_sonic",
-        "wdir_sonic", 
+        "wdir_sonic",
         "precip_total",
-        "snow_depth"
+        "snow_depth",
     ]
 
     all_arrays = np.empty((7443, len(vars_of_interest)))
@@ -287,19 +287,21 @@ def make_dirs(year, month):
         )
         print(f"compiling {month}")
 
+
 def get_err_label(the_df, nysm_df):
     final_df = pd.DataFrame()
-    cl_groups = nysm_df['climate_division_name'].unique()
+    cl_groups = nysm_df["climate_division_name"].unique()
     for c in cl_groups:
-        df1 = nysm_df[nysm_df['climate_division_name']==c]
+        df1 = nysm_df[nysm_df["climate_division_name"] == c]
         errs = []
-        for k,r in the_df.items():
+        for k, r in the_df.items():
             if re.search("target_error", k):
                 ind_val = the_df[k]
                 errs.append(ind_val)
         mean_error = st.mean(errs)
         final_df[c] = mean_error
     return final_df
+
 
 def main_func(y):
     label_df = pd.DataFrame()
@@ -336,10 +338,14 @@ def main_func(y):
                 fmt="%.18e",
             )
             label_df1 = get_err_label(ob1, nysm_cats_df)
-            label_df1['filepath'] = f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/{year}/{month}/{date_time}.txt"
+            label_df1[
+                "filepath"
+            ] = f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/{year}/{month}/{date_time}.txt"
             label_df = pd.concat([label_df1, label_df])
-    
-    label_df.to_parquet('f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/error_labels.parquet')
+
+    label_df.to_parquet(
+        'f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/error_labels.parquet'
+    )
 
 
 if __name__ == "__main__":

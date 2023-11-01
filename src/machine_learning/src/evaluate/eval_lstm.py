@@ -5,12 +5,13 @@ sys.path.append("..")
 import pandas as pd
 import os
 import torch
-import numpy as np 
+import numpy as np
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from visuals import ml_output
 import statistics as st
 from comet_ml import Experiment, Artifact
+
 
 def predict(data_loader, model, device):
     output = torch.tensor([]).to(device)
@@ -21,6 +22,7 @@ def predict(data_loader, model, device):
             y_star = model(X)
             output = torch.cat((output, y_star), 0)
     return output
+
 
 def eval_model(
     train_dataset,
