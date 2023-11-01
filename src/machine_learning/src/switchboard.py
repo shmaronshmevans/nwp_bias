@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target", type=str, default="target_error", help="target column name"
     )
-    parser.add_argument("--station", type=str, default="", help="station name")
+    parser.add_argument("--station", type=str, default="OLEA", help="station name")
     parser.add_argument(
         "--learning_rate", type=float, default=5e-3, help="learning rate"
     )
@@ -38,7 +38,6 @@ if __name__ == "__main__":
         "--seed", type=int, default=101, help="random seed (default: 101)"
     )
     parser.add_argument("--weight_decay", type=float, default=0, help="weight decay")
-    parser.add_argument("--station", type=str, default="OLEA", help="station to target")
     parser.add_argument(
         "--save-model",
         action="store_true",

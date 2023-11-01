@@ -32,8 +32,6 @@ from torch.distributed.fsdp.wrap import (
     wrap,
 )
 
-from tqdm import tqdm
-
 import pandas as pd
 import numpy as np
 
@@ -105,7 +103,6 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        keep_sample = self.dataframe.iloc[i]["flag"]
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
@@ -114,7 +111,7 @@ class SequenceDataset(Dataset):
             x = self.X[0 : (i + 1), :]
             x = torch.cat((padding, x), 0)
 
-        return x, self.y[i], keep_sample
+        return x, self.y[i]
 
 
 class EarlyStopper:
@@ -185,8 +182,7 @@ class ShallowRegressionLSTM(nn.Module):
         return out
 
 
-def create_data_for_model():
-    station = args.station
+def create_data_for_model(station):
     print(f"Targeting Error for {station}")
     print("-- loading data from nysm --")
     # read in hrrr and nysm data
@@ -281,22 +277,21 @@ def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epo
     ddp_loss = torch.zeros(2).to(int(os.environ["RANK"]) % torch.cuda.device_count())
     if sampler:
         sampler.set_epoch(epoch)
-    with tqdm(data_loader, unit="batch") as tepoch:
-        for X, y, s in tepoch:
-            X, y, s = remove_elements_from_batch(X, y, s)
-            X, y, s = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
-                int(os.environ["RANK"]) % torch.cuda.device_count()
-            )
-            output = model(X)
-            loss = loss_function(output, y)
+    for batch_idx, (X, y) in enumerate(data_loader):
+        # X, y = remove_elements_from_batch(X, y, s)
+        X, y = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
+            int(os.environ["RANK"]) % torch.cuda.device_count()
+        )
+        output = model(X)
+        loss = loss_function(output, y)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
 
-            total_loss += loss.item()
-            ddp_loss[0] += loss.item()
-            ddp_loss[1] += len(X)
+        total_loss += loss.item()
+        ddp_loss[0] += loss.item()
+        ddp_loss[1] += len(X)
 
     dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
 
@@ -314,16 +309,15 @@ def test_model(data_loader, model, loss_function, rank, world_size):
     model.eval()
     ddp_loss = torch.zeros(3).to(int(os.environ["RANK"]) % torch.cuda.device_count())
     with torch.no_grad():
-        with tqdm(data_loader, unit="batch") as tepoch:
-            for X, y, s in tepoch:
-                X, y, s = remove_elements_from_batch(X, y, s)
-                X, y, s = X.to(rank % torch.cuda.device_count()), y.to(
-                    rank % torch.cuda.device_count()
-                )
-                output = model(X)
-                total_loss += loss_function(output, y).item()
-                ddp_loss[0] += F.nll_loss(output, y, reduction="sum").item()
-                ddp_loss[2] += len(X)
+        for batch_idx, (X, y, s) in enumerate(data_loader):
+            # X, y, s = remove_elements_from_batch(X, y, s)
+            X, y = X.to(rank % torch.cuda.device_count()), y.to(
+                rank % torch.cuda.device_count()
+            )
+            output = model(X)
+            total_loss += loss_function(output, y).item()
+            ddp_loss[0] += F.nll_loss(output, y, reduction="sum").item()
+            ddp_loss[2] += len(X)
 
     # loss
     avg_loss = total_loss / num_batches
@@ -353,8 +347,9 @@ def fsdp_main(rank, world_size, args):
 
     print(" *********")
     print("::: In Main :::")
+    station = args.station
 
-    new_df, df_train, df_test, features = create_data_for_model()
+    new_df, df_train, df_test, features = create_data_for_model(station)
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
