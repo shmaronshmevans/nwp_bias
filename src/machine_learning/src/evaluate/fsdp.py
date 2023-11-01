@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Based on: https://github.com/pytorch/examples/blob/master/mnist/main.py
 import sys
 

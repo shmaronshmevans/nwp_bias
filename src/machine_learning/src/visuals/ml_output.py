@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import plotly.io as pio
 import plotly.express as px
 import plotly.graph_objects as go
