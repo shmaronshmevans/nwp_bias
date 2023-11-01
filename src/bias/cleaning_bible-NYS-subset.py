@@ -216,7 +216,11 @@ def read_data_in_one_file(fileList, model, prs):
     dict_opts = [
         {"typeOfLevel": "heightAboveGround", "level": 2},
         {"typeOfLevel": "heightAboveGround", "level": 10},
-        {"typeOfLevel": "surface", "stepType": "accum"},
+        {"stepType": "accum", "typeOfLevel": "surface"},
+        {"stepType": "instant", "typeOfLevel": "surface"},
+        {"typeOfLevel": "meanSea"},
+        {"typeOfLevel": "atmosphere"},
+        {"typeOfLevel": "isobaricInhPa", "level": 500},
     ]
 
     if model == "hrrr":
@@ -242,7 +246,75 @@ def read_data_in_one_file(fileList, model, prs):
                     )
                 ]
             ds = xr.merge(ds_save, compat="override")
-            ds = drop_variables(ds, ["unknown", "acpcp", "sdwe", "ssrun", "bgrun"])
+            print(list(ds.keys()))
+            ds = drop_variables(
+                ds,
+                [
+                    "unknown",
+                    "acpcp",
+                    "sdwe",
+                    "ssrun",
+                    "bgrun",
+                    "refc",
+                    "veril",
+                    "hail",
+                    "ltng",
+                    "tcoli",
+                    "frzr",
+                    "vis",
+                    "gust",
+                    "sp",
+                    "t",
+                    "cnwat",
+                    "snowc",
+                    "sde",
+                    "cpofp",
+                    "prate",
+                    "csnow",
+                    "cicep",
+                    "cfrzr",
+                    "crain",
+                    "sr",
+                    "fricv",
+                    "shtfl",
+                    "lhtfl",
+                    "veg",
+                    "lai",
+                    "gflux",
+                    "gppbfas",
+                    "cin",
+                    "uswrf",
+                    "ulwrf",
+                    "cfnsf",
+                    "vbdsf",
+                    "vddsf",
+                    "hpbl",
+                    "lsm",
+                    "siconc",
+                    "mslma",
+                    "tcolw",
+                    "maxrh",
+                    "minrh",
+                    "hindex",
+                    "fco2rec",
+                    "smdry",
+                    "poros",
+                    "cd",
+                    "slt",
+                    "rlyrs",
+                    "wilt",
+                    "smref",
+                    "al",
+                    "mslet",
+                    "r",
+                    "w",
+                    "wz",
+                    "u",
+                    "v",
+                    "absv",
+                    "tke",
+                ],
+            )
 
             return ds
 
@@ -257,7 +329,75 @@ def read_data_in_one_file(fileList, model, prs):
                 )
             ]
         ds = xr.merge(ds_save, compat="override")
-        ds = drop_variables(ds, ["unknown", "acpcp", "sdwe", "ssrun", "bgrun"])
+        ds = drop_variables(
+            ds,
+            [
+                "unknown",
+                "acpcp",
+                "sdwe",
+                "ssrun",
+                "bgrun",
+                "refc",
+                "veril",
+                "hail",
+                "ltng",
+                "tcoli",
+                "frzr",
+                "vis",
+                "gust",
+                "sp",
+                "t",
+                "cnwat",
+                "snowc",
+                "sde",
+                "cpofp",
+                "prate",
+                "csnow",
+                "cicep",
+                "cfrzr",
+                "crain",
+                "sr",
+                "fricv",
+                "shtfl",
+                "lhtfl",
+                "veg",
+                "lai",
+                "gflux",
+                "gppbfas",
+                "cin",
+                "uswrf",
+                "ulwrf",
+                "cfnsf",
+                "vbdsf",
+                "vddsf",
+                "hpbl",
+                "lsm",
+                "siconc",
+                "mslma",
+                "tcolw",
+                "maxrh",
+                "minrh",
+                "hindex",
+                "fco2rec",
+                "smdry",
+                "poros",
+                "cd",
+                "slt",
+                "rlyrs",
+                "wilt",
+                "smref",
+                "al",
+                "mslet",
+                "r",
+                "w",
+                "wz",
+                "u",
+                "v",
+                "absv",
+                "tke",
+            ],
+        )
+        print(list(ds.keys()))
 
         return ds
 
@@ -267,9 +407,11 @@ def read_data(fileList, model, prs):
     dict_opts = [
         {"typeOfLevel": "heightAboveGround", "level": 2},
         {"typeOfLevel": "heightAboveGround", "level": 10},
-        {"typeOfLevel": "surface", "stepType": "accum"},
+        {"stepType": "accum", "typeOfLevel": "surface"},
+        {"stepType": "instant", "typeOfLevel": "surface"},
         {"typeOfLevel": "meanSea"},
-        {"typeOfLevel": "surface", "cfVarName": "orog"},
+        {"typeOfLevel": "atmosphere"},
+        {"typeOfLevel": "isobaricInhPa", "level": 500},
     ]
 
     if model == "nam":
@@ -292,7 +434,75 @@ def read_data(fileList, model, prs):
             ds_opt_save += [ds_files]
 
         ds = xr.merge(ds_opt_save, compat="override")
-        ds = drop_variables(ds, ["unknown", "acpcp", "sdwe", "ssrun", "bgrun"])
+        ds = drop_variables(
+            ds,
+            [
+                "unknown",
+                "acpcp",
+                "sdwe",
+                "ssrun",
+                "bgrun",
+                "refc",
+                "veril",
+                "hail",
+                "ltng",
+                "tcoli",
+                "frzr",
+                "vis",
+                "gust",
+                "sp",
+                "t",
+                "cnwat",
+                "snowc",
+                "sde",
+                "cpofp",
+                "prate",
+                "csnow",
+                "cicep",
+                "cfrzr",
+                "crain",
+                "sr",
+                "fricv",
+                "shtfl",
+                "lhtfl",
+                "veg",
+                "lai",
+                "gflux",
+                "gppbfas",
+                "cin",
+                "uswrf",
+                "ulwrf",
+                "cfnsf",
+                "vbdsf",
+                "vddsf",
+                "hpbl",
+                "lsm",
+                "siconc",
+                "mslma",
+                "tcolw",
+                "maxrh",
+                "minrh",
+                "hindex",
+                "fco2rec",
+                "smdry",
+                "poros",
+                "cd",
+                "slt",
+                "rlyrs",
+                "wilt",
+                "smref",
+                "al",
+                "mslet",
+                "r",
+                "w",
+                "wz",
+                "u",
+                "v",
+                "absv",
+                "tke",
+            ],
+        )
+        print(list(ds.keys()))
 
         return ds
 
@@ -315,6 +525,7 @@ def read_data(fileList, model, prs):
         else:
             ds_save = []
             for opt in dict_opts:
+                print(opt)
                 ds_save += [
                     xr.open_mfdataset(
                         fileList,
@@ -327,7 +538,75 @@ def read_data(fileList, model, prs):
                     )
                 ]
             ds = xr.merge(ds_save, compat="override")
-            ds = drop_variables(ds, ["unknown", "acpcp", "sdwe", "ssrun", "bgrun"])
+            ds = drop_variables(
+                ds,
+                [
+                    "unknown",
+                    "acpcp",
+                    "sdwe",
+                    "ssrun",
+                    "bgrun",
+                    "refc",
+                    "veril",
+                    "hail",
+                    "ltng",
+                    "tcoli",
+                    "frzr",
+                    "vis",
+                    "gust",
+                    "sp",
+                    "t",
+                    "cnwat",
+                    "snowc",
+                    "sde",
+                    "cpofp",
+                    "prate",
+                    "csnow",
+                    "cicep",
+                    "cfrzr",
+                    "crain",
+                    "sr",
+                    "fricv",
+                    "shtfl",
+                    "lhtfl",
+                    "veg",
+                    "lai",
+                    "gflux",
+                    "gppbfas",
+                    "cin",
+                    "uswrf",
+                    "ulwrf",
+                    "cfnsf",
+                    "vbdsf",
+                    "vddsf",
+                    "hpbl",
+                    "lsm",
+                    "siconc",
+                    "mslma",
+                    "tcolw",
+                    "maxrh",
+                    "minrh",
+                    "hindex",
+                    "fco2rec",
+                    "smdry",
+                    "poros",
+                    "cd",
+                    "slt",
+                    "rlyrs",
+                    "wilt",
+                    "smref",
+                    "al",
+                    "mslet",
+                    "r",
+                    "w",
+                    "wz",
+                    "u",
+                    "v",
+                    "absv",
+                    "tke",
+                ],
+            )
+            print(list(ds.keys()))
 
             return ds
 
@@ -346,7 +625,75 @@ def read_data(fileList, model, prs):
                 )
             ]
         ds = xr.merge(ds_save, compat="override")
-        ds = drop_variables(ds, ["unknown", "acpcp", "sdwe", "ssrun", "bgrun"])
+        ds = drop_variables(
+            ds,
+            [
+                "unknown",
+                "acpcp",
+                "sdwe",
+                "ssrun",
+                "bgrun",
+                "refc",
+                "veril",
+                "hail",
+                "ltng",
+                "tcoli",
+                "frzr",
+                "vis",
+                "gust",
+                "sp",
+                "t",
+                "cnwat",
+                "snowc",
+                "sde",
+                "cpofp",
+                "prate",
+                "csnow",
+                "cicep",
+                "cfrzr",
+                "crain",
+                "sr",
+                "fricv",
+                "shtfl",
+                "lhtfl",
+                "veg",
+                "lai",
+                "gflux",
+                "gppbfas",
+                "cin",
+                "uswrf",
+                "ulwrf",
+                "cfnsf",
+                "vbdsf",
+                "vddsf",
+                "hpbl",
+                "lsm",
+                "siconc",
+                "mslma",
+                "tcolw",
+                "maxrh",
+                "minrh",
+                "hindex",
+                "fco2rec",
+                "smdry",
+                "poros",
+                "cd",
+                "slt",
+                "rlyrs",
+                "wilt",
+                "smref",
+                "al",
+                "mslet",
+                "r",
+                "w",
+                "wz",
+                "u",
+                "v",
+                "absv",
+                "tke",
+            ],
+        )
+        print(list(ds.keys()))
 
         return ds
 
@@ -491,11 +838,11 @@ def main(
     # input_path (str) - path to base location of data
     # output_path (str) - where to write new smaller clean files
     if combined_file:
-        input_path = "/home/aevans/ai2es/GFS/GFSv16_parallel"
-        output_path = "/home/aevans/ai2es/GFS/GFSv16_parallel/cleaned"
+        input_path = f"/home/aevans/ai2es/GFS/GFSv16_parallel/"
+        output_path = f"/home/aevans/ai2es/GFS/GFSv16_parallel/cleaned/"
     else:
         input_path = f"/home/aevans/ai2es/{model.upper()}/"
-        output_path = f"/home/aevans/ai2es/{model.upper()}/cleaned"
+        output_path = f"/home/aevans/ai2es/{model.upper()}/cleaned/"
     # choosing to start at first ~forecast~ time rather than ~init~ time because of variable list inconsistencies
     if model == "hrrr":
         fh = range(1, 19)  # forecast hours, second num exclusive
@@ -522,12 +869,12 @@ def main(
             # continue and move on if yes
             if (
                 os.path.exists(
-                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_wrfsfc_fhAll.parquet"
+                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_02.parquet"
                 )
                 == False
             ) and (
                 os.path.exists(
-                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_fhAll.parquet"
+                    f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}02.parquet"
                 )
                 == False
             ):
@@ -585,10 +932,12 @@ def main(
                     # create this directory if it doesn't already exist
                     Path(savepath).mkdir(parents=True, exist_ok=True)
                     if model == "hrrr":
+                        print("keys", df.keys())
                         df.to_parquet(
                             f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_wrfsfc_fhAll.parquet"
                         )
                     else:
+                        print("keys", df.keys())
                         df.to_parquet(
                             f"{savepath}{syear}{smonth}{sday}_{model}.t{init_time}z_fhAll.parquet"
                         )
@@ -600,63 +949,64 @@ def main(
                 continue
 
 
-# Multiprocessing v1
-# good if need specific months cleaned
+# # Multiprocessing v1
+# # good if need specific months cleaned
+# #  model, year, init_time, start_month, end_month,
 # if __name__ == '__main__':
-#  p1 = Process(target=main, args=('nam', 2018, '12', 12, 13))
-#      p2 = Process(target=main, args=('gfs', 2020, '12', 6, 13))
-#      p3 = Process(target=main, args=('gfs', 2020, '12', 7, 13))
-#      p4 = Process(target=main, args=('gfs', 2021, '12', 5, 13))
-#      p5 = Process(target=main, args=('nam', 2018, '00', 10, 13))
-#      p6 = Process(target=main, args=('gfs', 2021, '12', 10, 13))
-#      p7 = Process(target=main, args=('gfs', 2021, '12', 12, 13))
-#     #  p8 = Process(target=main, args=('nam', 2018, '12', 8, 13))
-#     #  p9 = Process(target=main, args=('nam', 2018, '12', 9, 13))
-#     #  p10 = Process(target=main, args=('nam', 2018, '12', 10, 13))
-#     #  p11 = Process(target=main, args=('nam', 2018, '12', 11, 13))
-#     #  p12 = Process(target=main, args=('nam', 2018, '12', 12, 13))
+#     p1 = Process(target=main, args=('gfs', 2022, '12', 1, 4))
+#     p2 = Process(target=main, args=('gfs', 2022, '12', 3, 7))
+#     p3 = Process(target=main, args=('gfs', 2022, '12', 6, 10))
+#     p4 = Process(target=main, args=('gfs', 2022, '12', 9, 13))
+#     p5 = Process(target=main, args=('nam', 2022, '12', 1, 4))
+#     p6 = Process(target=main, args=('nam', 2022, '12', 3, 7))
+#     p7 = Process(target=main, args=('nam', 2022, '12', 6, 10))
+#     p8 = Process(target=main, args=('nam', 2022, '12', 9, 13))
+#     p9 = Process(target=main, args=('hrrr', 2022, '12', 1, 4))
+#     p10 = Process(target=main, args=('hrrr', 2022, '12', 3, 7))
+#     p11 = Process(target=main, args=('hrrr', 2022, '12', 6, 10))
+#     p12 = Process(target=main, args=('hrrr', 2022, '12', 9, 13))
 
-#      p1.start()
-#      p2.start()
-#      p3.start()
-#     #  p4.start()
-#     #  p5.start()
-#     #  p6.start()
-#     #  p7.start()
-#     #  p8.start()
-#     #  p9.start()
-#     #  p10.start()
-#     #  p11.start()
-#     #  p12.start()
+#     p1.start()
+#     p2.start()
+#     p3.start()
+#     p4.start()
+#     p5.start()
+#     p6.start()
+#     p7.start()
+#     p8.start()
+#     p9.start()
+#     p10.start()
+#     p11.start()
+#     p12.start()
 
-#      p1.join()
-#      p2.join()
-#      p3.join()
-#     #  p4.join()
-#     #  p5.join()
-#     #  p6.join()
-#     #  p7.join()
-#     #  p8.join()
-#     #  p9.join()
-#     #  p10.join()
-#     #  p11.join()
-#     #  p12.join()
+#     p1.join()
+#     p2.join()
+#     p3.join()
+#     p4.join()
+#     p5.join()
+#     p6.join()
+#     p7.join()
+#     p8.join()
+#     p9.join()
+#     p10.join()
+#     p11.join()
+#     p12.join()
 
 
-# main()
+main()
 
 
 # multiprocessing v2
 # good for bulk cleaning
-ranger = np.arange(2018, 2022)
-models = ["nam"]
+ranger = np.arange(2022, 2024)
+models = ["hrrr"]
 
 for model in models:
     # Step 1: Init multiprocessing.Pool()
     pool = mp.Pool(mp.cpu_count())
 
     # Step 2: `pool.apply` the `howmany_within_range()`
-    results = [pool.apply(main, args=(model, year, "12", 10, 13)) for year in ranger]
+    results = [pool.apply(main, args=(model, year, "12", 1, 10)) for year in ranger]
 
     # Step 3: Don't forget to close
     pool.close()
