@@ -304,7 +304,6 @@ def get_err_label(the_df, nysm_df):
 
 
 def main_func(y):
-    label_df = pd.DataFrame()
     shapefile = "/home/aevans/nwp_bias/src/landtype/data/State.dbf"
     shp = gpd.read_file(shapefile)
     # Set the geometry column to lon-lat
@@ -337,15 +336,6 @@ def main_func(y):
                 all_arrays,
                 fmt="%.18e",
             )
-            label_df1 = get_err_label(ob1, nysm_cats_df)
-            label_df1[
-                "filepath"
-            ] = f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/{year}/{month}/{date_time}.txt"
-            label_df = pd.concat([label_df1, label_df])
-
-    label_df.to_parquet(
-        'f"/home/aevans/nwp_bias/src/machine_learning/frankenstein/data/error_dt/error_labels.parquet'
-    )
 
 
 if __name__ == "__main__":

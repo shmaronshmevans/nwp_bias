@@ -41,6 +41,8 @@ from processing import encode
 from processing import normalize
 from processing import get_error
 
+from evaluate import eval_single_gpu
+
 from data import hrrr_data
 from data import nysm_data
 
@@ -50,18 +52,17 @@ from datetime import datetime
 import statistics as st
 
 
-def setup(rank, world_size):
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def cleanup():
-    dist.destroy_process_group()
-
-
 # create LSTM Model
 class SequenceDataset(Dataset):
     def __init__(
-        self, dataframe, target, features, stations, sequence_length, forecast_hr
+        self,
+        dataframe,
+        target,
+        features,
+        stations,
+        sequence_length,
+        forecast_hr,
+        device,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -69,16 +70,9 @@ class SequenceDataset(Dataset):
         self.sequence_length = sequence_length
         self.stations = stations
         self.forecast_hr = forecast_hr
-        self.y = (
-            torch.tensor(dataframe[target].values)
-            .float()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
-        )
-        self.X = (
-            torch.tensor(dataframe[features].values)
-            .float()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
-        )
+        self.device = device
+        self.y = torch.tensor(dataframe[target].values).float().to(device)
+        self.X = torch.tensor(dataframe[features].values).float().to(device)
 
     def __len__(self):
         return self.X.shape[0]
@@ -87,8 +81,6 @@ class SequenceDataset(Dataset):
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
-            # zero out NYSM vars from before present
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -146,6 +138,7 @@ class ShallowRegressionLSTM(nn.Module):
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
+        self.device = device
 
         self.lstm = nn.LSTM(
             input_size=num_sensors,
@@ -153,22 +146,20 @@ class ShallowRegressionLSTM(nn.Module):
             batch_first=True,
             num_layers=self.num_layers,
         )
-        self.linear = nn.Linear(
-            in_features=self.hidden_units, out_features=1, bias=False
-        )
+        self.linear = nn.Linear(in_features=self.hidden_units, out_features=1)
 
     def forward(self, x):
-        x.to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        x.to(self.device)
         batch_size = x.shape[0]
         h0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         c0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         _, (hn, _) = self.lstm(x, (h0, c0))
         out = self.linear(
@@ -363,20 +354,14 @@ def create_data_for_model(station):
     return df_train, df_test, features, forecast_lead, stations, target
 
 
-def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epoch):
+def train_model(data_loader, model, loss_function, optimizer, device, epoch):
     num_batches = len(data_loader)
     total_loss = 0
     model.train()
-    ddp_loss = torch.zeros(2).to(int(os.environ["RANK"]) % torch.cuda.device_count())
-
-    if sampler:
-        sampler.set_epoch(epoch)
 
     for batch_idx, (X, y) in enumerate(data_loader):
         # Move data and labels to the appropriate device (GPU/CPU).
-        X, y = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
-            int(os.environ["RANK"]) % torch.cuda.device_count()
-        )
+        X, y = X.to(device), y.to(device)
 
         # Forward pass and loss computation.
         output = model(X)
@@ -389,24 +374,15 @@ def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epo
 
         # Track the total loss and the number of processed samples.
         total_loss += loss.item()
-        ddp_loss[0] += loss.item()
-        ddp_loss[1] += len(X)
-
-    # Synchronize and aggregate losses in distributed training.
-    dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
 
     # Compute the average loss for the current epoch.
     avg_loss = total_loss / num_batches
-
-    # Print the average loss on the master process (rank 0).
-    if rank == 0:
-        train_loss = ddp_loss[0] / ddp_loss[1]
-        print("Train Epoch: {} \tLoss: {:.6f}".format(epoch, train_loss))
+    print("epoch", epoch, "train_loss:", avg_loss)
 
     return avg_loss
 
 
-def test_model(data_loader, model, loss_function, rank):
+def test_model(data_loader, model, loss_function, device, epoch):
     # Test a deep learning model on a given dataset and compute the test loss.
 
     num_batches = len(data_loader)
@@ -415,15 +391,10 @@ def test_model(data_loader, model, loss_function, rank):
     # Set the model in evaluation mode (no gradient computation).
     model.eval()
 
-    # Initialize an array to store loss values.
-    ddp_loss = torch.zeros(3).to(int(os.environ["RANK"]) % torch.cuda.device_count())
-
     with torch.no_grad():
         for batch_idx, (X, y) in enumerate(data_loader):
             # Move data and labels to the appropriate device (GPU/CPU).
-            X, y = X.to(rank % torch.cuda.device_count()), y.to(
-                rank % torch.cuda.device_count()
-            )
+            X, y = X.to(device), y.to(device)
 
             # Forward pass to obtain model predictions.
             output = model(X)
@@ -431,36 +402,35 @@ def test_model(data_loader, model, loss_function, rank):
             # Compute loss and add it to the total loss.
             total_loss += loss_function(output, y).item()
 
-            # Update aggregated loss values.
-            ddp_loss[0] += total_loss
-            # ddp_loss[0] += total_loss
-            ddp_loss[2] += len(X)
-
-    # Calculate the average test loss.
-    avg_loss = total_loss / num_batches
-
-    # Synchronize and aggregate loss values in distributed testing.
-    dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
-
-    # Print the test loss on the master process (rank 0).
-    if rank == 0:
-        test_loss = ddp_loss[0] / ddp_loss[2]
-        print("Test set: Average loss: {:.4f}\n".format(avg_loss))
+        # Calculate the average test loss.
+        avg_loss = total_loss / num_batches
+        print("epoch", epoch, "test_loss:", avg_loss)
 
     return avg_loss
 
 
-def fsdp_main(rank, world_size, args):
+def main(
+    batch_size,
+    station,
+    num_layers,
+    epochs,
+    weight_decay,
+    sequence_length=120,
+    target="target_error",
+    learning_rate=5e-3,
+    save_model=True,
+):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
-    device = rank % torch.cuda.device_count()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     torch.cuda.set_device(device)
     print(device)
+    torch.manual_seed(101)
 
     print(" *********")
     print("::: In Main :::")
-    station = args.station
+    station = station
 
     (
         df_train,
@@ -471,56 +441,36 @@ def fsdp_main(rank, world_size, args):
         target,
     ) = create_data_for_model(station)
 
-    if rank == 0:
-        experiment = Experiment(
-            api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-            project_name="v5",
-            workspace="shmaronshmevans",
-        )
-
-    setup(rank, world_size)
-    print("We Are Setup for FSDP")
+    experiment = Experiment(
+        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+        project_name="v5",
+        workspace="shmaronshmevans",
+    )
     train_dataset = SequenceDataset(
         df_train,
         target=target,
         features=features,
         stations=stations,
-        sequence_length=args.sequence_length,
+        sequence_length=sequence_length,
         forecast_hr=2,
+        device=device,
     )
     test_dataset = SequenceDataset(
         df_test,
         target=target,
         features=features,
         stations=stations,
-        sequence_length=args.sequence_length,
+        sequence_length=sequence_length,
         forecast_hr=2,
+        device=device,
     )
 
-    sampler1 = DistributedSampler(
-        train_dataset, rank=rank, num_replicas=world_size, shuffle=True
-    )
-    sampler2 = DistributedSampler(test_dataset, rank=rank, num_replicas=world_size)
-
-    train_kwargs = {
-        "batch_size": args.batch_size,
-        "sampler": sampler1,
-        "pin_memory": False,
-    }
-    test_kwargs = {
-        "batch_size": args.batch_size,
-        "sampler": sampler2,
-        "pin_memory": False,
-    }
+    train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
+    test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
 
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
-
-    auto_wrap_policy = functools.partial(
-        size_based_auto_wrap_policy, min_num_params=1_000
-    )
-    torch.cuda.set_device(rank)
 
     init_start_event = torch.cuda.Event(enable_timing=True)
     init_end_event = torch.cuda.Event(enable_timing=True)
@@ -531,93 +481,87 @@ def fsdp_main(rank, world_size, args):
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
-        num_layers=args.num_layers,
+        num_layers=num_layers,
         device=device,
-    ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
-
-    model = FSDP(
-        model,
-        auto_wrap_policy=auto_wrap_policy,
-        mixed_precision=torch.distributed.fsdp.MixedPrecision(
-            param_dtype=torch.float32,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float32,
-            cast_forward_inputs=True,
-        ),
-    )
+    ).to(device)
 
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     # loss_function = nn.MSELoss()
     loss_function = nn.HuberLoss(delta=1.5)
 
     hyper_params = {
-        "num_layers": args.num_layers,
-        "learning_rate": args.learning_rate,
-        "sequence_length": args.sequence_length,
+        "num_layers": num_layers,
+        "learning_rate": learning_rate,
+        "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
         "forecast_lead": forecast_lead,
-        "batch_size": args.batch_size,
-        "station": args.station,
-        "regularization": args.weight_decay,
+        "batch_size": batch_size,
+        "station": station,
+        "regularization": weight_decay,
     }
-    print("--- FSDP Engaged ---")
-    scheduler = StepLR(optimizer, step_size=1)
+    print("--- Training LSTM ---")
+
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
-    for ix_epoch in range(1, args.epochs + 1):
+    for ix_epoch in range(1, epochs + 1):
         train_loss = train_model(
-            train_loader, model, loss_function, optimizer, rank, sampler1, ix_epoch
+            train_loader, model, loss_function, optimizer, device, ix_epoch
         )
 
-        test_loss = test_model(test_loader, model, loss_function, rank)
-        scheduler.step()
+        test_loss = test_model(test_loader, model, loss_function, device, ix_epoch)
+        print(" ")
         train_loss_ls.append(train_loss)
         test_loss_ls.append(test_loss)
-        if rank == 0:
-            # log info for comet and loss curves
-            experiment.set_epoch(ix_epoch)
-            experiment.log_metric("test_loss", test_loss)
-            experiment.log_metric("train_loss", train_loss)
-            experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        # log info for comet and loss curves
+        experiment.set_epoch(ix_epoch)
+        experiment.log_metric("test_loss", test_loss)
+        experiment.log_metric("train_loss", train_loss)
+        experiment.log_metrics(hyper_params, epoch=ix_epoch)
 
     init_end_event.record()
-    torch.cuda.synchronize()
-    if rank == 0:
-        print(
-            f"CUDA event elapsed time: {init_start_event.elapsed_time(init_end_event) / 1000}sec"
-        )
-        print(f"{model}")
 
-    if args.save_model:
-        # use a barrier to make sure training is done on all ranks
-        dist.barrier()
+    if save_model == True:
         # datetime object containing current date and time
         now = datetime.now()
         print("now =", now)
         # dd/mm/YY H:M:S
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
-
-        if rank == 0:
-            title, today_date, today_date_hr = get_time_title(
-                args.station, min(test_loss_ls)
-            )
-            torch.save(
-                states,
-                f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}.pth",
-            )
-            loss_curves.loss_curves(
-                train_loss_ls, test_loss_ls, title, today_date, dt_string, rank
-            )
+        title, today_date, today_date_hr = get_time_title(station, min(test_loss_ls))
+        torch.save(
+            states,
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}.pth",
+        )
+        loss_curves.loss_curves(
+            train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
+        )
+        eval_single_gpu.eval_model(
+            train_dataset,
+            df_train,
+            df_test,
+            test_dataset,
+            model,
+            batch_size,
+            title,
+            target,
+            features,
+            device,
+        )
 
     print("Successful Experiment")
-    if rank == 0:
-        # Seamlessly log your Pytorch model
-        log_model(experiment, model, model_name="v5")
-        experiment.end()
+    # Seamlessly log your Pytorch model
+    log_model(experiment, model, model_name="v5")
+    experiment.end()
     print("... completed ...")
-    torch.cuda.synchronize()
-    cleanup()
+
+
+main(
+    batch_size=int(10e3),
+    station="OLEA",
+    num_layers=5,
+    epochs=100,
+    weight_decay=0.0,
+)

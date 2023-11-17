@@ -47,20 +47,12 @@ from data import nysm_data
 from datetime import datetime
 
 
-def setup(rank, world_size):
-    dist.init_process_group("nccl", rank=rank, world_size=world_size)
-
-
-def cleanup():
-    dist.destroy_process_group()
-
-
-def predict(data_loader, model, rank):
-    output = torch.tensor([]).to(rank)
+def predict(data_loader, model, device):
+    output = torch.tensor([]).to(device)
     model.eval()
     with torch.no_grad():
         for batch_idx, (X, y) in enumerate(data_loader):
-            X = X.to(rank % torch.cuda.device_count())
+            X = X.to(device)
             y_star = model(X)
             output = torch.cat((output, y_star), 0)
     return output
@@ -76,7 +68,7 @@ def eval_model(
     title,
     target,
     features,
-    rank,
+    device,
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -86,8 +78,8 @@ def eval_model(
     )
 
     ystar_col = "Model forecast"
-    df_train[ystar_col] = predict(train_eval_loader, model, rank).cpu().numpy()
-    df_test[ystar_col] = predict(test_eval_loader, model, rank).cpu().numpy()
+    df_train[ystar_col] = predict(train_eval_loader, model, device).cpu().numpy()
+    df_test[ystar_col] = predict(test_eval_loader, model, device).cpu().numpy()
 
     df_out = pd.concat([df_train, df_test])[[target, ystar_col]]
 
@@ -102,7 +94,9 @@ def eval_model(
     print("now =", now)
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-    return df_out
+    df_out.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{title}_ml_output.parquet"
+    )
 
 
 def add_suffix(df, stations):
@@ -130,7 +124,14 @@ def columns_drop(df):
 # create LSTM Model
 class SequenceDataset(Dataset):
     def __init__(
-        self, dataframe, target, features, stations, sequence_length, forecast_hr
+        self,
+        dataframe,
+        target,
+        features,
+        stations,
+        sequence_length,
+        forecast_hr,
+        device,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -138,16 +139,9 @@ class SequenceDataset(Dataset):
         self.sequence_length = sequence_length
         self.stations = stations
         self.forecast_hr = forecast_hr
-        self.y = (
-            torch.tensor(dataframe[target].values)
-            .float()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
-        )
-        self.X = (
-            torch.tensor(dataframe[features].values)
-            .float()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
-        )
+        self.device = device
+        self.y = torch.tensor(dataframe[target].values).float().to(device)
+        self.X = torch.tensor(dataframe[features].values).float().to(device)
 
     def __len__(self):
         return self.X.shape[0]
@@ -156,7 +150,7 @@ class SequenceDataset(Dataset):
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
-            # zero out NYSM vars from before present
+            # zero out NYSM vars from after present
             x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999.0
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -190,6 +184,7 @@ class ShallowRegressionLSTM(nn.Module):
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
+        self.device = device
 
         self.lstm = nn.LSTM(
             input_size=num_sensors,
@@ -202,17 +197,17 @@ class ShallowRegressionLSTM(nn.Module):
         )
 
     def forward(self, x):
-        x.to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        x.to(self.device)
         batch_size = x.shape[0]
         h0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         c0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         _, (hn, _) = self.lstm(x, (h0, c0))
         out = self.linear(
@@ -222,13 +217,24 @@ class ShallowRegressionLSTM(nn.Module):
         return out
 
 
-def main(rank, world_size, args):
+def main(
+    model_path,
+    batch_size,
+    sequence_length,
+    station,
+    num_layers,
+    hidden_units,
+):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
-    device = rank % torch.cuda.device_count()
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     torch.cuda.set_device(device)
     print(device)
+    torch.manual_seed(101)
+
+    WORLD_SIZE = int(os.environ["WORLD_SIZE"]) if "WORLD_SIZE" in os.environ else 1
+    RANK = int(os.environ["RANK"]) if "RANK" in os.environ else -1
 
     print(" *********")
     print("::: In Main :::")
@@ -240,8 +246,7 @@ def main(rank, world_size, args):
         forecast_lead,
         stations,
         target,
-    ) = fsdp.create_data_for_model(args.station)
-    setup(rank, world_size)
+    ) = fsdp.create_data_for_model(station)
     num_sensors = int(len(features))
 
     train_dataset = SequenceDataset(
@@ -249,50 +254,36 @@ def main(rank, world_size, args):
         target=target,
         features=features,
         stations=stations,
-        sequence_length=args.sequence_length,
+        sequence_length=sequence_length,
         forecast_hr=2,
+        device=device,
     )
     test_dataset = SequenceDataset(
         df_test,
         target=target,
         features=features,
         stations=stations,
-        sequence_length=args.sequence_length,
+        sequence_length=sequence_length,
         forecast_hr=2,
+        device=device,
     )
 
-    path = args.model_path
+    path = model_path
     title_str = path[-29:-4]
-
-    auto_wrap_policy = functools.partial(
-        size_based_auto_wrap_policy, min_num_params=1_000
-    )
-    torch.cuda.set_device(rank)
 
     # load model
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
-        hidden_units=args.hidden_units,
-        num_layers=args.num_layers,
+        hidden_units=hidden_units,
+        num_layers=num_layers,
         device=device,
-    ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
+    ).to(device)
 
-    model.load_state_dict(torch.load(args.model_path))
-
-    model = FSDP(
-        model,
-        auto_wrap_policy=auto_wrap_policy,
-        mixed_precision=torch.distributed.fsdp.MixedPrecision(
-            param_dtype=torch.float32,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float32,
-            cast_forward_inputs=True,
-        ),
-    )
+    model.load_state_dict(torch.load(model_path))
 
     print("evaluating model")
-    batch_size = args.batch_size
-    df_out = eval_model(
+    batch_size = batch_size
+    eval_model(
         train_dataset,
         df_train,
         df_test,
@@ -302,12 +293,16 @@ def main(rank, world_size, args):
         title_str,
         target,
         features,
-        rank=rank,
+        device=device,
     )
-    dist.barrier()
-    if rank == 0:
-        df_out.to_parquet(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{title_str}_ml_output.parquet"
-        )
     print("Output saved!")
-    cleanup()
+
+
+main(
+    model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231116/lstm_v11_16_2023_19:44:04.pth",
+    batch_size=int(10e5),
+    sequence_length=int(120),
+    station="OLEA",
+    num_layers=int(2),
+    hidden_units=int(50),
+)
