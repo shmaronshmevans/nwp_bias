@@ -26,11 +26,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target", type=str, default="target_error", help="target column name"
     )
-    parser.add_argument("--station", type=str, default="OLEA", help="station name")
+    parser.add_argument("--station", type=str, default="WANT", help="station name")
     parser.add_argument(
-        "--learning_rate", type=float, default=5e-5, help="learning rate"
+        "--learning_rate", type=float, default=5e-2, help="learning rate"
     )
-    parser.add_argument("--num_layers", type=int, default=2, help="number of layers")
+    parser.add_argument("--num_layers", type=int, default=10, help="number of layers")
     parser.add_argument(
         "--epochs",
         type=int,

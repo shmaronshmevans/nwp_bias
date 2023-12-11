@@ -69,6 +69,8 @@ def eval_model(
     target,
     features,
     device,
+    today_date,
+    station,
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -95,7 +97,7 @@ def eval_model(
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{title}_ml_output.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}_ml_output_{station}.parquet"
     )
 
 
@@ -151,7 +153,8 @@ class SequenceDataset(Dataset):
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
             # zero out NYSM vars from after present
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999.0
+            # x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999.0
+            x = x[self.forecast_hr :, :]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -298,11 +301,11 @@ def main(
     print("Output saved!")
 
 
-main(
-    model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231116/lstm_v11_16_2023_19:44:04.pth",
-    batch_size=int(10e5),
-    sequence_length=int(120),
-    station="OLEA",
-    num_layers=int(2),
-    hidden_units=int(50),
-)
+# main(
+#     model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231117/lstm_v11_17_2023_20:17:57.pth",
+#     batch_size=int(10e5),
+#     sequence_length=int(120),
+#     station="OLEA",
+#     num_layers=int(5),
+#     hidden_units=int(50),
+# )

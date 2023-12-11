@@ -49,6 +49,10 @@ from comet_ml.integration.pytorch import log_model
 from datetime import datetime
 import statistics as st
 
+from sklearn.neighbors import BallTree
+from sklearn import preprocessing
+from sklearn import utils
+
 
 def setup(rank, world_size):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
@@ -88,7 +92,9 @@ class SequenceDataset(Dataset):
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
             # zero out NYSM vars from before present
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999
+            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
+                self.forecast_hr + 1, -int(len(self.stations) * 15) :
+            ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -204,7 +210,7 @@ def add_suffix(master_df, station):
 def dataframe_wrapper(stations, df):
     master_df = df[df["station"] == stations[0]]
     master_df = add_suffix(master_df, stations[0])
-    for station in stations[1:3]:
+    for station in stations[1:]:
         df1 = df[df["station"] == station]
         df1 = add_suffix(df1, station)
         master_df = master_df.merge(
@@ -256,6 +262,61 @@ def nwp_error(target, station, df):
     return df
 
 
+def get_closest_stations(nysm_df, neighbors, target_station):
+    lats = nysm_df["lat"].unique()
+    lons = nysm_df["lon"].unique()
+
+    locations_a = pd.DataFrame()
+    locations_a["lat"] = lats
+    locations_a["lon"] = lons
+
+    for column in locations_a[["lat", "lon"]]:
+        rad = np.deg2rad(locations_a[column].values)
+        locations_a[f"{column}_rad"] = rad
+
+    locations_b = locations_a
+
+    ball = BallTree(locations_a[["lat_rad", "lon_rad"]].values, metric="haversine")
+
+    # k: The number of neighbors to return from tree
+    k = neighbors
+    # Executes a query with the second group. This will also return two arrays.
+    distances, indices = ball.query(locations_b[["lat_rad", "lon_rad"]].values, k=k)
+
+    indices_list = [indices[x][0:k] for x in range(len(indices))]
+
+    stations = nysm_df["station"].unique()
+
+    station_dict = {}
+
+    for k, _ in enumerate(stations):
+        station_dict[stations[k]] = indices_list[k]
+
+    utilize_ls = []
+    vals = station_dict.get(target_station)
+    vals
+    for v in vals:
+        x = stations[v]
+        utilize_ls.append(x)
+
+    return utilize_ls
+
+
+def which_fold(df, fold):
+    length = len(df)
+    test_len = int(length * 0.2)
+    df_train = pd.DataFrame()
+
+    for n in np.arange(0, 5):
+        if n != fold:
+            df1 = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
+            df_train = pd.concat([df_train, df1])
+        else:
+            df_test = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
+
+    return df_train, df_test
+
+
 def create_data_for_model(station):
     """
     This function creates and processes data for a LSTM machine learning model.
@@ -284,23 +345,13 @@ def create_data_for_model(station):
     # Rename columns for consistency.
     nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
 
-    # Filter NYSM data to match valid times from HRRR data and save it to a CSV file.
+    # Filter NYSM data to match valid times from HRRR data
     mytimes = hrrr_df["valid_time"].tolist()
     nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
-    nysm_df.to_csv("/home/aevans/nwp_bias/src/machine_learning/frankenstein/test.csv")
 
-    # Set the path for tabular data.
-    nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
-
-    # Load tabular data as a DataFrame.
-    print("-- adding geo data --")
-    nysm_cats_df = pd.read_csv(nysm_cats_path)
-
-    # Identify the target data by climate division.
-    print("-- locating target data --")
-    category = "Western Plateau"
-    nysm_cats_df1 = nysm_cats_df[nysm_cats_df["climate_division_name"] == category]
-    stations = nysm_cats_df1["stid"].tolist()
+    stations = get_closest_stations(nysm_df, 4, station)
+    # stations = nysm_cats_df1["stid"].tolist()
+    # stations = ['OLEA', 'BELM', 'RAND', 'DELE']
     hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
     nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
 
@@ -319,11 +370,22 @@ def create_data_for_model(station):
     master_df = master_df.merge(master_df2, on="valid_time", suffixes=(None, f"_xab"))
 
     # Calculate the error using NWP data.
-    the_df = nwp_error("t2m", "ADDI", master_df)
+    the_df = nwp_error("t2m", station, master_df)
+    valid_times = the_df["valid_time"].tolist()
     # encode day of year to be cylcic
     the_df = encode(the_df, "valid_time", 366)
     # drop columns
     the_df = the_df[the_df.columns.drop(list(the_df.filter(regex="station")))]
+    now = datetime.now()
+    print("now =", now)
+    # dd/mm/YY H:M:S
+    dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
+
+    # Add EMD and/or Climate Indices
+    # the_df = normalize.normalize_df(the_df, valid_times)
+    the_df.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{dt_string}_full.parquet"
+    )
     new_df = the_df.drop(columns="valid_time")
 
     # normalize data
@@ -346,10 +408,8 @@ def create_data_for_model(station):
     lstm_df = lstm_df.drop(columns=[target_sensor])
     # lstm_df = lstm_df.iloc[:-forecast_lead]
     # Split the data into training and testing sets.
-    length = len(lstm_df)
-    test_len = int(length * 0.2)
-    df_train = lstm_df.iloc[test_len:].copy()
-    df_test = lstm_df.iloc[:test_len].copy()
+    df_train, df_test = which_fold(lstm_df, 2)
+
     print("Test Set Fraction", len(df_test) / len(lstm_df))
 
     # Fill missing values with zeros in the training and testing DataFrames.

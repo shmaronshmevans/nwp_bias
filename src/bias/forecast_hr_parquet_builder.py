@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import pandas as pd
 import datetime
 from datetime import datetime
@@ -55,7 +54,7 @@ pool = mp.Pool(mp.cpu_count())
 
 # Step 2: `pool.apply` the `howmany_within_range()`
 results = pool.apply(
-    main, args=(datetime(2023, 1, 1, 0, 0, 0), datetime(2023, 6, 30, 23, 59, 59), "02")
+    main, args=(datetime(2018, 1, 1, 0, 0, 0), datetime(2023, 12, 31, 23, 59, 59), "04")
 )
 
 # Step 3: Don't forget to close

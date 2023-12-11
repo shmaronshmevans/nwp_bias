@@ -50,6 +50,12 @@ from visuals import loss_curves
 from comet_ml.integration.pytorch import log_model
 from datetime import datetime
 import statistics as st
+from sklearn.neighbors import BallTree
+from sklearn import preprocessing
+from sklearn import utils
+from sklearn.feature_selection import mutual_info_classif as MIC
+
+import random
 
 
 # create LSTM Model
@@ -81,6 +87,9 @@ class SequenceDataset(Dataset):
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
+            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
+                self.forecast_hr + 1, -int(len(self.stations) * 15) :
+            ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -146,7 +155,9 @@ class ShallowRegressionLSTM(nn.Module):
             batch_first=True,
             num_layers=self.num_layers,
         )
-        self.linear = nn.Linear(in_features=self.hidden_units, out_features=1)
+        self.linear = nn.Linear(
+            in_features=self.hidden_units, out_features=1, bias=False
+        )
 
     def forward(self, x):
         x.to(self.device)
@@ -167,6 +178,23 @@ class ShallowRegressionLSTM(nn.Module):
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
+
+
+def mi_score(the_df):
+    the_df = the_df.fillna(-999)
+    X = the_df.loc[:, the_df.columns != "target_error"]
+    y = the_df["target_error"]
+    # convert y values to categorical values
+    lab = preprocessing.LabelEncoder()
+    y_transformed = lab.fit_transform(y)
+    mi_score = MIC(X, y_transformed)
+    df = pd.DataFrame()
+    df["feature"] = [n for n in the_df.columns if n != "target_error"]
+    df["mi_score"] = mi_score
+
+    df = df[df["mi_score"] > 0.2]
+    features = df["feature"].tolist()
+    return features
 
 
 def columns_drop_hrrr(df):
@@ -195,7 +223,7 @@ def add_suffix(master_df, station):
 def dataframe_wrapper(stations, df):
     master_df = df[df["station"] == stations[0]]
     master_df = add_suffix(master_df, stations[0])
-    for station in stations[1:3]:
+    for station in stations[1:]:
         df1 = df[df["station"] == station]
         df1 = add_suffix(df1, station)
         master_df = master_df.merge(
@@ -247,6 +275,61 @@ def nwp_error(target, station, df):
     return df
 
 
+def get_closest_stations(nysm_df, neighbors, target_station):
+    lats = nysm_df["lat"].unique()
+    lons = nysm_df["lon"].unique()
+
+    locations_a = pd.DataFrame()
+    locations_a["lat"] = lats
+    locations_a["lon"] = lons
+
+    for column in locations_a[["lat", "lon"]]:
+        rad = np.deg2rad(locations_a[column].values)
+        locations_a[f"{column}_rad"] = rad
+
+    locations_b = locations_a
+
+    ball = BallTree(locations_a[["lat_rad", "lon_rad"]].values, metric="haversine")
+
+    # k: The number of neighbors to return from tree
+    k = neighbors
+    # Executes a query with the second group. This will also return two arrays.
+    distances, indices = ball.query(locations_b[["lat_rad", "lon_rad"]].values, k=k)
+
+    indices_list = [indices[x][0:k] for x in range(len(indices))]
+
+    stations = nysm_df["station"].unique()
+
+    station_dict = {}
+
+    for k, _ in enumerate(stations):
+        station_dict[stations[k]] = indices_list[k]
+
+    utilize_ls = []
+    vals = station_dict.get(target_station)
+    vals
+    for v in vals:
+        x = stations[v]
+        utilize_ls.append(x)
+
+    return utilize_ls
+
+
+def which_fold(df, fold):
+    length = len(df)
+    test_len = int(length * 0.2)
+    df_train = pd.DataFrame()
+
+    for n in np.arange(0, 5):
+        if n != fold:
+            df1 = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
+            df_train = pd.concat([df_train, df1])
+        else:
+            df_test = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
+
+    return df_train, df_test
+
+
 def create_data_for_model(station):
     """
     This function creates and processes data for a LSTM machine learning model.
@@ -275,23 +358,13 @@ def create_data_for_model(station):
     # Rename columns for consistency.
     nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
 
-    # Filter NYSM data to match valid times from HRRR data and save it to a CSV file.
+    # Filter NYSM data to match valid times from HRRR data
     mytimes = hrrr_df["valid_time"].tolist()
     nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
-    nysm_df.to_csv("/home/aevans/nwp_bias/src/machine_learning/frankenstein/test.csv")
 
-    # Set the path for tabular data.
-    nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
-
-    # Load tabular data as a DataFrame.
-    print("-- adding geo data --")
-    nysm_cats_df = pd.read_csv(nysm_cats_path)
-
-    # Identify the target data by climate division.
-    print("-- locating target data --")
-    category = "Western Plateau"
-    nysm_cats_df1 = nysm_cats_df[nysm_cats_df["climate_division_name"] == category]
-    stations = nysm_cats_df1["stid"].tolist()
+    stations = get_closest_stations(nysm_df, 4, station)
+    # stations = nysm_cats_df1["stid"].tolist()
+    # stations = ['OLEA', 'BELM', 'RAND', 'DELE']
     hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
     nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
 
@@ -310,11 +383,22 @@ def create_data_for_model(station):
     master_df = master_df.merge(master_df2, on="valid_time", suffixes=(None, f"_xab"))
 
     # Calculate the error using NWP data.
-    the_df = nwp_error("t2m", "ADDI", master_df)
+    the_df = nwp_error("t2m", station, master_df)
+    valid_times = the_df["valid_time"].tolist()
     # encode day of year to be cylcic
     the_df = encode(the_df, "valid_time", 366)
     # drop columns
     the_df = the_df[the_df.columns.drop(list(the_df.filter(regex="station")))]
+    now = datetime.now()
+    print("now =", now)
+    # dd/mm/YY H:M:S
+    dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
+
+    # Add EMD and/or Climate Indices
+    # the_df = normalize.normalize_df(the_df, valid_times)
+    the_df.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{dt_string}_full_{station}.parquet"
+    )
     new_df = the_df.drop(columns="valid_time")
 
     # normalize data
@@ -337,10 +421,8 @@ def create_data_for_model(station):
     lstm_df = lstm_df.drop(columns=[target_sensor])
     # lstm_df = lstm_df.iloc[:-forecast_lead]
     # Split the data into training and testing sets.
-    length = len(lstm_df)
-    test_len = int(length * 0.2)
-    df_train = lstm_df.iloc[test_len:].copy()
-    df_test = lstm_df.iloc[:test_len].copy()
+    df_train, df_test = which_fold(lstm_df, 2)
+
     print("Test Set Fraction", len(df_test) / len(lstm_df))
 
     # Fill missing values with zeros in the training and testing DataFrames.
@@ -443,7 +525,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="v5",
+        project_name="which-stations-can-learn",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -503,6 +585,8 @@ def main(
     }
     print("--- Training LSTM ---")
 
+    early_stopper = EarlyStopper(10)
+
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
@@ -520,6 +604,9 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        if early_stopper.early_stop(test_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
 
     init_end_event.record()
 
@@ -533,11 +620,12 @@ def main(
         title, today_date, today_date_hr = get_time_title(station, min(test_loss_ls))
         torch.save(
             states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}.pth",
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}_{station}.pth",
         )
         loss_curves.loss_curves(
             train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
         )
+
         eval_single_gpu.eval_model(
             train_dataset,
             df_train,
@@ -549,19 +637,30 @@ def main(
             target,
             features,
             device,
+            today_date,
+            station,
         )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="v5")
+    log_model(experiment, model, model_name="v6")
     experiment.end()
     print("... completed ...")
 
 
-main(
-    batch_size=int(10e3),
-    station="OLEA",
-    num_layers=5,
-    epochs=100,
-    weight_decay=0.0,
-)
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+clim_divs = nysm_clim["climate_division_name"].unique()
+
+for c in clim_divs:
+    df = nysm_clim[nysm_clim["climate_division_name"] == c]
+    temp = df["stid"].unique()
+    station = random.sample(sorted(temp), 3)
+    for n, _ in enumerate(station):
+        print(station[n])
+        main(
+            batch_size=int(10e3),
+            station=station[n],
+            num_layers=5,
+            epochs=150,
+            weight_decay=0,
+        )
