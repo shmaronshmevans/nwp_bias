@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import glob
 import multiprocessing as mp
 import os
@@ -13,6 +12,7 @@ from scipy import interpolate
 from sklearn.neighbors import BallTree
 from multiprocessing import Process
 
+print("imports downloaded")
 
 def load_nysm_data(year):
     # these parquet files are created by running "get_resampled_nysm_data.ipynb"
@@ -24,7 +24,7 @@ def load_nysm_data(year):
 
 
 def read_data_ny(model, month, year):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/fh_02/"
+    cleaned_data_path = f"/home/aevans/ai2es/lstm/fh_10/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -309,10 +309,10 @@ def mask_out_water(model, df_model):
         ind = 26
         var = "lsm"
     elif model.upper() == "HRRR":
-        filename = "20180101_hrrr.t00z.wrfsfcf03.grib2"
+        filename = "20180101_hrrr.t12z.wrfsfcf03.grib2"
         ind = 34
         var = "lsm"
-    ds = cfgrib.open_datasets(f"{indir}{filename}")
+    ds = cfgrib.open_datasets(f"/home/aevans/ai2es/archived_grib/HRRR/2018/01/20180101_hrrr.t00z.wrfsfcf03.grib2")
 
     ds_tointerp = ds[ind]  # extract the data array that contains land surface class
     ds_tointerp = ds_tointerp.assign_coords(
@@ -335,7 +335,6 @@ def mask_out_water(model, df_model):
 
 
 def main(month, year, model, mask_water=True):
-    start_time = time.time()
     """
     This function loads in the parquet data cleaned from the grib files and interpolates (GFS, NAM) or finds the nearest
     grid neighbor (HRRR) for each specified variable to each NYSM site location across NYS. It also calculates the
@@ -350,158 +349,173 @@ def main(month, year, model, mask_water=True):
     init(str) - initilization time for model, '00' or '12' UTC
     mask_water (bool) - true to mask out grid cells over water before interpolation/nearest-neighbor, false to leave all grid cells available for interpolation/nearest-neighbor
     """
+    start_time = time.time()
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh10/"
+    print("Month: ", month)
+    if not os.path.exists(
+            f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
+        ):
+        if model == "HRRR":
+            pres = "mslma"
+        else:
+            pres = "prmsl"
+        
+        nysm_1H_obs, nysm_3H_obs = load_nysm_data(year)
+        print("Loading NYSM Data")
+        df_model_ny = read_data_ny(model, month, year)
+        print("Loading Model Data")
 
-    if model == "HRRR":
-        pres = "mslma"
-    else:
-        pres = "prmsl"
-
-    nysm_1H_obs, nysm_3H_obs = load_nysm_data(year)
-    df_model_ny = read_data_ny(model, month, year)
-
-    # drop some info that got carried over from xarray data array
-    keep_vars = [
-        "valid_time",
-        "time",
-        "latitude",
-        "longitude",
-        "t2m",
-        "sh2",
-        "d2m",
-        "r2",
-        "u10",
-        "v10",
-        "tp",
-        pres,
-        "orog",
-        "tcc",
-        "asnow",
-        "cape",
-        "dswrf",
-        "dlwrf",
-        "gh",
-    ]
-
-    if "x" in df_model_ny.keys():
-        df_model_ny = df_model_ny.drop(
-            columns=["x", "y"]
-        )  # drop x & y if they're columns since reindex will fail with them in original index
-
-    df_model_ny = df_model_ny.reset_index()[keep_vars]
-    df_model_ny = reformat_df(df_model_ny)
-
-    if mask_water:
-        # before interpolation or nearest neighbor methods, mask out any grid cells over water
-        df_model_ny = mask_out_water(model, df_model_ny)
-
-    if model in ["GFS", "NAM"]:
-        vars_to_interp = [
-            "lead time",
+        # drop some info that got carried over from xarray data array
+        keep_vars = [
+            "valid_time",
+            "time",
             "latitude",
             "longitude",
-            "tp",
             "t2m",
-            "u_total",
-            "u_dir",
+            "sh2",
             "d2m",
+            "r2",
+            "u10",
+            "v10",
+            "tp",
             pres,
             "orog",
-            # "tcc"
+            "tcc",
+            "asnow",
+            "cape",
+            "dswrf",
+            "dlwrf",
+            "gh",
         ]
 
-        indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
-        df_model_nysm_sites = df_with_nysm_locations(
-            df_model_ny, nysm_1H_obs, indices_list_ny
-        )
-        df_model_nysm_sites["lead time"] = (
-            df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
-        )
-        # df_model_nysm_sites = interpolate_model_data_to_nysm_locations_groupby(
-        #     df_model_ny, nysm_1H_obs, vars_to_interp
-        # )
+        if "x" in df_model_ny.keys():
+            df_model_ny = df_model_ny.drop(
+                columns=["x", "y"]
+            )  # drop x & y if they're columns since reindex will fail with them in original index
 
-    elif model == "HRRR":
-        indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
-        df_model_nysm_sites = df_with_nysm_locations(
-            df_model_ny, nysm_1H_obs, indices_list_ny
-        )
-        # to avoid future issues, convert lead time to float, round, and then convert to integer
-        # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
-        df_model_nysm_sites["lead time"] = (
-            df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
-        )
+        df_model_ny = df_model_ny.reset_index()[keep_vars]
+        df_model_ny = reformat_df(df_model_ny)
 
-    # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
-    if model == "NAM":
-        model_data_1H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] <= 36]
-        model_data_3H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] > 36]
+        print("--- reformatting completed ---")
+        if mask_water:
+            # before interpolation or nearest neighbor methods, mask out any grid cells over water
+            df_model_ny = mask_out_water(model, df_model_ny)
 
-        # NY
-        df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-        df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-        df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-        df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
-        df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-        df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-        df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-        df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
+        print("Access Information closest to NYSM")
+        if model in ["GFS", "NAM"]:
+            vars_to_interp = [
+                "lead time",
+                "latitude",
+                "longitude",
+                "tp",
+                "t2m",
+                "u_total",
+                "u_dir",
+                "d2m",
+                pres,
+                "orog",
+                # "tcc"
+            ]
 
-        df_model_nysm_sites = pd.concat([df_model_sites_1H_ny, df_model_sites_3H_ny])
+            indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
+            df_model_nysm_sites = df_with_nysm_locations(
+                df_model_ny, nysm_1H_obs, indices_list_ny
+            )
+            df_model_nysm_sites["lead time"] = (
+                df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
+            )
+            # df_model_nysm_sites = interpolate_model_data_to_nysm_locations_groupby(
+            #     df_model_ny, nysm_1H_obs, vars_to_interp
+            # )
 
-    elif model == "GFS":
-        df_model_nysm_sites = redefine_precip_intervals_GFS(df_model_nysm_sites)
-        df_model_nysm_sites = drop_unwanted_time_diffs(df_model_nysm_sites, 3.0)
-    elif model == "HRRR":
-        df_model_nysm_sites = redefine_precip_intervals_HRRR(df_model_nysm_sites)
-        df_model_nysm_sites = drop_unwanted_time_diffs(df_model_nysm_sites, 1.0)
+        elif model == "HRRR":
+            indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
+            df_model_nysm_sites = df_with_nysm_locations(
+                df_model_ny, nysm_1H_obs, indices_list_ny
+            )
+            # to avoid future issues, convert lead time to float, round, and then convert to integer
+            # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
+            df_model_nysm_sites["lead time"] = (
+                df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
+            )
 
-    savedir = f"/home/aevans/ai2es/processed_data/{model}/"
-    # savedir = f'/home/lgaudet/model-data/GFS/GFSv16_parallel/interp/'
-    if mask_water:
-        df_model_nysm_sites.to_parquet(
-            f"{savedir}ny/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
-        )
+        # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
+        if model == "NAM":
+            model_data_1H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] <= 36]
+            model_data_3H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] > 36]
+
+            # NY
+            df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
+            df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
+            df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
+            df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
+            df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
+            df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
+            df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
+            df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
+
+            df_model_nysm_sites = pd.concat([df_model_sites_1H_ny, df_model_sites_3H_ny])
+
+        elif model == "GFS":
+            df_model_nysm_sites = redefine_precip_intervals_GFS(df_model_nysm_sites)
+            df_model_nysm_sites = drop_unwanted_time_diffs(df_model_nysm_sites, 3.0)
+        elif model == "HRRR":
+            df_model_nysm_sites = redefine_precip_intervals_HRRR(df_model_nysm_sites)
+            df_model_nysm_sites = drop_unwanted_time_diffs(df_model_nysm_sites, 1.0)
+
+        if mask_water:
+            df_model_nysm_sites.to_parquet(
+                f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
+            )
+        else:
+            df_model_nysm_sites.to_parquet(
+                f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites.parquet"
+            )
+
+        timer9 = time.time() - start_time
+
+        print(f"Saving New Files For :: {model} : {year}--{month}")
+        print("--- %s seconds ---" % (timer9))
     else:
-        df_model_nysm_sites.to_parquet(
-            f"{savedir}ny/{model}_{year}_{month}_direct_compare_to_nysm_sites.parquet"
-        )
+        print(f"{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet already compiled")
+        print("... exiting ...")
+        exit
 
-    timer9 = time.time() - start_time
+# # multiprocessing v2
+# # good for bulk cleaning
+model = 'HRRR'
+year = 2022
+main(str(7).zfill(2), year, model)
 
-    print(f"Saving New Files For :: {model} : {year}--{month}")
-    print("--- %s seconds ---" % (timer9))
+# for month in np.arange(1, 13):
+#     print(month)
+#     # Step 1: Init multiprocessing.Pool()
+#     pool = mp.Pool(mp.cpu_count())
 
+#     # Step 2: `pool.apply` the `howmany_within_range()`
+#     results = pool.apply(main, args=(str(month).zfill(2), year, model))
 
-# main(str(11).zfill(2), 2018, 'HRRR')
+#     # Step 3: Don't forget to close
+#     pool.close()
 
-
-# # ignore warnings
-# # notebook throws warnings about Dtype
-# # this line filters them out of output
-# warnings.filterwarnings("ignore")
-
-
-# # Multiprocessing Notes
-# """
-# Multiprocessing Pool
-# RUN with 75 gb
-# 4 tasks per cpu
-# """
 
 # if __name__ == "__main__":
-#     init = "12"
-#     p1 = Process(target=main, args=(str(1).zfill(2), 2022, "GFS", init))
-#     p2 = Process(target=main, args=(str(2).zfill(2), 2022, "GFS", init))
-#     p3 = Process(target=main, args=(str(3).zfill(2), 2022, "GFS", init))
-#     p4 = Process(target=main, args=(str(4).zfill(2), 2022, "GFS", init))
-#     p5 = Process(target=main, args=(str(5).zfill(2), 2022, "GFS", init))
-#     p6 = Process(target=main, args=(str(6).zfill(2), 2022, "GFS", init))
-#     p7 = Process(target=main, args=(str(7).zfill(2), 2022, "GFS", init))
-#     p8 = Process(target=main, args=(str(8).zfill(2), 2022, "GFS", init))
-#     p9 = Process(target=main, args=(str(9).zfill(2), 2022, "GFS", init))
-#     p10 = Process(target=main, args=(str(10).zfill(2), 2022, "GFS", init))
-#     p11 = Process(target=main, args=(str(11).zfill(2), 2022, "GFS", init))
-#     p12 = Process(target=main, args=(str(12).zfill(2), 2022, "GFS", init))
+#     # # multiprocessing v2
+#     # # good for bulk cleaning
+#     model = 'HRRR'
+#     year = 2022
+#     p1 = Process(target=main, args=(str(1).zfill(2), year, model))
+#     p2 = Process(target=main, args=(str(2).zfill(2), year, model))
+#     p3 = Process(target=main, args=(str(3).zfill(2), year, model))
+#     p4 = Process(target=main, args=(str(4).zfill(2), year, model))
+#     p5 = Process(target=main, args=(str(5).zfill(2), year, model))
+#     p6 = Process(target=main, args=(str(6).zfill(2), year, model))
+#     p7 = Process(target=main, args=(str(7).zfill(2), year, model))
+#     p8 = Process(target=main, args=(str(8).zfill(2), year, model))
+#     p9 = Process(target=main, args=(str(9).zfill(2), year, model))
+#     p10 = Process(target=main, args=(str(10).zfill(2), year, model))
+#     p11 = Process(target=main, args=(str(11).zfill(2), year, model))
+#     p12 = Process(target=main, args=(str(12).zfill(2), year, model))
 
 #     p1.start()
 #     p2.start()
@@ -528,24 +542,3 @@ def main(month, year, model, mask_water=True):
 #     p10.join()
 #     p11.join()
 #     p12.join()
-
-
-# main()
-
-# # multiprocessing v2
-# # good for bulk cleaning
-# model = 'HRRR'
-# year = 2018
-
-
-for month in np.arange(1, 7):
-    main(str(month).zfill(2), 2023, "HRRR")
-
-    # # Step 1: Init multiprocessing.Pool()
-    # pool = mp.Pool(mp.cpu_count())
-
-    # # Step 2: `pool.apply` the `howmany_within_range()`
-    # results = pool.apply(main, args=(str(month).zfill(2), year, model))
-
-    # # Step 3: Don't forget to close
-    # pool.close()

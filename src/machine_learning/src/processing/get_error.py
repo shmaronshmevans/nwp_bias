@@ -27,10 +27,8 @@ def nwp_error(target, station, df):
     # Get the NYSM variable name corresponding to the target variable.
     nysm_var = vars_dict.get(target)
 
-    # Filter out rows with missing values in the target variable.
-    df = df[df[target] > -999]
-
     # Calculate the 'target_error' by subtracting NYSM data from NWP model data.
-    df["target_error"] = df[f"{target}_{station}"] - df[f"{nysm_var}_{station}"]
+    target_error = df[f"{target}_{station}"] - df[f"{nysm_var}_{station}"]
+    df.insert(loc=(1), column=f"target_error", value=target_error)
 
     return df

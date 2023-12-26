@@ -13,8 +13,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 from comet_ml import Experiment, Artifact
-from comet_ml.integration.pytorch import log_model
-from comet_ml import Optimizer
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
@@ -180,24 +178,6 @@ class ShallowRegressionLSTM(nn.Module):
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
-
-
-def mi_score(the_df):
-    the_df = the_df.fillna(-999)
-    X = the_df.loc[:, the_df.columns != "target_error"]
-    y = the_df["target_error"]
-    # convert y values to categorical values
-    lab = preprocessing.LabelEncoder()
-    y_transformed = lab.fit_transform(y)
-    mi_score = MIC(X, y_transformed)
-    df = pd.DataFrame()
-    df["feature"] = [n for n in the_df.columns if n != "target_error"]
-    df["mi_score"] = mi_score
-
-    df = df[df["mi_score"] > 0.2]
-    features = df["feature"].tolist()
-    return features
-
 
 def columns_drop_hrrr(df):
     df = df.drop(
@@ -398,6 +378,9 @@ def create_data_for_model(station, fh):
 
     # Add EMD and/or Climate Indices
     # the_df = normalize.normalize_df(the_df, valid_times)
+    the_df.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{dt_string}_full_{station}.parquet"
+    )
     new_df = the_df.drop(columns="valid_time")
 
     # normalize data
@@ -497,11 +480,11 @@ def main(
     epochs,
     weight_decay,
     fh,
-    delta, 
-    learning_rate,
+    model_path,
     sequence_length=120,
     target="target_error",
-    save_model=False,
+    learning_rate=5e-3,
+    save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -523,6 +506,12 @@ def main(
         stations,
         target,
     ) = create_data_for_model(station, fh)
+
+    experiment = Experiment(
+        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+        project_name="retrain",
+        workspace="shmaronshmevans",
+    )
     train_dataset = SequenceDataset(
         df_train,
         target=target,
@@ -561,12 +550,12 @@ def main(
         num_layers=num_layers,
         device=device,
     ).to(device)
-
+    model.load_state_dict(torch.load(model_path))
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     # loss_function = nn.MSELoss()
-    loss_function = nn.HuberLoss(delta=delta)
+    loss_function = nn.HuberLoss(delta=1.5)
 
     hyper_params = {
         "num_layers": num_layers,
@@ -593,6 +582,16 @@ def main(
 
         test_loss = test_model(test_loader, model, loss_function, device, ix_epoch)
         print(" ")
+        train_loss_ls.append(train_loss)
+        test_loss_ls.append(test_loss)
+        # log info for comet and loss curves
+        experiment.set_epoch(ix_epoch)
+        experiment.log_metric("test_loss", test_loss)
+        experiment.log_metric("train_loss", train_loss)
+        experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        # if early_stopper.early_stop(test_loss):
+        #     print(f"Early stopping at epoch {ix_epoch}")
+        #     break
 
     init_end_event.record()
 
@@ -608,48 +607,37 @@ def main(
             states,
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}_{station}.pth",
         )
+        loss_curves.loss_curves(
+            train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
+        )
+
+        eval_single_gpu.eval_model(
+            train_dataset,
+            df_train,
+            df_test,
+            test_dataset,
+            model,
+            batch_size,
+            title,
+            target,
+            features,
+            device,
+            station,
+        )
 
     print("Successful Experiment")
-
-    print("... completed ...")
-    return test_loss
-
-
-
-config = {
-    # Pick the Bayes algorithm:
-    "algorithm": "grid",
-    # Declare what to optimize, and how:
-    "spec": {
-        "metric": "loss",
-        "objective": "minimize",
-    },
-    # Declare your hyperparameters:
-    "parameters": {
-        "num_layers": {"type": "integer", "min": 3, "max": 10},
-        "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-3},
-        "weight_decay": {"type": "float", "min": 0, "max": 1},
-        "delta": {"type": "float", "min": 0.0, "max": 5.0},
-    },
-    "trials": 30,
-}
-
-print("!!! begin optimizer !!!")
-
-opt = Optimizer(config)
-
-# Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
-    loss = main(
-        batch_size = 120,
-        station = 'OLEA',
-        num_layers=experiment.get_parameter("num_layers"),
-        epochs = 100, 
-        weight_decay=experiment.get_parameter("weight_decay"),
-        fh = 4, 
-        delta=experiment.get_parameter("delta"),
-        learning_rate=experiment.get_parameter("learning_rate"),
-    )
-
-    experiment.log_metric("loss", loss)
+    # Seamlessly log your Pytorch model
+    log_model(experiment, model, model_name="retrain")
     experiment.end()
+    print("... completed ...")
+
+
+main(
+    batch_size=int(10e3),
+    station='VOOR',
+    num_layers=5,
+    epochs=100,
+    weight_decay=0,
+    fh=10,
+    model_path='/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:48:45_VOOR.pth'
+)

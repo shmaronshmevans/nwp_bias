@@ -179,24 +179,6 @@ class ShallowRegressionLSTM(nn.Module):
 
         return out
 
-
-def mi_score(the_df):
-    the_df = the_df.fillna(-999)
-    X = the_df.loc[:, the_df.columns != "target_error"]
-    y = the_df["target_error"]
-    # convert y values to categorical values
-    lab = preprocessing.LabelEncoder()
-    y_transformed = lab.fit_transform(y)
-    mi_score = MIC(X, y_transformed)
-    df = pd.DataFrame()
-    df["feature"] = [n for n in the_df.columns if n != "target_error"]
-    df["mi_score"] = mi_score
-
-    df = df[df["mi_score"] > 0.2]
-    features = df["feature"].tolist()
-    return features
-
-
 def columns_drop_hrrr(df):
     df = df.drop(
         columns=[
@@ -330,7 +312,7 @@ def which_fold(df, fold):
     return df_train, df_test
 
 
-def create_data_for_model(station):
+def create_data_for_model(station, fh):
     """
     This function creates and processes data for a LSTM machine learning model.
 
@@ -353,7 +335,7 @@ def create_data_for_model(station):
     nysm_df = nysm_data.load_nysm_data()
     nysm_df.reset_index(inplace=True)
     print("-- loading data from HRRR --")
-    hrrr_df = hrrr_data.read_hrrr_data()
+    hrrr_df = hrrr_data.read_hrrr_data(str(fh))
 
     # Rename columns for consistency.
     nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
@@ -421,7 +403,7 @@ def create_data_for_model(station):
     lstm_df = lstm_df.drop(columns=[target_sensor])
     # lstm_df = lstm_df.iloc[:-forecast_lead]
     # Split the data into training and testing sets.
-    df_train, df_test = which_fold(lstm_df, 2)
+    df_train, df_test = which_fold(lstm_df, 3)
 
     print("Test Set Fraction", len(df_test) / len(lstm_df))
 
@@ -497,6 +479,7 @@ def main(
     num_layers,
     epochs,
     weight_decay,
+    fh,
     sequence_length=120,
     target="target_error",
     learning_rate=5e-3,
@@ -521,11 +504,11 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_model(station)
+    ) = create_data_for_model(station, fh)
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="which-stations-can-learn",
+        project_name="v6",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -534,7 +517,7 @@ def main(
         features=features,
         stations=stations,
         sequence_length=sequence_length,
-        forecast_hr=2,
+        forecast_hr=fh,
         device=device,
     )
     test_dataset = SequenceDataset(
@@ -543,7 +526,7 @@ def main(
         features=features,
         stations=stations,
         sequence_length=sequence_length,
-        forecast_hr=2,
+        forecast_hr=fh,
         device=device,
     )
 
@@ -582,10 +565,11 @@ def main(
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
+        "forecast_hour": fh,
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(10)
+    early_stopper = EarlyStopper(15)
 
     init_start_event.record()
     train_loss_ls = []
@@ -604,9 +588,9 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        if early_stopper.early_stop(test_loss):
-            print(f"Early stopping at epoch {ix_epoch}")
-            break
+        # if early_stopper.early_stop(test_loss):
+        #     print(f"Early stopping at epoch {ix_epoch}")
+        #     break
 
     init_end_event.record()
 
@@ -648,19 +632,42 @@ def main(
     print("... completed ...")
 
 
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-clim_divs = nysm_clim["climate_division_name"].unique()
+main(
+    batch_size=int(10e3),
+    station='VOOR',
+    num_layers=5,
+    epochs=100,
+    weight_decay=0,
+    fh=4
+)
 
-for c in clim_divs:
-    df = nysm_clim[nysm_clim["climate_division_name"] == c]
-    temp = df["stid"].unique()
-    station = random.sample(sorted(temp), 3)
-    for n, _ in enumerate(station):
-        print(station[n])
-        main(
-            batch_size=int(10e3),
-            station=station[n],
-            num_layers=5,
-            epochs=150,
-            weight_decay=0,
-        )
+
+
+# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+# clim_divs = nysm_clim["climate_division_name"].unique()
+
+# for c in clim_divs:
+#     df = nysm_clim[nysm_clim["climate_division_name"] == c]
+#     temp = df["stid"].unique()
+#     if c == 'Coastal':
+#         station = ['WANT']
+#     else:
+#         station = random.sample(sorted(temp), 1)
+#     for n, _ in enumerate(station):
+#         print(station[n])
+#         main(
+#             batch_size=int(10e3),
+#             station=station[n],
+#             num_layers=5,
+#             epochs=70,
+#             weight_decay=0,
+#             fh=2
+#         )
+#         main(
+#             batch_size=int(10e3),
+#             station=station[n],
+#             num_layers=5,
+#             epochs=70,
+#             weight_decay=0,
+#             fh=4
+#         )

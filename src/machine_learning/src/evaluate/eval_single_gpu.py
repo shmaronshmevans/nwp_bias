@@ -33,18 +33,8 @@ from torch.distributed.fsdp.wrap import (
     enable_wrap,
     wrap,
 )
-
-
-from evaluate import fsdp
-from processing import col_drop
-from processing import get_flag
-from processing import encode
-from processing import normalize
-from processing import get_error
-
-from data import hrrr_data
-from data import nysm_data
 from datetime import datetime
+from data import create_data_for_lstm
 
 
 def predict(data_loader, model, device):
@@ -69,7 +59,6 @@ def eval_model(
     target,
     features,
     device,
-    today_date,
     station,
 ):
     train_eval_loader = torch.utils.data.DataLoader(
@@ -97,7 +86,7 @@ def eval_model(
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{title}_ml_output_{station}.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{title}_ml_output_{station}.parquet"
     )
 
 
@@ -121,6 +110,7 @@ def columns_drop(df):
         ]
     )
     return df
+
 
 
 # create LSTM Model
@@ -152,9 +142,9 @@ class SequenceDataset(Dataset):
         if i >= self.sequence_length - 1:
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
-            # zero out NYSM vars from after present
-            # x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999.0
-            x = x[self.forecast_hr :, :]
+            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
+                self.forecast_hr + 1, -int(len(self.stations) * 15) :
+            ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -227,6 +217,7 @@ def main(
     station,
     num_layers,
     hidden_units,
+    fh
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -249,7 +240,7 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = fsdp.create_data_for_model(station)
+    ) = create_data_for_lstm.create_data_for_model(station, fh)
     num_sensors = int(len(features))
 
     train_dataset = SequenceDataset(
@@ -258,7 +249,7 @@ def main(
         features=features,
         stations=stations,
         sequence_length=sequence_length,
-        forecast_hr=2,
+        forecast_hr=fh,
         device=device,
     )
     test_dataset = SequenceDataset(
@@ -267,7 +258,7 @@ def main(
         features=features,
         stations=stations,
         sequence_length=sequence_length,
-        forecast_hr=2,
+        forecast_hr=fh,
         device=device,
     )
 
@@ -284,6 +275,7 @@ def main(
 
     model.load_state_dict(torch.load(model_path))
 
+
     print("evaluating model")
     batch_size = batch_size
     eval_model(
@@ -296,16 +288,18 @@ def main(
         title_str,
         target,
         features,
-        device=device,
+        device,
+        station
     )
     print("Output saved!")
 
 
-# main(
-#     model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231117/lstm_v11_17_2023_20:17:57.pth",
-#     batch_size=int(10e5),
-#     sequence_length=int(120),
-#     station="OLEA",
-#     num_layers=int(5),
-#     hidden_units=int(50),
-# )
+main(
+    model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:54:04_VOOR.pth",
+    batch_size=int(10e5),
+    sequence_length=int(120),
+    station="VOOR",
+    num_layers=int(5),
+    hidden_units=int(67),
+    fh=10
+)

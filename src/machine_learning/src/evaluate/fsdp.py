@@ -334,13 +334,14 @@ def create_data_for_model(station):
 
     # Print a message indicating the current station being processed.
     print(f"Targeting Error for {station}")
+    fh = 2
 
     # Load data from NYSM and HRRR sources.
     print("-- loading data from NYSM --")
     nysm_df = nysm_data.load_nysm_data()
     nysm_df.reset_index(inplace=True)
     print("-- loading data from HRRR --")
-    hrrr_df = hrrr_data.read_hrrr_data()
+    hrrr_df = hrrr_data.read_hrrr_data(fh)
 
     # Rename columns for consistency.
     nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
