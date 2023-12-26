@@ -16,7 +16,7 @@ Downloading NYSM data can be found here: https://www.nysmesonet.org/weather/requ
 ## Cleaning Data 
 ### src
 | notebook | description |
-|------------------------|
+|-----------|------------|
 |optimizer.config| config dictionary for comet hyperparameter tuning|
 |switchboard.py| init script for fsdp training of lstm|
 |t2m_hrrr_fh2_western_plateau_opt.py| comet hyperparameter training script|
@@ -24,21 +24,21 @@ Downloading NYSM data can be found here: https://www.nysmesonet.org/weather/requ
 
 ### bias 
 | notebook | description |
-|------------------------|
+|-----------|------------|
 |all_models_comparison_to_mesos_lstm.py| cleans hrrr data that was downloaded from lgaudet's github repo and only keeps variables and locations for nysm|
 |forecase_hr_parquet_builder.py| reads in hrrr data by init time and compiles into temporally linear parquet by valid_time for an input forecast hour |
 
  ## LSTM
  ### data
 | notebook | description |
-|------------------------|
+|-----------|------------|
 |create_data_for_lstm.py| compiles data from hrrr + nysm into a dataframe, indexed by valid_time. Then normalizes data. Then seperates into training and test sets. |
 |hrrr_data.py| compiles cleaned data from hrrr into dataframe for lstm |
 |nysm_data.py|compiles cleaned data from nysm into dataframe for lstm |
 
 ### evaluate
 | notebook | description |
-|------------------------|
+|-----------|------------|
 |eval_single_gpu.py|evaluate model performance on a single gpu|
 |fsdp.py|train an lstm with fully-shared-data-paralellization on multi gpus|
 |lstm_single_gpu.py|train lstm on single gpu (recommended)|
@@ -46,7 +46,7 @@ Downloading NYSM data can be found here: https://www.nysmesonet.org/weather/requ
 
 ### notebooks
 | notebook | description |
-|------------------------|
+|-----------|------------|
 | emd.ipynb | plot empirical mode decomposition of meteorological variables|
 | plot_fh_drift.ipynb | plot the difference in loss by different forecast hours for different lstm models | 
 | visualie_fsdp_lstm_output.ipynb | plots of loss by meteorological variable |
