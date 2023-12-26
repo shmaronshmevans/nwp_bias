@@ -14,14 +14,6 @@ Use these notebooks:
 Downloading NYSM data can be found here: https://www.nysmesonet.org/weather/requestdata
 
 ## Cleaning Data 
-### src
-| notebook | description |
-|-----------|------------|
-|optimizer.config| config dictionary for comet hyperparameter tuning|
-|switchboard.py| init script for fsdp training of lstm|
-|t2m_hrrr_fh2_western_plateau_opt.py| comet hyperparameter training script|
-
-
 ### bias 
 | notebook | description |
 |-----------|------------|
@@ -29,6 +21,13 @@ Downloading NYSM data can be found here: https://www.nysmesonet.org/weather/requ
 |forecase_hr_parquet_builder.py| reads in hrrr data by init time and compiles into temporally linear parquet by valid_time for an input forecast hour |
 
  ## LSTM
+ ### src
+| notebook | description |
+|-----------|------------|
+|optimizer.config| config dictionary for comet hyperparameter tuning|
+|switchboard.py| init script for fsdp training of lstm|
+|t2m_hrrr_fh2_western_plateau_opt.py| comet hyperparameter training script|
+
  ### data
 | notebook | description |
 |-----------|------------|
