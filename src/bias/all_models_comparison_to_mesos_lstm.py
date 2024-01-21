@@ -14,6 +14,7 @@ from multiprocessing import Process
 
 print("imports downloaded")
 
+
 def load_nysm_data(year):
     # these parquet files are created by running "get_resampled_nysm_data.ipynb"
     nysm_path = "/home/aevans/nwp_bias/data/nysm/"
@@ -23,8 +24,8 @@ def load_nysm_data(year):
     return nysm_1H_obs, nysm_3H_obs
 
 
-def read_data_ny(model, month, year):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/fh_10/"
+def read_data_ny(model, month, year, fh):
+    cleaned_data_path = f"/home/aevans/ai2es/lstm/HRRR/fh_{fh}/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -312,7 +313,9 @@ def mask_out_water(model, df_model):
         filename = "20180101_hrrr.t12z.wrfsfcf03.grib2"
         ind = 34
         var = "lsm"
-    ds = cfgrib.open_datasets(f"/home/aevans/ai2es/archived_grib/HRRR/2018/01/20180101_hrrr.t00z.wrfsfcf03.grib2")
+    ds = cfgrib.open_datasets(
+        f"/home/aevans/ai2es/archived_grib/HRRR/2018/01/20180101_hrrr.t00z.wrfsfcf03.grib2"
+    )
 
     ds_tointerp = ds[ind]  # extract the data array that contains land surface class
     ds_tointerp = ds_tointerp.assign_coords(
@@ -334,7 +337,7 @@ def mask_out_water(model, df_model):
     return df_model_merge
 
 
-def main(month, year, model, mask_water=True):
+def main(month, year, model, fh, mask_water=True):
     """
     This function loads in the parquet data cleaned from the grib files and interpolates (GFS, NAM) or finds the nearest
     grid neighbor (HRRR) for each specified variable to each NYSM site location across NYS. It also calculates the
@@ -350,19 +353,19 @@ def main(month, year, model, mask_water=True):
     mask_water (bool) - true to mask out grid cells over water before interpolation/nearest-neighbor, false to leave all grid cells available for interpolation/nearest-neighbor
     """
     start_time = time.time()
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh10/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh{fh}/"
     print("Month: ", month)
     if not os.path.exists(
-            f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
-        ):
+        f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
+    ):
         if model == "HRRR":
             pres = "mslma"
         else:
             pres = "prmsl"
-        
+
         nysm_1H_obs, nysm_3H_obs = load_nysm_data(year)
         print("Loading NYSM Data")
-        df_model_ny = read_data_ny(model, month, year)
+        df_model_ny = read_data_ny(model, month, year, fh)
         print("Loading Model Data")
 
         # drop some info that got carried over from xarray data array
@@ -441,8 +444,12 @@ def main(month, year, model, mask_water=True):
 
         # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
         if model == "NAM":
-            model_data_1H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] <= 36]
-            model_data_3H_ny = df_model_nysm_sites[df_model_nysm_sites["lead time"] > 36]
+            model_data_1H_ny = df_model_nysm_sites[
+                df_model_nysm_sites["lead time"] <= 36
+            ]
+            model_data_3H_ny = df_model_nysm_sites[
+                df_model_nysm_sites["lead time"] > 36
+            ]
 
             # NY
             df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
@@ -454,7 +461,9 @@ def main(month, year, model, mask_water=True):
             df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
             df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
 
-            df_model_nysm_sites = pd.concat([df_model_sites_1H_ny, df_model_sites_3H_ny])
+            df_model_nysm_sites = pd.concat(
+                [df_model_sites_1H_ny, df_model_sites_3H_ny]
+            )
 
         elif model == "GFS":
             df_model_nysm_sites = redefine_precip_intervals_GFS(df_model_nysm_sites)
@@ -477,68 +486,67 @@ def main(month, year, model, mask_water=True):
         print(f"Saving New Files For :: {model} : {year}--{month}")
         print("--- %s seconds ---" % (timer9))
     else:
-        print(f"{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet already compiled")
+        print(
+            f"{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet already compiled"
+        )
         print("... exiting ...")
         exit
 
-# # multiprocessing v2
-# # good for bulk cleaning
-model = 'HRRR'
-year = 2022
-main(str(7).zfill(2), year, model)
 
-# for month in np.arange(1, 13):
-#     print(month)
-#     # Step 1: Init multiprocessing.Pool()
-#     pool = mp.Pool(mp.cpu_count())
+if __name__ == "__main__":
+    # # multiprocessing v2
+    # # good for bulk cleaning
+    model = "HRRR"
+    year = 2023
+    fh = "02"
 
-#     # Step 2: `pool.apply` the `howmany_within_range()`
-#     results = pool.apply(main, args=(str(month).zfill(2), year, model))
+    for month in np.arange(12, 13):
+        print(month)
+        # main(str(month).zfill(2), year, model, fh)
+        # Step 1: Init multiprocessing.Pool()
+        pool = mp.Pool(mp.cpu_count())
 
-#     # Step 3: Don't forget to close
-#     pool.close()
+        # Step 2: `pool.apply` the `howmany_within_range()`
+        results = pool.apply(main, args=(str(month).zfill(2), year, model, fh))
 
+        # Step 3: Don't forget to close
+        pool.close()
 
-# if __name__ == "__main__":
-#     # # multiprocessing v2
-#     # # good for bulk cleaning
-#     model = 'HRRR'
-#     year = 2022
-#     p1 = Process(target=main, args=(str(1).zfill(2), year, model))
-#     p2 = Process(target=main, args=(str(2).zfill(2), year, model))
-#     p3 = Process(target=main, args=(str(3).zfill(2), year, model))
-#     p4 = Process(target=main, args=(str(4).zfill(2), year, model))
-#     p5 = Process(target=main, args=(str(5).zfill(2), year, model))
-#     p6 = Process(target=main, args=(str(6).zfill(2), year, model))
-#     p7 = Process(target=main, args=(str(7).zfill(2), year, model))
-#     p8 = Process(target=main, args=(str(8).zfill(2), year, model))
-#     p9 = Process(target=main, args=(str(9).zfill(2), year, model))
-#     p10 = Process(target=main, args=(str(10).zfill(2), year, model))
-#     p11 = Process(target=main, args=(str(11).zfill(2), year, model))
-#     p12 = Process(target=main, args=(str(12).zfill(2), year, model))
+    # p1 = Process(target=main, args=(str(1).zfill(2), year, model, fh))
+    # p2 = Process(target=main, args=(str(2).zfill(2), year, model, fh))
+    # p3 = Process(target=main, args=(str(3).zfill(2), year, model, fh))
+    # p4 = Process(target=main, args=(str(4).zfill(2), year, model, fh))
+    # p5 = Process(target=main, args=(str(5).zfill(2), year, model, fh))
+    # p6 = Process(target=main, args=(str(6).zfill(2), year, model, fh))
+    # p7 = Process(target=main, args=(str(7).zfill(2), year, model, fh))
+    # p8 = Process(target=main, args=(str(8).zfill(2), year, model, fh))
+    # p9 = Process(target=main, args=(str(9).zfill(2), year, model, fh))
+    # p10 = Process(target=main, args=(str(10).zfill(2), year, model, fh))
+    # p11 = Process(target=main, args=(str(11).zfill(2), year, model, fh))
+    # p12 = Process(target=main, args=(str(12).zfill(2), year, model, fh))
 
-#     p1.start()
-#     p2.start()
-#     p3.start()
-#     p4.start()
-#     p5.start()
-#     p6.start()
-#     p7.start()
-#     p8.start()
-#     p9.start()
-#     p10.start()
-#     p11.start()
-#     p12.start()
+    # p1.start()
+    # p2.start()
+    # p3.start()
+    # p4.start()
+    # p5.start()
+    # p6.start()
+    # p7.start()
+    # p8.start()
+    # p9.start()
+    # p10.start()
+    # p11.start()
+    # p12.start()
 
-#     p1.join()
-#     p2.join()
-#     p3.join()
-#     p4.join()
-#     p5.join()
-#     p6.join()
-#     p7.join()
-#     p8.join()
-#     p9.join()
-#     p10.join()
-#     p11.join()
-#     p12.join()
+    # p1.join()
+    # p2.join()
+    # p3.join()
+    # p4.join()
+    # p5.join()
+    # p6.join()
+    # p7.join()
+    # p8.join()
+    # p9.join()
+    # p10.join()
+    # p11.join()
+    # p12.join()

@@ -49,7 +49,6 @@ from data import hrrr_data
 from data import nysm_data
 
 from visuals import loss_curves
-from comet_ml.integration.pytorch import log_model
 from datetime import datetime
 import statistics as st
 from sklearn.neighbors import BallTree
@@ -497,7 +496,7 @@ def main(
     epochs,
     weight_decay,
     fh,
-    delta, 
+    delta,
     learning_rate,
     sequence_length=120,
     target="target_error",
@@ -615,7 +614,6 @@ def main(
     return test_loss
 
 
-
 config = {
     # Pick the Bayes algorithm:
     "algorithm": "grid",
@@ -641,12 +639,12 @@ opt = Optimizer(config)
 # Finally, get experiments, and train your models:
 for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
     loss = main(
-        batch_size = 120,
-        station = 'OLEA',
+        batch_size=120,
+        station="OLEA",
         num_layers=experiment.get_parameter("num_layers"),
-        epochs = 100, 
+        epochs=100,
         weight_decay=experiment.get_parameter("weight_decay"),
-        fh = 4, 
+        fh=4,
         delta=experiment.get_parameter("delta"),
         learning_rate=experiment.get_parameter("learning_rate"),
     )

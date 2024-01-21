@@ -179,6 +179,7 @@ class ShallowRegressionLSTM(nn.Module):
 
         return out
 
+
 def columns_drop_hrrr(df):
     df = df.drop(
         columns=[
@@ -634,10 +635,10 @@ def main(
 
 main(
     batch_size=int(10e3),
-    station='VOOR',
+    station="VOOR",
     num_layers=5,
     epochs=100,
     weight_decay=0,
     fh=10,
-    model_path='/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:48:45_VOOR.pth'
+    model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:48:45_VOOR.pth",
 )

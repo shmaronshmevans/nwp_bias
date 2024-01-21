@@ -112,7 +112,6 @@ def columns_drop(df):
     return df
 
 
-
 # create LSTM Model
 class SequenceDataset(Dataset):
     def __init__(
@@ -211,13 +210,7 @@ class ShallowRegressionLSTM(nn.Module):
 
 
 def main(
-    model_path,
-    batch_size,
-    sequence_length,
-    station,
-    num_layers,
-    hidden_units,
-    fh
+    model_path, batch_size, sequence_length, station, num_layers, hidden_units, fh
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -275,7 +268,6 @@ def main(
 
     model.load_state_dict(torch.load(model_path))
 
-
     print("evaluating model")
     batch_size = batch_size
     eval_model(
@@ -289,7 +281,7 @@ def main(
         target,
         features,
         device,
-        station
+        station,
     )
     print("Output saved!")
 
@@ -301,5 +293,5 @@ main(
     station="VOOR",
     num_layers=int(5),
     hidden_units=int(67),
-    fh=10
+    fh=10,
 )

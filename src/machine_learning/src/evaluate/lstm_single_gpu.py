@@ -179,6 +179,7 @@ class ShallowRegressionLSTM(nn.Module):
 
         return out
 
+
 def columns_drop_hrrr(df):
     df = df.drop(
         columns=[
@@ -335,7 +336,7 @@ def create_data_for_model(station, fh):
     nysm_df = nysm_data.load_nysm_data()
     nysm_df.reset_index(inplace=True)
     print("-- loading data from HRRR --")
-    hrrr_df = hrrr_data.read_hrrr_data(str(fh))
+    hrrr_df = hrrr_data.read_hrrr_data(str(fh).zfill(2))
 
     # Rename columns for consistency.
     nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
@@ -403,7 +404,7 @@ def create_data_for_model(station, fh):
     lstm_df = lstm_df.drop(columns=[target_sensor])
     # lstm_df = lstm_df.iloc[:-forecast_lead]
     # Split the data into training and testing sets.
-    df_train, df_test = which_fold(lstm_df, 3)
+    df_train, df_test = which_fold(lstm_df, 4)
 
     print("Test Set Fraction", len(df_test) / len(lstm_df))
 
@@ -508,7 +509,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="v6",
+        project_name="AMS_3",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -569,7 +570,7 @@ def main(
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(15)
+    early_stopper = EarlyStopper(20)
 
     init_start_event.record()
     train_loss_ls = []
@@ -588,9 +589,9 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        # if early_stopper.early_stop(test_loss):
-        #     print(f"Early stopping at epoch {ix_epoch}")
-        #     break
+        if early_stopper.early_stop(test_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
 
     init_end_event.record()
 
@@ -621,7 +622,6 @@ def main(
             target,
             features,
             device,
-            today_date,
             station,
         )
 
@@ -632,42 +632,46 @@ def main(
     print("... completed ...")
 
 
-main(
-    batch_size=int(10e3),
-    station='VOOR',
-    num_layers=5,
-    epochs=100,
-    weight_decay=0,
-    fh=4
-)
+# main(
+#     batch_size=int(10e3),
+#     station='BKLN',
+#     num_layers=5,
+#     epochs=20,
+#     weight_decay=0,
+#     fh=18
+# )
+
+# # first iteration to target Brooklyn
+# for f in np.arange(2,19,2):
+#     print(f"Forecast Hour {f}")
+#     main(
+#         batch_size=int(10e3),
+#         station='BKLN',
+#         num_layers=5,
+#         epochs=100,
+#         weight_decay=0,
+#         fh=f
+#     )
 
 
-
+# # second iteration for experiment
 # nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 # clim_divs = nysm_clim["climate_division_name"].unique()
 
 # for c in clim_divs:
+#     print(c)
 #     df = nysm_clim[nysm_clim["climate_division_name"] == c]
 #     temp = df["stid"].unique()
-#     if c == 'Coastal':
-#         station = ['WANT']
-#     else:
-#         station = random.sample(sorted(temp), 1)
+#     station = random.sample(sorted(temp), 1)
 #     for n, _ in enumerate(station):
 #         print(station[n])
-#         main(
-#             batch_size=int(10e3),
-#             station=station[n],
-#             num_layers=5,
-#             epochs=70,
-#             weight_decay=0,
-#             fh=2
-#         )
-#         main(
-#             batch_size=int(10e3),
-#             station=station[n],
-#             num_layers=5,
-#             epochs=70,
-#             weight_decay=0,
-#             fh=4
-#         )
+#         for f in np.arange(2,19,2):
+#             print("FH", f)
+#             main(
+#                 batch_size=int(10e3),
+#                 station=station[n],
+#                 num_layers=5,
+#                 epochs=100,
+#                 weight_decay=0,
+#                 fh=f
+#             )
