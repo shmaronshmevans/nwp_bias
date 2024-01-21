@@ -138,7 +138,8 @@ def main(year):
     nysm_3H_obs.to_parquet(f"{save_path}nysm_3H_obs_{year}.parquet")
 
 
-years = [str(x) for x in np.arange(2018, 2023)]
+main(2023)
+# years = [str(x) for x in np.arange(2018, 2023)]
 
-for year in years:
-    main(year)
+# for year in years:
+#     main(year)

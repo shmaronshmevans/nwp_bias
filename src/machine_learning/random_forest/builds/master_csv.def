@@ -1,0 +1,13 @@
+Bootstrap: docker
+From: python:3.9-slim-buster
+Stage: spython-base
+
+%files
+requirements.txt requirements.txt
+
+%post
+export DEBIAN_FRONTEND=noninteractive
+curl -sL https://deb.nodesource.com/setup_14.x | bash -
+apt-get -y update && apt-get install -y --no-install-recommends \
+python3-pip \
+&& apt-get clean all && rm -rf /var/lib/apt/lists/*

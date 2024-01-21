@@ -24,9 +24,9 @@ def load_nysm_data(year):
 
 
 def read_data_ny(model, init, month, year):
-    cleaned_data_path = f"/home/aevans/ai2es/cleaned/{model}/"
+    cleaned_data_path = f"/home/aevans/ai2es/lstm/fh_04/"
 
-    filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*t{init}z*.parquet")
+    filelist = glob.glob(f"{cleaned_data_path}{year}/*fh04*.parquet")
     filelist.sort()
 
     li = []
@@ -498,19 +498,19 @@ RUN with 75 gb
 """
 
 if __name__ == "__main__":
-    init = "12"
-    p1 = Process(target=main, args=(str(1).zfill(2), 2022, "GFS", init))
-    p2 = Process(target=main, args=(str(2).zfill(2), 2022, "GFS", init))
-    p3 = Process(target=main, args=(str(3).zfill(2), 2022, "GFS", init))
-    p4 = Process(target=main, args=(str(4).zfill(2), 2022, "GFS", init))
-    p5 = Process(target=main, args=(str(5).zfill(2), 2022, "GFS", init))
-    p6 = Process(target=main, args=(str(6).zfill(2), 2022, "GFS", init))
-    p7 = Process(target=main, args=(str(7).zfill(2), 2022, "GFS", init))
-    p8 = Process(target=main, args=(str(8).zfill(2), 2022, "GFS", init))
-    p9 = Process(target=main, args=(str(9).zfill(2), 2022, "GFS", init))
-    p10 = Process(target=main, args=(str(10).zfill(2), 2022, "GFS", init))
-    p11 = Process(target=main, args=(str(11).zfill(2), 2022, "GFS", init))
-    p12 = Process(target=main, args=(str(12).zfill(2), 2022, "GFS", init))
+    init = "04"
+    p1 = Process(target=main, args=(str(1).zfill(2), 2018, "HRRR", init))
+    p2 = Process(target=main, args=(str(2).zfill(2), 2018, "HRRR", init))
+    p3 = Process(target=main, args=(str(3).zfill(2), 2018, "HRRR", init))
+    p4 = Process(target=main, args=(str(4).zfill(2), 2018, "HRRR", init))
+    p5 = Process(target=main, args=(str(5).zfill(2), 2018, "HRRR", init))
+    p6 = Process(target=main, args=(str(6).zfill(2), 2018, "HRRR", init))
+    p7 = Process(target=main, args=(str(7).zfill(2), 2018, "HRRR", init))
+    p8 = Process(target=main, args=(str(8).zfill(2), 2018, "HRRR", init))
+    p9 = Process(target=main, args=(str(9).zfill(2), 2018, "HRRR", init))
+    p10 = Process(target=main, args=(str(10).zfill(2), 2018, "HRRR", init))
+    p11 = Process(target=main, args=(str(11).zfill(2), 2018, "HRRR", init))
+    p12 = Process(target=main, args=(str(12).zfill(2), 2018, "HRRR", init))
 
     p1.start()
     p2.start()

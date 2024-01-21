@@ -4,7 +4,7 @@ import glob
 import os.path
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 import multiprocessing as mp
 from multiprocessing import Process
 from pathlib import Path
@@ -193,7 +193,9 @@ def main(model, data_type, init_date, init_time):
     day = str(init_date.day).zfill(2)
 
     # where you want the files to download
-    download_dir = f"/home/aevans/ai2es/{model.upper()}/{year}/{month}/"
+    download_dir = (
+        f"/home/aevans/nwp_bias/data/model_data/{model.upper()}/{year}/{month}/"
+    )
     print("Downloand_dir: ", download_dir)
 
     if model == "nam":
@@ -249,24 +251,18 @@ def main(model, data_type, init_date, init_time):
 
 
 # multiprocessing v2
-# good for bulk cleaning
-models = ["gfs", "hrrr", "nam"]
+# this is how you want the files to be input for each model
+# second component is the file format
 data_type_dict = {"gfs": "pgrb2.0p50", "nam": "awphys", "hrrr": "wrfsfc"}
-init_time = "00"
+
+# download request time
+init_time = "18"
+model = "gfs"
+init_date = datetime(2022, 1, 1)
+end_date = datetime(2023, 12, 31)
 
 
-for model in models:
-    for month in np.arange(1, 13):
-        init_date = datetime(2022, month, 1)
-
-        # Step 1: Init multiprocessing.Pool()
-        pool = mp.Pool(mp.cpu_count())
-        init_date = datetime(2022, month, 1)
-
-        # Step 2: `pool.apply` the `howmany_within_range()`
-        results = pool.apply(
-            main, args=(model, data_type_dict.get(model), init_date, init_time)
-        )
-
-        # Step 3: Don't forget to close
-        pool.close()
+delta2 = timedelta(days=1)
+while init_date < end_date:
+    main("gfs", data_type_dict.get("gfs"), init_date, init_time)
+    init_date += delta2

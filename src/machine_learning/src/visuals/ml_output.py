@@ -1,64 +1,28 @@
-import plotly.io as pio
-import plotly.express as px
-import plotly.graph_objects as go
-import os 
-import pandas as pd 
-import matplotlib.pyplot as plt 
-from comet_ml import Experiment, Artifact
-import datetime as dt
-from datetime import date
-from datetime import datetime
+# -*- coding: utf-8 -*-
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
 
 
-def plot_plotly(df_out, title, today_date, today_date_hr, experiment):
-    length = len(df_out)
-    pio.templates.default = "seaborn"
-    plot_template = dict(
-        layout=go.Layout(
-            {"font_size": 18, "xaxis_title_font_size": 24, "yaxis_title_font_size": 24}
-        )
+def plot_plotly(df, title, target):
+    df = df.sort_index()
+    fig, ax = plt.subplots(figsize=(21, 6))
+    plt.plot(df[target], c="r", label="Target")
+    plt.plot(df["Model forecast"], c="b", alpha=0.7, label="LSTM Output")
+    plt.axvline(
+        x=(int(0.2 * len(df["Model forecast"]))),
+        c="black",
+        linestyle="--",
+        linewidth=2.0,
+        label="Test Set Start",
     )
-
-    fig = px.line(
-        df_out,
-        labels=dict(created_at="Date", value="Forecast Error"),
-        title=f"{title}",
-        width=1200,
-        height=400,
+    ax.set_title(f"LSTM Output v Target -- {title}", fontsize=28)
+    ax.set_xticklabels([2018, 2019, 2020, 2021, 2022], fontsize=18)
+    ax.set_xticks(
+        np.arange(0, len(df["Model forecast"]), (len(df["Model forecast"]) / 5))
     )
-
-    fig.add_vline(x=(length * 0.2), line_width=4, line_dash="dash")
-    fig.add_annotation(
-        xref="paper",
-        x=0.2,
-        yref="paper",
-        y=0.8,
-        text="Test set start",
-        showarrow=False,
+    ax.legend()
+    plt.savefig(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{title}.png"
     )
-    fig.update_layout(
-        template=plot_template, legend=dict(orientation="h", y=1.02, title_text="")
-    )
-
-    if (
-        os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
-        == False
-    ):
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/"
-        )
-
-    os.mkdir(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}_{today_date_hr}/"
-    )
-    fig.write_image(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}_{today_date_hr}/{title}.png"
-    )
-
-    artifact3 = Artifact(name="data_output", artifact_type="line plot")
-    artifact3.add(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{title}_{today_date_hr}/{title}.png"
-    )
-    experiment.log_artifact(artifact3)
