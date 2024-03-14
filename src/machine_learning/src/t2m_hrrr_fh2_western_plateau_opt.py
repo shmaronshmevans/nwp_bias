@@ -47,6 +47,7 @@ from evaluate import eval_single_gpu
 
 from data import hrrr_data
 from data import nysm_data
+from data import create_data_for_lstm, create_data_for_lstm_gfs
 
 from visuals import loss_curves
 from datetime import datetime
@@ -70,6 +71,7 @@ class SequenceDataset(Dataset):
         sequence_length,
         forecast_hr,
         device,
+        model,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -78,24 +80,38 @@ class SequenceDataset(Dataset):
         self.stations = stations
         self.forecast_hr = forecast_hr
         self.device = device
+        self.model = model
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
 
     def __len__(self):
         return self.X.shape[0]
 
-    def __getitem__(self, i):
-        if i >= self.sequence_length - 1:
-            i_start = i - self.sequence_length + 1
-            x = self.X[i_start : (i + 1), :]
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                self.forecast_hr + 1, -int(len(self.stations) * 15) :
-            ]
-        else:
-            padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
-            x = self.X[0 : (i + 1), :]
-            x = torch.cat((padding, x), 0)
 
+    def __getitem__(self, i):
+        if self.model != 'GFS':
+            if i >= self.sequence_length - 1:
+                i_start = i - self.sequence_length + 1
+                x = self.X[i_start : (i + 1), :]
+                x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
+                    self.forecast_hr, -int(len(self.stations) * 15) :
+                ]
+            else:
+                padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
+                x = self.X[0 : (i + 1), :]
+                x = torch.cat((padding, x), 0)
+
+        else:
+            if i >= self.sequence_length - 1:
+                i_start = i - self.sequence_length + 1
+                x = self.X[i_start : (i + 1), :]
+                x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
+                    self.forecast_hr, -int(len(self.stations) * 15) :
+                ]
+            else:
+                padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
+                x = self.X[0 : (i + 1), :]
+                x = torch.cat((padding, x), 0)
         return x, self.y[i]
 
 
@@ -132,14 +148,13 @@ def make_dirs(today_date):
         )
 
 
-def get_time_title(station, val_loss):
-    title = f"{station}_loss_{val_loss}"
+def get_time_title(station):
     today = datetime.now()
     today_date = today.strftime("%Y%m%d")
     today_date_hr = today.strftime("%Y%m%d_%H:%M")
     make_dirs(today_date)
 
-    return title, today_date, today_date_hr
+    return today_date, today_date_hr
 
 
 class ShallowRegressionLSTM(nn.Module):
@@ -498,6 +513,7 @@ def main(
     fh,
     delta,
     learning_rate,
+    model,
     sequence_length=120,
     target="target_error",
     save_model=False,
@@ -513,6 +529,7 @@ def main(
     print(" *********")
     print("::: In Main :::")
     station = station
+    today_date, today_date_hr = get_time_title(station)
 
     (
         df_train,
@@ -521,7 +538,7 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_model(station, fh)
+    ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date) #to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from 
     train_dataset = SequenceDataset(
         df_train,
         target=target,
@@ -530,6 +547,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
+        model = model
     )
     test_dataset = SequenceDataset(
         df_test,
@@ -539,6 +557,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
+        model = model
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
@@ -583,8 +602,7 @@ def main(
     early_stopper = EarlyStopper(15)
 
     init_start_event.record()
-    train_loss_ls = []
-    test_loss_ls = []
+
     for ix_epoch in range(1, epochs + 1):
         train_loss = train_model(
             train_loader, model, loss_function, optimizer, device, ix_epoch
@@ -637,16 +655,17 @@ print("!!! begin optimizer !!!")
 opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
+for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm-gfs"):
     loss = main(
         batch_size=120,
         station="OLEA",
         num_layers=experiment.get_parameter("num_layers"),
         epochs=100,
         weight_decay=experiment.get_parameter("weight_decay"),
-        fh=4,
+        fh=3,
         delta=experiment.get_parameter("delta"),
         learning_rate=experiment.get_parameter("learning_rate"),
+        model = 'GFS'
     )
 
     experiment.log_metric("loss", loss)

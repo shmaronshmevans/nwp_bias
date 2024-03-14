@@ -162,11 +162,6 @@ def main(
     torch.cuda.set_device(device)
     print(device)
     torch.manual_seed(101)
-    experiment = Experiment(
-        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="hyperparameter-tuning-for-rnn",
-        workspace="shmaronshmevans",
-    )
     (
         df_train,
         df_test,
@@ -229,8 +224,7 @@ def main(
     }
 
     init_start_event.record()
-    train_loss_ls = []
-    test_loss_ls = []
+
     for ix_epoch in range(1, epochs + 1):
         train_loss = train_model(
             train_loader, model, loss_function, optimizer, device, ix_epoch
@@ -238,20 +232,15 @@ def main(
 
         test_loss = test_model(test_loader, model, loss_function, device, ix_epoch)
         print(" ")
-        train_loss_ls.append(train_loss)
-        test_loss_ls.append(test_loss)
-        # log info for comet and loss curves
-        experiment.set_epoch(ix_epoch)
+        experiment.log_metrics(hyper_params, epoch=ix_epoch)
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
-        experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        
 
     init_end_event.record()
     print("Successful Experiment")
-    # Seamlessly log your Pytorch model
-    experiment.end()
     print("... completed ...")
-    return min(test_loss)
+    return test_loss
 
 
 config = {
@@ -264,10 +253,10 @@ config = {
     },
     # Declare your hyperparameters:
     "parameters": {
-        "hid_size": {"type": "integer", "min": 10, "max": 1000},
-        "n_layers": {"type": "integer", "min": 1, "max": 15},
-        "learning_rate": {"type": "float", "min": 0.0, "max": 1.0},
-        "weight_decay": {"type": "float", "min": 0.0, "max": 1.0},
+        "hid_size": {"type": "integer", "min": 50, "max": 100},
+        "n_layers": {"type": "integer", "min": 1, "max": 8},
+        "learning_rate": {"type": "float", "min": 9e-3, "max": 1e-1},
+        "weight_decay": {"type": "float", "min": 0.0, "max": 0.5},
     },
     "trials": 30,
 }
@@ -279,7 +268,7 @@ opt = Optimizer(config)
 # Finally, get experiments, and train your models:
 for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-rnn"):
     loss = main(
-        station="OLEA",
+        station="FRED",
         fh=6,
         in_size=134,
         hid_size=experiment.get_parameter("hid_size"),
@@ -288,7 +277,7 @@ for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-rn
         out_size=1,
         sequence_length=120,
         batch_size=int(10e2),
-        learning_rate=5e-3,
+        learning_rate=experiment.get_parameter("learning_rate"),
         weight_decay=experiment.get_parameter("weight_decay"),
     )
     experiment.log_metric("loss", loss)

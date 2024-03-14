@@ -60,6 +60,7 @@ def eval_model(
     features,
     device,
     station,
+    today_date
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -86,7 +87,7 @@ def eval_model(
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{title}_ml_output_{station}.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{title}_ml_output_{station}.parquet"
     )
 
 
@@ -282,16 +283,17 @@ def main(
         features,
         device,
         station,
+        today_date
     )
     print("Output saved!")
 
 
-main(
-    model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:54:04_VOOR.pth",
-    batch_size=int(10e5),
-    sequence_length=int(120),
-    station="VOOR",
-    num_layers=int(5),
-    hidden_units=int(67),
-    fh=10,
-)
+# main(
+#     model_path="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/20231221/lstm_v12_21_2023_16:54:04_VOOR.pth",
+#     batch_size=int(10e5),
+#     sequence_length=int(120),
+#     station="VOOR",
+#     num_layers=int(5),
+#     hidden_units=int(67),
+#     fh=10,
+# )

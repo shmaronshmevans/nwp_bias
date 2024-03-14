@@ -46,6 +46,7 @@ def main(init_date, end_date, base_url, model, init):
     delta2 = timedelta(days=1)
 
     while init_date <= end_date:
+        print(init_date)
         month = str(init_date.month).zfill(2)
         year = init_date.year
         day = str(init_date.day).zfill(2)
@@ -77,6 +78,7 @@ def main(init_date, end_date, base_url, model, init):
             continue  # Move on to the next iteration of the loop
         # Extract the contents of the tar file
         with tarfile.open(os.path.join(download_dir, filename), "r") as tar:
+            print(f'{download_dir}{filename}')
             tar.extractall(download_dir)
         os.remove(f"{download_dir}/{filename}")
         delete_unwanted_fh(download_dir, access_fold2, init)
@@ -84,10 +86,10 @@ def main(init_date, end_date, base_url, model, init):
         init_date += delta2
 
 
-init_date = datetime(2020, 8, 15)
-end_date = datetime(2020, 8, 31)
-base_url = "https://www.ncei.noaa.gov/pub/has/model/HAS012471009/"
+init_date = datetime(2021, 12, 21)
+end_date = datetime(2021, 12, 31)
+base_url = "https://www.ncei.noaa.gov/pub/has/model/HAS012493088/"
 model = "gfs"
-init = "06"
+init = "18"
 
 main(init_date, end_date, base_url, model, init)
