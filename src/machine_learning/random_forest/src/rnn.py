@@ -12,6 +12,12 @@ from comet_ml import Experiment, Artifact
 import random
 import pandas as pd
 import numpy as np
+from datetime import datetime
+import os 
+import statistics as st
+
+
+from visuals import loss_curves
 
 
 # create LSTM Model
@@ -140,6 +146,17 @@ def test_model(data_loader, model, loss_function, device, epoch):
     return avg_loss
 
 
+def predict(data_loader, model, device):
+    output = torch.tensor([]).to(device)
+    model.eval()
+    with torch.no_grad():
+        for batch_idx, (X, y) in enumerate(data_loader):
+            X = X.to(device)
+            y_star = model(X)
+            output = torch.cat((output, y_star), 0)
+    return output
+
+
 def eval_model(
     train_dataset,
     df_train,
@@ -151,6 +168,7 @@ def eval_model(
     target,
     features,
     rank,
+    station
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -176,8 +194,35 @@ def eval_model(
     print("now =", now)
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
+    df_out.to_parquet(
+    f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/RNN/{title}_ml_output_{station}.parquet"
+    )
     return df_out
 
+
+def make_dirs(today_date):
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/RNN/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/RNN/{today_date}"
+        )
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/RNN/{today_date}"
+        )
+
+def get_time_title(station, val_loss):
+    title = f"{station}_loss_{val_loss}"
+    today = datetime.now()
+    today_date = today.strftime("%Y%m%d")
+    today_date_hr = today.strftime("%Y%m%d_%H:%M")
+    make_dirs(today_date)
+    dt_string = today.strftime("%m_%d_%Y_%H:%M:%S")
+
+    return title, today_date, today_date_hr, dt_string
 
 def main(
     station,
@@ -282,6 +327,7 @@ def main(
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
 
+    title, today_date, today_date_hr, dt_string = get_time_title(station, min(test_loss_ls))
     eval_model(
         train_dataset,
         df_train,
@@ -289,12 +335,20 @@ def main(
         test_dataset,
         model,
         batch_size,
-        "Eval_model",
+        title,
         target,
         features,
         device,
+        station 
     )
-
+    states = model.state_dict()
+    torch.save(
+            states,
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/RNN/{today_date}/lstm_v{dt_string}_{station}.pth",
+        )
+    loss_curves.loss_curves(
+    train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
+    )
     init_end_event.record()
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
@@ -302,15 +356,21 @@ def main(
     print("... completed ...")
 
 
-# second iteration for experiment
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-clim_divs = nysm_clim["climate_division_name"].unique()
+# # second iteration for experiment
+# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+# clim_divs = nysm_clim["climate_division_name"].unique()
 
-for c in clim_divs:
-    print(c)
-    df = nysm_clim[nysm_clim["climate_division_name"] == c]
-    temp = df["stid"].unique()
-    station = random.sample(sorted(temp), 1)
-    for n, _ in enumerate(station):
-        print(station[n])
-        main(station=station[n], fh=4, in_size=134, hid_size=70, n_layers=3, epochs=100)
+# for c in clim_divs:
+#     print(c)
+#     df = nysm_clim[nysm_clim["climate_division_name"] == c]
+#     temp = df["stid"].unique()
+#     station = random.sample(sorted(temp), 1)
+#     for n, _ in enumerate(station):
+#         print(station[n])
+#         main(station=station[n], fh=4, in_size=134, hid_size=70, n_layers=3, epochs=5)
+
+
+
+
+for i in np.arange(2,19,2):
+    main(station='SUFF', fh=i, in_size=134, hid_size=70, n_layers=3, epochs=100)
