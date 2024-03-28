@@ -34,7 +34,7 @@ from torch.distributed.fsdp.wrap import (
 
 import pandas as pd
 import numpy as np
-import gc 
+import gc
 
 from processing import col_drop
 from processing import get_flag
@@ -46,7 +46,7 @@ from evaluate import eval_single_gpu
 
 from data import hrrr_data
 from data import nysm_data
-from data import create_data_for_lstm, create_data_for_lstm_gfs 
+from data import create_data_for_lstm, create_data_for_lstm_gfs
 
 from visuals import loss_curves
 from comet_ml.integration.pytorch import log_model
@@ -87,27 +87,47 @@ class SequenceDataset(Dataset):
     def __len__(self):
         return self.X.shape[0]
 
+    # def __getitem__(self, i):
+    #     if i >= self.sequence_length - 1:
+    #         i_start = i - self.sequence_length + 1
+    #         x = self.X[i_start:(i + 1), :]
+    #     else:
+    #         padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
+    #         x = self.X[0:(i + 1), :]
+    #         x = torch.cat((padding, x), 0)
+
+    #     return x, self.y[i]
 
     def __getitem__(self, i):
-        if self.model != 'GFS':
+        if self.model == "HRRR":
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                    self.forecast_hr, -int(len(self.stations) * 15) :
+                x[: self.forecast_hr, -int(len(self.stations) * 16) :] = x[
+                    self.forecast_hr, -int(len(self.stations) * 16) :
                 ]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
                 x = self.X[0 : (i + 1), :]
                 x = torch.cat((padding, x), 0)
-
-        else:
+        if self.model == "GFS":
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                    self.forecast_hr, -int(len(self.stations) * 15) :
+                x[: int(self.forecast_hr / 3), -int(len(self.stations) * 16) :] = x[
+                    int(self.forecast_hr / 3), -int(len(self.stations) * 16) :
                 ]
+            else:
+                padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
+                x = self.X[0 : (i + 1), :]
+                x = torch.cat((padding, x), 0)
+        if self.model == "NAM":
+            if i >= self.sequence_length - 1:
+                i_start = i - self.sequence_length + 1
+                x = self.X[i_start : (i + 1), :]
+                x[
+                    : int((self.forecast_hr + 2) // 3), -int(len(self.stations) * 16) :
+                ] = x[int((self.forecast_hr + 2) // 3), -int(len(self.stations) * 16) :]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
                 x = self.X[0 : (i + 1), :]
@@ -207,6 +227,7 @@ class ShallowRegressionLSTM(nn.Module):
 
         return out
 
+
 def train_model(data_loader, model, loss_function, optimizer, device, epoch):
     num_batches = len(data_loader)
     total_loss = 0
@@ -295,11 +316,13 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date) #to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from 
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date
+    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="gfs_v_hrrr",
+        project_name="lstm_alpha_clim_div",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -310,7 +333,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model = model
+        model=model,
     )
     test_dataset = SequenceDataset(
         df_test,
@@ -320,7 +343,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model = model
+        model=model,
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
@@ -334,7 +357,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(0.5 * len(features))
+    hidden_units = int(1.1 * len(features))
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -347,7 +370,7 @@ def main(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     # loss_function = nn.MSELoss()
-    loss_function = nn.HuberLoss(delta=1.5)
+    loss_function = nn.HuberLoss(delta=2.0)
 
     hyper_params = {
         "num_layers": num_layers,
@@ -417,24 +440,24 @@ def main(
             features,
             device,
             station,
-            today_date
+            today_date,
         )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="gfs_v_hrrr")
+    log_model(experiment, model, model_name="v9")
     experiment.end()
     print("... completed ...")
 
 
 # main(
 #     batch_size=int(10e2),
-#     station='BUFF',
+#     station='VOOR',
 #     num_layers=5,
-#     epochs=100,
+#     epochs=500,
 #     weight_decay=0,
-#     fh=3, 
-#     model='GFS'
+#     fh=4,
+#     model='HRRR',
 # )
 
 # # first iteration to target Brooklyn
@@ -450,7 +473,7 @@ def main(
 #     )
 
 
-# second iteration for experiment
+# # second iteration for experiment
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 clim_divs = nysm_clim["climate_division_name"].unique()
 
@@ -461,14 +484,14 @@ for c in clim_divs:
     station = random.sample(sorted(temp), 1)
     for n, _ in enumerate(station):
         print(station[n])
-        for f in np.arange(3,31,3):
+        for f in np.arange(2, 19, 2):
             print("FH", f)
             main(
-                batch_size=int(10e3),
+                batch_size=int(50e2),
                 station=station[n],
                 num_layers=5,
                 epochs=100,
                 weight_decay=0,
                 fh=f,
-                model='GFS'
+                model="HRRR",
             )

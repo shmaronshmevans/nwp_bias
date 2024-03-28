@@ -21,6 +21,8 @@ def nwp_error(target, station, df):
     vars_dict = {
         "t2m": "tair",
         "mslma": "pres",
+        "tp": "precip_total",
+        "u_total": "wspd_sonic_mean",
         # Add more variable mappings as needed.
     }
 

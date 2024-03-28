@@ -10,7 +10,9 @@ def make_dirs(year, month, day, fh, model):
         os.makedirs(f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/")
     if not os.path.exists(f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/{year}/"):
         os.makedirs(f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/{year}/")
-    if not os.path.exists(f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/{year}/{month}/"):
+    if not os.path.exists(
+        f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/{year}/{month}/"
+    ):
         os.makedirs(f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/{year}/{month}/")
 
 
@@ -28,7 +30,7 @@ def main(start_date, end_date, fh, model):
     """
 
     # Output directory for cleaned data
-    savedir = "/home/aevans/ai2es/cleaned/GFS/"
+    savedir = "/home/aevans/ai2es/cleaned/NAM/"
 
     # Time interval between data points
     delta = timedelta(days=1)
@@ -67,7 +69,7 @@ def main(start_date, end_date, fh, model):
                 if model.upper() == "GFS":
                     my_time = time_obj + timedelta(hours=6)
                 if model.upper() == "NAM":
-                    my_time = time_obj + timedelta(hours=1)
+                    my_time = time_obj + timedelta(hours=6)
 
         start_date += delta
 
@@ -80,14 +82,14 @@ def main(start_date, end_date, fh, model):
         print(the_df)
 
 
-for i in np.arange(3, 97, 3):
+for i in np.arange(1, 85):
     fh = str(i).zfill(3)
     main(
-        datetime(2023, 1, 1, 0, 0, 0),
+        datetime(2021, 10, 1, 0, 0, 0),
         datetime(2023, 12, 31, 23, 59, 59),
         fh,
-        "GFS",
-        )
+        "NAM",
+    )
 # # Step 1: Initialize multiprocessing.Pool()
 #     pool = mp.Pool(mp.cpu_count())
 
