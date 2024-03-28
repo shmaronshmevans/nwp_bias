@@ -60,7 +60,7 @@ def eval_model(
     features,
     device,
     station,
-    today_date
+    today_date,
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -283,7 +283,7 @@ def main(
         features,
         device,
         station,
-        today_date
+        today_date,
     )
     print("Output saved!")
 

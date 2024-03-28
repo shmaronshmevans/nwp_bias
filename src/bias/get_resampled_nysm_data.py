@@ -83,6 +83,24 @@ def get_resampled_precip_data(df, interval, method):
     )
 
 
+def get_resampled_wind_data(df, interval, method):
+    """
+    df: main dataframe [pandas dataframe]
+    interval: the frequency at which the data should be resampled
+    method: min, max, mean, etc. [str]
+    """
+    df = df.reset_index()
+    wind_resampled = (
+        df.groupby(["station", pd.Grouper(freq=interval, key="time_5M")])["wspd_sonic"]
+        .apply(method)
+        .rename(f"wspd_sonic_{method}")
+        .rename_axis(index={"time_5M": f"time_{interval}"})
+        .reset_index()
+        .set_index(["station", f"time_{interval}"])
+    )
+    return wind_resampled
+
+
 def get_nysm_dataframe_for_resampled(df_nysm, freq):
     nysm_vars = [
         "lat",
@@ -105,19 +123,34 @@ def get_nysm_dataframe_for_resampled(df_nysm, freq):
         hours_list = np.arange(0, 24)  # every hour
     elif freq == "3H":
         hours_list = np.arange(0, 24, 3)  # every 3 hours
-    dfs = []
+
+    precip_dfs = []
+    wind_dfs = []
 
     for var in nysm_vars:
-        if var in ["precip_total"]:
-            print(var)
-            dfs += [get_resampled_precip_data(df_nysm[var], freq, "sum")]
+        print(var)
+        if var == "precip_total":
+            precip_dfs.append(get_resampled_precip_data(df_nysm[var], freq, "sum"))
+        elif var == "wspd_sonic":
+            wind_resampled = get_resampled_wind_data(df_nysm[var], freq, "mean")
+            wind_valid_time = get_valid_time_data(df_nysm[var], hours_list, freq)
+            # Combine wind data with valid time data
+            wind_dfs.append(wind_resampled)
+            wind_dfs.append(wind_valid_time)
         else:
-            dfs += [get_valid_time_data(df_nysm[var], hours_list, freq)]
+            wind_dfs.append(get_valid_time_data(df_nysm[var], hours_list, freq))
 
-    nysm_obs = pd.concat(dfs, axis=1)
+    precip_combined = pd.concat(precip_dfs, axis=1)
+    wind_combined = pd.concat(wind_dfs, axis=1)
+
+    # Concatenate precip and wind data frames
+    nysm_obs = pd.concat([wind_combined, precip_combined], axis=1)
+
+    # Apply condition to precip_total column
     nysm_obs["precip_total"] = nysm_obs["precip_total"].apply(
         lambda x: np.where(x < 0.0, np.nan, x)
     )
+
     return nysm_obs
 
 
@@ -138,8 +171,8 @@ def main(year):
     nysm_3H_obs.to_parquet(f"{save_path}nysm_3H_obs_{year}.parquet")
 
 
-main(2023)
-# years = [str(x) for x in np.arange(2018, 2023)]
+# main(2023)
+years = [str(x) for x in np.arange(2018, 2024)]
 
-# for year in years:
-#     main(year)
+for year in years:
+    main(year)

@@ -83,14 +83,16 @@ def main(start_date, end_date, fh):
         )
 
 
-# Step 1: Initialize multiprocessing.Pool()
-pool = mp.Pool(mp.cpu_count())
+for i in np.arange(1, 18, 2):
+    fh = str(i).zfill(2)
+    # Step 1: Initialize multiprocessing.Pool()
+    pool = mp.Pool(mp.cpu_count())
 
-# Step 2: Use pool.apply() to execute the main function with specified arguments
-results = pool.apply(
-    main,
-    args=(datetime(2023, 12, 1, 0, 0, 0), datetime(2023, 12, 31, 23, 59, 59), "02"),
-)
+    # Step 2: Use pool.apply() to execute the main function with specified arguments
+    results = pool.apply(
+        main,
+        args=(datetime(2018, 1, 1, 0, 0, 0), datetime(2023, 12, 31, 23, 59, 59), fh),
+    )
 
-# Step 3: Close the multiprocessing pool
-pool.close()
+    # Step 3: Close the multiprocessing pool
+    pool.close()

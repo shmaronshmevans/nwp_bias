@@ -13,7 +13,7 @@ import random
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import os 
+import os
 import statistics as st
 
 
@@ -50,7 +50,7 @@ class SequenceDataset(Dataset):
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
             x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                self.forecast_hr + 1, -int(len(self.stations) * 15) :
+                self.forecast_hr, -int(len(self.stations) * 15) :
             ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -168,7 +168,7 @@ def eval_model(
     target,
     features,
     rank,
-    station
+    station,
 ):
     train_eval_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size, shuffle=False
@@ -195,7 +195,7 @@ def eval_model(
     # dd/mm/YY H:M:S
     dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
     df_out.to_parquet(
-    f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/RNN/{title}_ml_output_{station}.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/RNN/{title}_ml_output_{station}.parquet"
     )
     return df_out
 
@@ -214,6 +214,7 @@ def make_dirs(today_date):
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/RNN/{today_date}"
         )
 
+
 def get_time_title(station, val_loss):
     title = f"{station}_loss_{val_loss}"
     today = datetime.now()
@@ -223,6 +224,7 @@ def get_time_title(station, val_loss):
     dt_string = today.strftime("%m_%d_%Y_%H:%M:%S")
 
     return title, today_date, today_date_hr, dt_string
+
 
 def main(
     station,
@@ -246,7 +248,7 @@ def main(
     torch.manual_seed(101)
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="RNN_beta",
+        project_name="RNN_fh_drift",
         workspace="shmaronshmevans",
     )
     (
@@ -297,7 +299,8 @@ def main(
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    loss_function = nn.MSELoss()
+    # loss_function = nn.MSELoss()
+    loss_function = nn.HuberLoss(delta=1.5)
 
     hyper_params = {
         "num_layers": n_layers,
@@ -327,7 +330,9 @@ def main(
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
 
-    title, today_date, today_date_hr, dt_string = get_time_title(station, min(test_loss_ls))
+    title, today_date, today_date_hr, dt_string = get_time_title(
+        station, min(test_loss_ls)
+    )
     eval_model(
         train_dataset,
         df_train,
@@ -339,15 +344,15 @@ def main(
         target,
         features,
         device,
-        station 
+        station,
     )
     states = model.state_dict()
     torch.save(
-            states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/RNN/{today_date}/lstm_v{dt_string}_{station}.pth",
-        )
+        states,
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/RNN/{today_date}/lstm_v{dt_string}_{station}.pth",
+    )
     loss_curves.loss_curves(
-    train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
+        train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
     )
     init_end_event.record()
     print("Successful Experiment")
@@ -356,9 +361,30 @@ def main(
     print("... completed ...")
 
 
-# # second iteration for experiment
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# clim_divs = nysm_clim["climate_division_name"].unique()
+# second iteration for experiment
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+clim_divs = nysm_clim["climate_division_name"].unique()
+
+for c in clim_divs:
+    print(c)
+    df = nysm_clim[nysm_clim["climate_division_name"] == c]
+    temp = df["stid"].unique()
+    station = random.sample(sorted(temp), 1)
+    for n, _ in enumerate(station):
+        print(station[n])
+        for i in np.arange(2, 19, 2):
+            main(
+                station=station[n],
+                fh=i,
+                in_size=134,
+                hid_size=70,
+                n_layers=3,
+                epochs=100,
+            )
+
+
+# main(station='DELE', fh=2, in_size=134, hid_size=70, n_layers=3, epochs=100)
+
 
 # for c in clim_divs:
 #     print(c)
@@ -367,10 +393,14 @@ def main(
 #     station = random.sample(sorted(temp), 1)
 #     for n, _ in enumerate(station):
 #         print(station[n])
-#         main(station=station[n], fh=4, in_size=134, hid_size=70, n_layers=3, epochs=5)
-
-
-
-
-for i in np.arange(2,19,2):
-    main(station='SUFF', fh=i, in_size=134, hid_size=70, n_layers=3, epochs=100)
+#         for f in np.arange(2,19,2):
+#             print("FH", f)
+#             main(
+#                 batch_size=int(10e3),
+#                 station=station[n],
+#                 num_layers=5,
+#                 epochs=100,
+#                 weight_decay=0,
+#                 fh=f,
+#                 model='HRRR'
+#             )

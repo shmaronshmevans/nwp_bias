@@ -235,7 +235,6 @@ def main(
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
-        
 
     init_end_event.record()
     print("Successful Experiment")

@@ -87,14 +87,13 @@ class SequenceDataset(Dataset):
     def __len__(self):
         return self.X.shape[0]
 
-
     def __getitem__(self, i):
-        if self.model != 'GFS':
+        if self.model != "GFS":
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                    self.forecast_hr, -int(len(self.stations) * 15) :
+                x[: self.forecast_hr, -int(len(self.stations) * 16) :] = x[
+                    self.forecast_hr, -int(len(self.stations) * 16) :
                 ]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -424,7 +423,7 @@ def create_data_for_model(station, fh):
             stdevs = st.pstdev(new_df[k])
             new_df[k] = (new_df[k] - means) / stdevs
 
-    features = list(new_df.columns.difference(["target_error"]))
+    features = [c for c in new_df.columns if c != "target_error"]
     lstm_df = new_df.copy()
     target_sensor = "target_error"
     forecast_lead = 0
@@ -511,9 +510,9 @@ def main(
     epochs,
     weight_decay,
     fh,
-    delta,
     learning_rate,
     model,
+    hidden_units,
     sequence_length=120,
     target="target_error",
     save_model=False,
@@ -538,7 +537,9 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date) #to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from 
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date
+    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     train_dataset = SequenceDataset(
         df_train,
         target=target,
@@ -547,7 +548,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model = model
+        model=model,
     )
     test_dataset = SequenceDataset(
         df_test,
@@ -557,7 +558,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model = model
+        model=model,
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
@@ -571,7 +572,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(0.5 * len(features))
+    # hidden_units = int(0.5 * len(features))
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -583,8 +584,8 @@ def main(
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    # loss_function = nn.MSELoss()
-    loss_function = nn.HuberLoss(delta=delta)
+    loss_function = nn.MSELoss()
+    # loss_function = nn.HuberLoss(delta=delta)
 
     hyper_params = {
         "num_layers": num_layers,
@@ -645,7 +646,8 @@ config = {
         "num_layers": {"type": "integer", "min": 3, "max": 10},
         "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-3},
         "weight_decay": {"type": "float", "min": 0, "max": 1},
-        "delta": {"type": "float", "min": 0.0, "max": 5.0},
+        # "delta": {"type": "float", "min": 0.0, "max": 5.0},
+        "hidden_units": {"type": "integer", "min": 1.0, "max": 5000.0},
     },
     "trials": 30,
 }
@@ -655,17 +657,17 @@ print("!!! begin optimizer !!!")
 opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm-gfs"):
+for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
     loss = main(
         batch_size=120,
         station="OLEA",
         num_layers=experiment.get_parameter("num_layers"),
         epochs=100,
         weight_decay=experiment.get_parameter("weight_decay"),
-        fh=3,
-        delta=experiment.get_parameter("delta"),
+        fh=4,
         learning_rate=experiment.get_parameter("learning_rate"),
-        model = 'GFS'
+        model="HRRR",
+        hidden_units=experiment.get_parameter("hidden_units"),
     )
 
     experiment.log_metric("loss", loss)

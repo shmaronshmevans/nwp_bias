@@ -22,6 +22,7 @@ import datetime as datetime
 
 print("imports downloaded")
 
+
 def load_nysm_data(year):
     # these parquet files are created by running "get_resampled_nysm_data.ipynb"
     nysm_path = "/home/aevans/nwp_bias/data/nysm/"
@@ -46,9 +47,11 @@ def read_data_ny(model, month, year, fh):
     df = pd.concat(li)
     return df
 
+
 def make_dirs(save_dir, fh):
     if not os.path.exists(f"{save_dir}/"):
         os.makedirs(f"{save_dir}/")
+
 
 def reformat_df(df):
     df = df.dropna()
@@ -79,14 +82,16 @@ def interpolate_func_griddata(values, model_lon, model_lat, xnew, ynew):
         print("SOME VALS ARE NAN")
     return vals
 
+
 def datetime_convert(df, col):
     new_vals = []
-    for i,_ in enumerate(df[col]):
+    for i, _ in enumerate(df[col]):
         seconds = df[col].iloc[1] / 1e9  # Convert nanoseconds to seconds
         dt = datetime.datetime.utcfromtimestamp(seconds)
         new_vals.append(dt)
     df[col] = new_vals
     return df
+
 
 def interpolate_model_data_to_nysm_locations_groupby(df_model, df_nysm, vars_to_interp):
     """
@@ -134,7 +139,6 @@ def interpolate_model_data_to_nysm_locations_groupby(df_model, df_nysm, vars_to_
     print(df)
     df_explode = df.apply(lambda col: col.explode())
 
-
     # add in the lat & lon & station
     if "latitude" in df_explode.keys():
         print("adding NYSM site column")
@@ -142,12 +146,13 @@ def interpolate_model_data_to_nysm_locations_groupby(df_model, df_nysm, vars_to_
         model_interp_lats = df_explode.latitude.unique()
         map_dict = {model_interp_lats[i]: nysm_sites[i] for i in range(len(nysm_sites))}
         df_explode["station"] = df_explode["latitude"].map(map_dict)
-    
-    df_explode = datetime_convert(df_explode, 'valid_time')
-    df_explode = df_explode.drop(columns=['valid_time'])
-    df_explode['valid_time'] = df_explode.index
-    df_explode = datetime_convert(df_explode, 'time')
+
+    df_explode = datetime_convert(df_explode, "valid_time")
+    df_explode = df_explode.drop(columns=["valid_time"])
+    df_explode["valid_time"] = df_explode.index
+    df_explode = datetime_convert(df_explode, "time")
     return df_explode
+
 
 def get_locations_for_ball_tree(df, nysm_1H_obs):
     locations_a = df.reset_index()[["latitude", "longitude"]]
@@ -166,8 +171,10 @@ def get_locations_for_ball_tree(df, nysm_1H_obs):
 
     return locations_a, locations_b
 
-def haversine(lon1, lat1,lon2, lat2):
+
+def haversine(lon1, lat1, lon2, lat2):
     import math
+
     R = 6371000  # radius of Earth in meters
     phi_1 = math.radians(lat1)
     phi_2 = math.radians(lat2)
@@ -175,8 +182,11 @@ def haversine(lon1, lat1,lon2, lat2):
     delta_phi = math.radians(lat2 - lat1)
     delta_lambda = math.radians(lon2 - lon1)
 
-    a = math.sin(delta_phi / 2.0) ** 2 + math.cos(phi_1) * math.cos(phi_2) * math.sin(delta_lambda / 2.0) ** 2
-    
+    a = (
+        math.sin(delta_phi / 2.0) ** 2
+        + math.cos(phi_1) * math.cos(phi_2) * math.sin(delta_lambda / 2.0) ** 2
+    )
+
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     meters = R * c  # output distance in meters
@@ -209,28 +219,32 @@ def plot_points(lon1, lat1, lon2, lat2, station):
     import matplotlib.pyplot as plt
     import cartopy.crs as ccrs
     import cartopy.feature as cfeature
+
     # Define bounding box for New York
     bbox = [-80.0, -71.5, 40.5, 45.0]  # [lon_min, lon_max, lat_min, lat_max]
 
-    fig, ax = plt.subplots(figsize=(9, 9), subplot_kw={'projection': ccrs.PlateCarree()})
+    fig, ax = plt.subplots(
+        figsize=(9, 9), subplot_kw={"projection": ccrs.PlateCarree()}
+    )
     ax.set_title(station)
-    
+
     # Add land, ocean, and state boundary features
-    ax.add_feature(cfeature.LAND, edgecolor='black')
-    ax.add_feature(cfeature.OCEAN, edgecolor='black')
-    ax.add_feature(cfeature.BORDERS, linestyle=':')
+    ax.add_feature(cfeature.LAND, edgecolor="black")
+    ax.add_feature(cfeature.OCEAN, edgecolor="black")
+    ax.add_feature(cfeature.BORDERS, linestyle=":")
     ax.add_feature(cfeature.STATES)
-    
+
     ax.coastlines()
     ax.gridlines(draw_labels=True)
-    
+
     # Set extent to bounding box for New York
     ax.set_extent(bbox, crs=ccrs.PlateCarree())
     # Plot points
-    ax.scatter(lon1, (lat1), c='blue', s=100, transform=ccrs.PlateCarree())
-    ax.scatter(lon2, (lat2), c='red', s=100, transform=ccrs.PlateCarree())
-    
-    plt.savefig(f'/home/aevans/nwp_bias/src/bias/lat_lon_graphs/{station}.png')
+    ax.scatter(lon1, (lat1), c="blue", s=100, transform=ccrs.PlateCarree())
+    ax.scatter(lon2, (lat2), c="red", s=100, transform=ccrs.PlateCarree())
+
+    plt.savefig(f"/home/aevans/nwp_bias/src/bias/lat_lon_graphs/{station}.png")
+
 
 def find_closest_station(query_lat, query_lon, df):
     """
@@ -247,12 +261,19 @@ def find_closest_station(query_lat, query_lon, df):
     float: Longitude of the closest station.
     """
     # Calculate distances for each station in the DataFrame
-    df['distance'] = np.sqrt((df['latitude'] - query_lat)**2 + (df['longitude'] - query_lon)**2)
-    
+    df["distance"] = np.sqrt(
+        (df["latitude"] - query_lat) ** 2 + (df["longitude"] - query_lon) ** 2
+    )
+
     # Find the station with the minimum distance
-    closest_station = df.loc[df['distance'].idxmin()]
-    
-    return closest_station, closest_station['longitude'].iloc[0], closest_station['latitude'].iloc[0]
+    closest_station = df.loc[df["distance"].idxmin()]
+
+    return (
+        closest_station,
+        closest_station["longitude"].iloc[0],
+        closest_station["latitude"].iloc[0],
+    )
+
 
 def df_with_nysm_locations(df, df_nysm, indices_list):
     # needs to mirror the df manipulations in get_locations_for_ball_tree locations a and b
@@ -267,32 +288,36 @@ def df_with_nysm_locations(df, df_nysm, indices_list):
     for x in range(len(df_nysm_station_locs.index)):
         df_dummy = pd.DataFrame()
         temp_ = df.iloc[indices_list]
-        station_q, longitude_q, latitide_q = find_closest_station(df_nysm_station_locs.lat[x], df_nysm_station_locs.lon[x], temp_) 
-        df_dummy = df[
-                (df['latitude'] == latitide_q)
-                & (df['longitude'] == longitude_q)
-            ]
+        station_q, longitude_q, latitide_q = find_closest_station(
+            df_nysm_station_locs.lat[x], df_nysm_station_locs.lon[x], temp_
+        )
+        df_dummy = df[(df["latitude"] == latitide_q) & (df["longitude"] == longitude_q)]
         df_dummy["station"] = df_nysm_station_locs.index[x]
         if x == 0:
             df_save = df_dummy
         else:
             df_save = pd.concat([df_save, df_dummy])
 
-        dx = haversine(df_dummy['longitude'].iloc[0],df_dummy['latitude'].iloc[0], df_nysm_station_locs.lon[x], df_nysm_station_locs.lat[x])
-        # get distances of GFS grid points to NYSM sites 
+        dx = haversine(
+            df_dummy["longitude"].iloc[0],
+            df_dummy["latitude"].iloc[0],
+            df_nysm_station_locs.lon[x],
+            df_nysm_station_locs.lat[x],
+        )
+        # get distances of GFS grid points to NYSM sites
         distances.append(dx)
-        #append station
-        stations.append(df_dummy['station'].iloc[0])
-        #plot the points
+        # append station
+        stations.append(df_dummy["station"].iloc[0])
+        # plot the points
         # plot_points(df_dummy['longitude'].iloc[0],df_dummy['latitude'].iloc[0], df_nysm_station_locs.lon[x], df_nysm_station_locs.lat[x], df_dummy['station'].iloc[0])
 
     temp_df = pd.DataFrame()
-    temp_df['station'] = stations
-    temp_df['distance'] = distances
+    temp_df["station"] = stations
+    temp_df["distance"] = distances
     interpolate_stations = []
-    for i,_ in enumerate(temp_df['station']):
-        if temp_df['distance'].iloc[i] > 5.0:
-            interpolate_stations.append(temp_df['station'].iloc[i])
+    for i, _ in enumerate(temp_df["station"]):
+        if temp_df["distance"].iloc[i] > 5.0:
+            interpolate_stations.append(temp_df["station"].iloc[i])
     df_save = df_save.set_index(["station", "valid_time"])
 
     return df_save, interpolate_stations
@@ -335,18 +360,18 @@ def redefine_precip_intervals_GFS(data):
     # Filter rows where the values in the first level of the index are datetime objects
     data = data[pd.Index(map(lambda x: isinstance(x, pd.Timestamp), data.valid_time))]
     print("after filter check", data)
-    tp_data = data[["tp", "lead time", "station", "valid_time", 'time']]
+    tp_data = data[["tp", "lead time", "station", "valid_time", "time"]]
     tp_data = data.copy()
-    tp_data['diff'] = tp_data['tp'].diff()
+    tp_data["diff"] = tp_data["tp"].diff()
 
-    for i,_ in enumerate(tp_data['diff']):
-        if tp_data['diff'].iloc[i] < 0:
-            tp_data['diff'].iloc[0] = 0
-    tp_data['new_tp'] = tp_data['tp'] + tp_data['diff']
-    data['new_tp'] = tp_data['new_tp']
-    for i,_ in enumerate(tp_data['new_tp']):
-        if tp_data['new_tp'].iloc[i] < 0:
-            tp_data['new_tp'].iloc[0] = 0
+    for i, _ in enumerate(tp_data["diff"]):
+        if tp_data["diff"].iloc[i] < 0:
+            tp_data["diff"].iloc[0] = 0
+    tp_data["new_tp"] = tp_data["tp"] + tp_data["diff"]
+    data["new_tp"] = tp_data["new_tp"]
+    for i, _ in enumerate(tp_data["new_tp"]):
+        if tp_data["new_tp"].iloc[i] < 0:
+            tp_data["new_tp"].iloc[0] = 0
     data = data.set_index(["station", "time", "valid_time"])
     return data
 
@@ -414,7 +439,7 @@ def mask_out_water(model, df_model):
         ind = 42
         var = "landn"
     elif model.upper() == "NAM":
-        filename = "nam_218_20180101_0000_003.grb2"
+        filename = "namanl_218_20180101_0000_003.grb2"
         ind = 26
         var = "lsm"
     elif model.upper() == "HRRR":
@@ -463,7 +488,7 @@ def main(month, year, model, fh, mask_water=True):
     """
     start_time = time.time()
     model = model.upper()
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/gfs_data/fh{fh}/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/nam_data/fh{fh}/"
     # savedir = f'/home/aevans/nwp_bias/src/machine_learning/data/'
     print("Month: ", month)
     if not os.path.exists(
@@ -495,7 +520,7 @@ def main(month, year, model, fh, mask_water=True):
             pres,
             "orog",
             "tcc",
-            #"asnow",
+            # "asnow",
             "cape",
             "cin",
             "dswrf",
@@ -537,25 +562,26 @@ def main(month, year, model, fh, mask_water=True):
                 pres,
                 "orog",
                 "tcc",
-                #"asnow",
+                # "asnow",
                 "cape",
                 "cin",
                 "dswrf",
                 "dlwrf",
                 "gh",
-                ]
+            ]
 
             indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
-            
 
             # nearest neighbor
             df_model_nysm_sites_nn, interpolate_stations = df_with_nysm_locations(
                 df_model_ny, nysm_1H_obs, indices_list_ny
             )
 
-            #interpolation 
-            df_model_nysm_sites_interp = interpolate_model_data_to_nysm_locations_groupby(
-                df_model_ny, nysm_1H_obs, vars_to_interp
+            # interpolation
+            df_model_nysm_sites_interp = (
+                interpolate_model_data_to_nysm_locations_groupby(
+                    df_model_ny, nysm_1H_obs, vars_to_interp
+                )
             )
             df_model_nysm_sites_nn["lead time"] = (
                 df_model_nysm_sites_nn["lead time"].astype(float).round(0).astype(int)
@@ -569,12 +595,17 @@ def main(month, year, model, fh, mask_water=True):
 
             # join dataframes
             # Filter out rows where 'station' is not in interpolate_stations
-            df_model_nysm_sites_nn = df_model_nysm_sites_nn[~df_model_nysm_sites_nn['station'].isin(interpolate_stations)]
+            df_model_nysm_sites_nn = df_model_nysm_sites_nn[
+                ~df_model_nysm_sites_nn["station"].isin(interpolate_stations)
+            ]
             # Filter out rows where 'station' is in interpolate_stations
-            df_model_nysm_sites_interp = df_model_nysm_sites_interp[df_model_nysm_sites_interp['station'].isin(interpolate_stations)]
+            df_model_nysm_sites_interp = df_model_nysm_sites_interp[
+                df_model_nysm_sites_interp["station"].isin(interpolate_stations)
+            ]
 
-
-            df_model_nysm_sites = pd.concat([df_model_nysm_sites_interp, df_model_nysm_sites_nn], axis=0)
+            df_model_nysm_sites = pd.concat(
+                [df_model_nysm_sites_interp, df_model_nysm_sites_nn], axis=0
+            )
 
         elif model == "HRRR":
             indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
@@ -588,27 +619,27 @@ def main(month, year, model, fh, mask_water=True):
             )
 
         # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
-        if model == "NAM":
-            model_data_1H_ny = df_model_nysm_sites[
-                df_model_nysm_sites["lead time"] <= 36
-            ]
-            model_data_3H_ny = df_model_nysm_sites[
-                df_model_nysm_sites["lead time"] > 36
-            ]
+        # if model == "NAM":
+        #     model_data_1H_ny = df_model_nysm_sites[
+        #         df_model_nysm_sites["lead time"] <= 36
+        #     ]
+        #     model_data_3H_ny = df_model_nysm_sites[
+        #         df_model_nysm_sites["lead time"] > 36
+        #     ]
 
-            # NY
-            df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-            df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-            df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-            df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
-            df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-            df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-            df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-            df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
+        #     # NY
+        #     df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
+        #     df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
+        #     df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
+        #     df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
+        #     df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
+        #     df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
+        #     df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
+        #     df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
 
-            df_model_nysm_sites = pd.concat(
-                [df_model_sites_1H_ny, df_model_sites_3H_ny]
-            )
+        #     df_model_nysm_sites = pd.concat(
+        #         [df_model_sites_1H_ny, df_model_sites_3H_ny]
+        #     )
 
         # elif model == "GFS":
         #     # print("GFS Pre Check", df_model_nysm_sites)
@@ -639,15 +670,16 @@ def main(month, year, model, fh, mask_water=True):
         print("... exiting ...")
         exit
 
-# main(str(4).zfill(2), 2018, 'gfs', '096')
+
+# main(str(1).zfill(2), 2022, 'nam', '001')
 
 if __name__ == "__main__":
     # # multiprocessing v2
     # # good for bulk cleaning
-    model = "gfs"
+    model = "nam"
 
-    for fh in np.arange(3,97,3):
-        for year in np.arange(2018,2024):
+    for fh in np.arange(1, 85):
+        for year in np.arange(2022, 2024):
             for month in np.arange(1, 13):
                 print(month)
                 # main(str(month).zfill(2), year, model, fh)
@@ -655,7 +687,9 @@ if __name__ == "__main__":
                 pool = mp.Pool(mp.cpu_count())
 
                 # Step 2: `pool.apply` the `howmany_within_range()`
-                results = pool.apply(main, args=(str(month).zfill(2), year, model, str(fh).zfill(3)))
+                results = pool.apply(
+                    main, args=(str(month).zfill(2), year, model, str(fh).zfill(3))
+                )
 
                 # Step 3: Don't forget to close
                 pool.close()

@@ -78,7 +78,7 @@ def main(init_date, end_date, base_url, model, init):
             continue  # Move on to the next iteration of the loop
         # Extract the contents of the tar file
         with tarfile.open(os.path.join(download_dir, filename), "r") as tar:
-            print(f'{download_dir}{filename}')
+            print(f"{download_dir}{filename}")
             tar.extractall(download_dir)
         os.remove(f"{download_dir}/{filename}")
         delete_unwanted_fh(download_dir, access_fold2, init)
