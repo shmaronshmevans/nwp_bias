@@ -357,7 +357,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(1.1 * len(features))
+    hidden_units = int(7 * len(features))
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -405,9 +405,9 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        # if early_stopper.early_stop(test_loss):
-        #     print(f"Early stopping at epoch {ix_epoch}")
-        #     break
+        if early_stopper.early_stop(test_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
 
     init_end_event.record()
 

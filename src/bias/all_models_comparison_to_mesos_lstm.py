@@ -4,8 +4,8 @@ import os
 import warnings
 import cfgrib
 import metpy.calc as mpcalc
-import numpy as np
-import pandas as pd
+import cupy as np
+import cudf as pd
 import time
 from metpy.units import units
 from scipy import interpolate
@@ -443,12 +443,9 @@ def mask_out_water(model, df_model):
         ind = 26
         var = "lsm"
     elif model.upper() == "HRRR":
-        filename = "20180101_hrrr.t12z.wrfsfcf03.grib2"
+        filename = "20180101_hrrr.t00z.wrfsfcf00.grib2"
         ind = 34
         var = "lsm"
-    # ds = cfgrib.open_datasets(
-    #     f"/home/aevans/ai2es/archived_grib/HRRR/2018/01/20180101_hrrr.t00z.wrfsfcf03.grib2"
-    # )
     ds = cfgrib.open_datasets(f"{indir}{filename}")
 
     ds_tointerp = ds[ind]  # extract the data array that contains land surface class
@@ -488,7 +485,7 @@ def main(month, year, model, fh, mask_water=True):
     """
     start_time = time.time()
     model = model.upper()
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/nam_data/fh{fh}/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh{fh}/"
     # savedir = f'/home/aevans/nwp_bias/src/machine_learning/data/'
     print("Month: ", month)
     if not os.path.exists(
@@ -520,9 +517,9 @@ def main(month, year, model, fh, mask_water=True):
             pres,
             "orog",
             "tcc",
-            # "asnow",
+            "asnow",
             "cape",
-            "cin",
+            #"cin",
             "dswrf",
             "dlwrf",
             "gh",
@@ -609,7 +606,7 @@ def main(month, year, model, fh, mask_water=True):
 
         elif model == "HRRR":
             indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
-            df_model_nysm_sites = df_with_nysm_locations(
+            df_model_nysm_sites, interpolate_stations = df_with_nysm_locations(
                 df_model_ny, nysm_1H_obs, indices_list_ny
             )
             # to avoid future issues, convert lead time to float, round, and then convert to integer
@@ -618,7 +615,7 @@ def main(month, year, model, fh, mask_water=True):
                 df_model_nysm_sites["lead time"].astype(float).round(0).astype(int)
             )
 
-        # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
+        # # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
         # if model == "NAM":
         #     model_data_1H_ny = df_model_nysm_sites[
         #         df_model_nysm_sites["lead time"] <= 36
@@ -640,11 +637,11 @@ def main(month, year, model, fh, mask_water=True):
         #     df_model_nysm_sites = pd.concat(
         #         [df_model_sites_1H_ny, df_model_sites_3H_ny]
         #     )
-
-        # elif model == "GFS":
+        # if model == "GFS":
         #     # print("GFS Pre Check", df_model_nysm_sites)
         #     # df_model_nysm_sites = redefine_precip_intervals_GFS(df_model_nysm_sites)
-        # elif model == "HRRR":
+
+        # if model == "HRRR":
         #     df_model_nysm_sites = redefine_precip_intervals_HRRR(df_model_nysm_sites)
         #     df_model_nysm_sites = drop_unwanted_time_diffs(df_model_nysm_sites, 1.0)
 
@@ -676,19 +673,19 @@ def main(month, year, model, fh, mask_water=True):
 if __name__ == "__main__":
     # # multiprocessing v2
     # # good for bulk cleaning
-    model = "nam"
+    model = "hrrr"
 
-    for fh in np.arange(1, 85):
-        for year in np.arange(2022, 2024):
+    for fh in np.arange(7,19,2):
+        for year in np.arange(2020, 2024):
             for month in np.arange(1, 13):
                 print(month)
-                # main(str(month).zfill(2), year, model, fh)
+                # main(str(month).zfill(2), year, model, str(fh).zfill(2))
                 # Step 1: Init multiprocessing.Pool()
                 pool = mp.Pool(mp.cpu_count())
 
                 # Step 2: `pool.apply` the `howmany_within_range()`
                 results = pool.apply(
-                    main, args=(str(month).zfill(2), year, model, str(fh).zfill(3))
+                    main, args=(str(month).zfill(2), year, model, str(fh).zfill(2))
                 )
 
                 # Step 3: Don't forget to close
