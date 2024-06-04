@@ -519,7 +519,7 @@ def main(month, year, model, fh, mask_water=True):
             "tcc",
             "asnow",
             "cape",
-            #"cin",
+            # "cin",
             "dswrf",
             "dlwrf",
             "gh",
@@ -675,7 +675,7 @@ if __name__ == "__main__":
     # # good for bulk cleaning
     model = "hrrr"
 
-    for fh in np.arange(7,19,2):
+    for fh in np.arange(7, 19, 2):
         for year in np.arange(2020, 2024):
             for month in np.arange(1, 13):
                 print(month)
