@@ -117,7 +117,7 @@ class ShallowLSTM_seq2seq(nn.Module):
                 )
 
                 if training_prediction == "recursive":
-                    decoder_input = decoder_output.unsqueeze(1)  # Recursive prediction
+                    decoder_input = decoder_output  # Recursive prediction
                 elif training_prediction == "teacher_forcing":
                     if torch.rand(1).item() < teacher_forcing_ratio:
                         decoder_input = outputs[:, t, :].unsqueeze(
@@ -202,5 +202,4 @@ class ShallowLSTM_seq2seq(nn.Module):
 
                 all_outputs.append(outputs)
         all_outputs = torch.cat(all_outputs, dim=0)
-        print("predict", all_outputs.shape)
         return all_outputs

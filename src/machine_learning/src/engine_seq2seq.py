@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("...")
+sys.path.append("..")
 
 import os
 import argparse
@@ -61,12 +61,12 @@ class SequenceDataset(Dataset):
         device,
     ):
         """
-        :param dataframe: DataFrame containing the data
-        :param target: Name of the target column
-        :param features: List of feature column names
-        :param sequence_length: Length of input sequences
-        :param forecast_steps: Number of future steps to forecast
-        :param device: Device to place the tensors on (CPU or GPU)
+        dataframe: DataFrame containing the data
+        target: Name of the target column
+        features: List of feature column names
+        sequence_length: Length of input sequences
+        forecast_steps: Number of future steps to forecast
+        device: Device to place the tensors on (CPU or GPU)
         """
         self.dataframe = dataframe
         self.features = features
@@ -78,7 +78,7 @@ class SequenceDataset(Dataset):
         self.X = torch.tensor(dataframe[features].values).float().to(device)
 
     def __len__(self):
-        return len(self.dataframe) - self.sequence_length - self.forecast_steps + 1
+        return self.X.shape[0]
 
     def __getitem__(self, i):
         x_start = i
@@ -86,11 +86,20 @@ class SequenceDataset(Dataset):
         y_start = x_end
         y_end = y_start + self.forecast_steps
 
+
         # Input sequence
         x = self.X[x_start:x_end, :]
 
         # Target sequence
         y = self.y[y_start:y_end].unsqueeze(1)
+
+        if x.shape[0] < self.sequence_length:
+            _x = torch.zeros(((self.sequence_length-x.shape[0]), self.X.shape[1]), device = self.device)
+            x = torch.cat((x, _x), 0)
+        
+        if y.shape[0] < self.forecast_steps:
+            _y = torch.zeros(((self.forecast_steps-y.shape[0]), 1), device = self.device)
+            y = torch.cat((y, _y), 0)
 
         return x, y
 
@@ -155,6 +164,7 @@ def main(
         project_name="seq2seq_beta",
         workspace="shmaronshmevans",
     )
+
     train_dataset = SequenceDataset(
         df_train,
         target=target,
@@ -163,6 +173,7 @@ def main(
         forecast_steps=fh,
         device=device,
     )
+
     test_dataset = SequenceDataset(
         df_test,
         target=target,
@@ -183,7 +194,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(7 * len(features))
+    hidden_units = int(4 * len(features))
 
     model = encode_decode.ShallowLSTM_seq2seq(
         num_sensors=num_sensors,
@@ -281,11 +292,11 @@ def main(
 
 
 main(
-    batch_size=int(5000),
-    station="VOOR",
-    num_layers=5,
+    batch_size=int(4000),
+    station="SPRA",
+    num_layers=2,
     epochs=100,
     weight_decay=0,
-    fh=4,
+    fh=16,
     model="HRRR",
 )
