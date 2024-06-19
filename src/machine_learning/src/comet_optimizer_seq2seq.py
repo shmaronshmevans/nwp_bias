@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from comet_ml import Experiment, Artifact
+from comet_ml import Experiment, Artifact, Optimizer
 from comet_ml.integration.pytorch import log_model
 
 
@@ -94,47 +94,28 @@ class SequenceDataset(Dataset):
         y = self.y[y_start:y_end].unsqueeze(1)
 
         if x.shape[0] < self.sequence_length:
-            print("padding input tensor")
             _x = torch.zeros(((self.sequence_length-x.shape[0]), self.X.shape[1]), device = self.device)
             x = torch.cat((x, _x), 0)
         
         if y.shape[0] < self.forecast_steps:
-            print("padding target")
             _y = torch.zeros(((self.forecast_steps-y.shape[0]), 1), device = self.device)
             y = torch.cat((y, _y), 0)
 
         return x, y
 
 
-class EarlyStopper:
-    def __init__(self, patience, min_delta=0):
-        self.patience = patience
-        self.min_delta = min_delta
-        self.counter = 0
-        self.min_validation_loss = np.inf
-
-    def early_stop(self, validation_loss):
-        if validation_loss < self.min_validation_loss:
-            self.min_validation_loss = validation_loss
-            self.counter = 0
-        elif validation_loss > (self.min_validation_loss + self.min_delta):
-            self.counter += 1
-            if self.counter >= self.patience:
-                return True
-        return False
-
-
 def main(
-    batch_size,
-    station,
     num_layers,
-    epochs,
+    learning_rate,
     weight_decay,
-    fh,
-    model,
-    sequence_length=120,
+    hidden_units,
+    epochs = 20, 
+    fh = 16,
+    model = 'HRRR',
+    station = 'SPRA',
+    batch_size = 500,
+    sequence_length=30,
     target="target_error",
-    learning_rate=5e-3,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -160,12 +141,6 @@ def main(
     ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
-
-    experiment = Experiment(
-        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_beta",
-        workspace="shmaronshmevans",
-    )
 
     train_dataset = SequenceDataset(
         df_train,
@@ -196,7 +171,6 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(7 * len(features))
 
     model = encode_decode.ShallowLSTM_seq2seq(
         num_sensors=num_sensors,
@@ -211,6 +185,7 @@ def main(
     loss_function = nn.HuberLoss(delta=2.0)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
+    print("--- Training LSTM ---")
     hyper_params = {
         "num_layers": num_layers,
         "learning_rate": learning_rate,
@@ -222,9 +197,7 @@ def main(
         "regularization": weight_decay,
         "forecast_hour": fh,
     }
-    print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(20)
 
     init_start_event.record()
     train_loss_ls = []
@@ -236,7 +209,7 @@ def main(
             loss_func=loss_function,
             optimizer=optimizer,
             epoch=ix_epoch,
-            training_prediction="recursive",
+            training_prediction="teacher_forcing",
             teacher_forcing_ratio=0.5,
         )
         test_loss = model.test_model(
@@ -251,54 +224,46 @@ def main(
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         scheduler.step(test_loss)
-        if early_stopper.early_stop(test_loss):
-            print(f"Early stopping at epoch {ix_epoch}")
-            break
 
     init_end_event.record()
 
-    if save_model == True:
-        # datetime object containing current date and time
-        now = datetime.now()
-        print("now =", now)
-        # dd/mm/YY H:M:S
-        dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-        states = model.state_dict()
-        title = f"{station}_loss_{min(test_loss_ls)}"
-        torch.save(
-            states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}.pth",
-        )
-
-        # make sure main is commented when you run or the first run will do whatever station is listed in main
-        eval_seq2seq.eval_model(
-            train_dataset,
-            df_train,
-            df_test,
-            test_dataset,
-            model,
-            batch_size,
-            title,
-            target,
-            features,
-            device,
-            station,
-            today_date,
-        )
-
     print("Successful Experiment")
-    # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="v9")
+
     experiment.end()
     print("... completed ...")
+    return test_loss
 
 
-main(
-    batch_size=int(500),
-    station="SPRA",
-    num_layers=5,
-    epochs=100,
-    weight_decay=0,
-    fh=16,
-    model="HRRR",
-)
+config = {
+    # Pick the Bayes algorithm:
+    "algorithm": "bayes",
+    # Declare what to optimize, and how:
+    "spec": {
+        "metric": "loss",
+        "objective": "minimize",
+    },
+    # Declare your hyperparameters:
+    "parameters": {
+        "num_layers": {"type": "integer", "min": 1, "max": 5},
+        "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-1},
+        "weight_decay": {"type": "float", "min": 0, "max": 1},
+        "hidden_units": {"type": "integer", "min": 1.0, "max": 5000.0},
+    },
+    "trials": 30,
+}
+
+opt = Optimizer(config)
+
+# Finally, get experiments, and train your models:
+for experiment in opt.get_experiments(
+    project_name="hyperparameter-tuning-for-lstm-s2s"
+):
+    loss = main(
+        num_layers=experiment.get_parameter("num_layers"),
+        learning_rate=experiment.get_parameter("learning_rate"),
+        weight_decay=experiment.get_parameter("weight_decay"),
+        hidden_units=experiment.get_parameter("hidden_units"),
+    )
+
+    experiment.log_metric("loss", loss)
+    experiment.end()

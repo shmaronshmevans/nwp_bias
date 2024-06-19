@@ -450,15 +450,15 @@ def main(
     print("... completed ...")
 
 
-# main(
-#     batch_size=int(10e2),
-#     station='VOOR',
-#     num_layers=5,
-#     epochs=500,
-#     weight_decay=0,
-#     fh=4,
-#     model='HRRR',
-# )
+main(
+    batch_size=int(10e2),
+    station='SPRA',
+    num_layers=5,
+    epochs=500,
+    weight_decay=0,
+    fh=16,
+    model='HRRR',
+)
 
 # # first iteration to target Brooklyn
 # for f in np.arange(2,19,2):
@@ -473,25 +473,25 @@ def main(
 #     )
 
 
-# # second iteration for experiment
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-clim_divs = nysm_clim["climate_division_name"].unique()
+# # # second iteration for experiment
+# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+# clim_divs = nysm_clim["climate_division_name"].unique()
 
-for c in clim_divs:
-    print(c)
-    df = nysm_clim[nysm_clim["climate_division_name"] == c]
-    temp = df["stid"].unique()
-    station = random.sample(sorted(temp), 1)
-    for n, _ in enumerate(station):
-        print(station[n])
-        for f in np.arange(2, 19, 2):
-            print("FH", f)
-            main(
-                batch_size=int(50e2),
-                station=station[n],
-                num_layers=5,
-                epochs=100,
-                weight_decay=0,
-                fh=f,
-                model="HRRR",
-            )
+# for c in clim_divs:
+#     print(c)
+#     df = nysm_clim[nysm_clim["climate_division_name"] == c]
+#     temp = df["stid"].unique()
+#     station = random.sample(sorted(temp), 1)
+#     for n, _ in enumerate(station):
+#         print(station[n])
+#         for f in np.arange(2, 19, 2):
+#             print("FH", f)
+#             main(
+#                 batch_size=int(50e2),
+#                 station=station[n],
+#                 num_layers=5,
+#                 epochs=100,
+#                 weight_decay=0,
+#                 fh=f,
+#                 model="HRRR",
+#             )
