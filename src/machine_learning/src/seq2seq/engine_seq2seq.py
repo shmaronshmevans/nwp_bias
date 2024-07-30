@@ -86,7 +86,6 @@ class SequenceDataset(Dataset):
         y_start = x_end
         y_end = y_start + self.forecast_steps
 
-
         # Input sequence
         x = self.X[x_start:x_end, :]
 
@@ -94,13 +93,16 @@ class SequenceDataset(Dataset):
         y = self.y[y_start:y_end].unsqueeze(1)
 
         if x.shape[0] < self.sequence_length:
-            print("padding input tensor")
-            _x = torch.zeros(((self.sequence_length-x.shape[0]), self.X.shape[1]), device = self.device)
+            _x = torch.zeros(
+                ((self.sequence_length - x.shape[0]), self.X.shape[1]),
+                device=self.device,
+            )
             x = torch.cat((x, _x), 0)
-        
+
         if y.shape[0] < self.forecast_steps:
-            print("padding target")
-            _y = torch.zeros(((self.forecast_steps-y.shape[0]), 1), device = self.device)
+            _y = torch.zeros(
+                ((self.forecast_steps - y.shape[0]), 1), device=self.device
+            )
             y = torch.cat((y, _y), 0)
 
         return x, y
@@ -124,6 +126,34 @@ class EarlyStopper:
         return False
 
 
+class OutlierFocusedLoss(nn.Module):
+    def __init__(self, alpha, device):
+        super(OutlierFocusedLoss, self).__init__()
+        self.alpha = alpha
+        self.device = device
+
+    def forward(self, y_true, y_pred):
+        y_true = y_true.to(self.device)
+        y_pred = y_pred.to(self.device)
+
+        # Calculate the error
+        error = y_true - y_pred
+
+        # Calculate the base loss (Mean Absolute Error in this case)
+        base_loss = torch.abs(error)
+
+        # weights_neg = torch.where(error < 0, 1.0 + 0.1 * torch.abs(error), 1.0)
+
+        # Apply a weighting function to give more focus to outliers
+        weights = (torch.abs(error) + 1).pow(self.alpha)
+
+        # Calculate the weighted loss
+        weighted_loss = weights * base_loss
+
+        # Return the mean of the weighted loss
+        return weighted_loss.mean()
+
+
 def main(
     batch_size,
     station,
@@ -132,9 +162,9 @@ def main(
     weight_decay,
     fh,
     model,
-    sequence_length=120,
+    sequence_length=70,
     target="target_error",
-    learning_rate=5e-3,
+    learning_rate=7e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -160,6 +190,10 @@ def main(
     ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    print("FEATURES", features)
+    print()
+    print("TARGET", target)
+    print(df_train[target].unique())
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
@@ -196,19 +230,24 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(7 * len(features))
+    hidden_units = int(15 * len(features))
 
     model = encode_decode.ShallowLSTM_seq2seq(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
+        mlp_units=100,
         device=device,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = nn.MSELoss()
+    loss_function = OutlierFocusedLoss(2.0, device)
+    # loss_function = ExponentialLoss(1.5, device)
+    # loss_function = CubedLoss(device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
@@ -224,7 +263,7 @@ def main(
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(20)
+    early_stopper = EarlyStopper(9)
 
     init_start_event.record()
     train_loss_ls = []
@@ -267,7 +306,7 @@ def main(
         title = f"{station}_loss_{min(test_loss_ls)}"
         torch.save(
             states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}.pth",
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}_s2s.pth",
         )
 
         # make sure main is commented when you run or the first run will do whatever station is listed in main
@@ -294,11 +333,11 @@ def main(
 
 
 main(
-    batch_size=int(500),
+    batch_size=int(300),
     station="SPRA",
     num_layers=5,
-    epochs=100,
-    weight_decay=0,
-    fh=16,
+    epochs=40,
+    weight_decay=0.02,
+    fh=6,
     model="HRRR",
 )

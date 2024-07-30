@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import pandas as pd
+import numpy as np
 
 
 def nwp_error(target, station, df):
@@ -31,6 +32,11 @@ def nwp_error(target, station, df):
 
     # Calculate the 'target_error' by subtracting NYSM data from NWP model data.
     target_error = df[f"{target}_{station}"] - df[f"{nysm_var}_{station}"]
+    # determine rounding integer or float
+    target_error = np.round(target_error / 3.0) * 3.0
+    # insert error
     df.insert(loc=(1), column=f"target_error", value=target_error)
+    # Replace positive values with 0 using lambda function
+    df["target_error"] = df["target_error"].apply(lambda x: 0 if x > 0 else x)
 
     return df

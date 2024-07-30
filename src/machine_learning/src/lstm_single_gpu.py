@@ -283,7 +283,7 @@ class ShallowRegressionLSTM(nn.Module):
         )
         _, (hn, _) = self.lstm(x, (h0, c0))
         out = self.linear(
-            hn
+            hn[0]
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
@@ -431,7 +431,7 @@ def main(
     weight_decay,
     fh,
     model,
-    sequence_length=15,
+    sequence_length=30,
     target="target_error",
     learning_rate=5e-5,
     save_model=True,
@@ -461,16 +461,13 @@ def main(
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
 
-    df_train_resampled = df_train[abs(df_train["target_error_lead_0"]) > 2.0]
-    df_test_resampled = df_test[abs(df_test["target_error_lead_0"]) > 2.0]
-
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
         project_name="lstm_alpha_clim_div",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
-        df_train_resampled,
+        df_train,
         target=target,
         features=features,
         stations=stations,
@@ -480,7 +477,7 @@ def main(
         model=model,
     )
     test_dataset = SequenceDataset(
-        df_test_resampled,
+        df_test,
         target=target,
         features=features,
         stations=stations,
@@ -501,7 +498,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(10 * len(features))
+    hidden_units = int(11 * len(features))
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -516,7 +513,7 @@ def main(
     # loss_function = nn.MSELoss()
     # loss_function = CustomWeightedLoss(-1.5, 1.5, 0.8, device)
     # loss_function = OutlierFocusedLoss(0.05, device)
-    loss_function = ExponentialLoss(1.5, device)
+    loss_function = ExponentialLoss(0.7, device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
@@ -574,33 +571,13 @@ def main(
         loss_curves.loss_curves(
             train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
         )
-        train_dataset_e = SequenceDataset(
-            df_train,
-            target=target,
-            features=features,
-            stations=stations,
-            sequence_length=sequence_length,
-            forecast_hr=fh,
-            device=device,
-            model="HRRR",
-        )
-        test_dataset_e = SequenceDataset(
-            df_test,
-            target=target,
-            features=features,
-            stations=stations,
-            sequence_length=sequence_length,
-            forecast_hr=fh,
-            device=device,
-            model="HRRR",
-        )
 
         # make sure main is commented when you run or the first run will do whatever station is listed in main
         eval_single_gpu.eval_model(
-            train_dataset_e,
+            train_dataset,
             df_train,
             df_test,
-            test_dataset_e,
+            test_dataset,
             model,
             batch_size,
             title,
@@ -619,10 +596,10 @@ def main(
 
 
 main(
-    batch_size=int(10e2),
+    batch_size=int(12e3),
     station="SPRA",
-    num_layers=1,
-    epochs=200,
+    num_layers=5,
+    epochs=500,
     weight_decay=0,
     fh=6,
     model="HRRR",

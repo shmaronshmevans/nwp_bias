@@ -86,7 +86,6 @@ class SequenceDataset(Dataset):
         y_start = x_end
         y_end = y_start + self.forecast_steps
 
-
         # Input sequence
         x = self.X[x_start:x_end, :]
 
@@ -94,11 +93,16 @@ class SequenceDataset(Dataset):
         y = self.y[y_start:y_end].unsqueeze(1)
 
         if x.shape[0] < self.sequence_length:
-            _x = torch.zeros(((self.sequence_length-x.shape[0]), self.X.shape[1]), device = self.device)
+            _x = torch.zeros(
+                ((self.sequence_length - x.shape[0]), self.X.shape[1]),
+                device=self.device,
+            )
             x = torch.cat((x, _x), 0)
-        
+
         if y.shape[0] < self.forecast_steps:
-            _y = torch.zeros(((self.forecast_steps-y.shape[0]), 1), device = self.device)
+            _y = torch.zeros(
+                ((self.forecast_steps - y.shape[0]), 1), device=self.device
+            )
             y = torch.cat((y, _y), 0)
 
         return x, y
@@ -109,11 +113,11 @@ def main(
     learning_rate,
     weight_decay,
     hidden_units,
-    epochs = 20, 
-    fh = 16,
-    model = 'HRRR',
-    station = 'SPRA',
-    batch_size = 500,
+    epochs=20,
+    fh=16,
+    model="HRRR",
+    station="SPRA",
+    batch_size=500,
     sequence_length=30,
     target="target_error",
     save_model=True,
@@ -198,7 +202,6 @@ def main(
         "forecast_hour": fh,
     }
 
-
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
@@ -236,7 +239,7 @@ def main(
 
 config = {
     # Pick the Bayes algorithm:
-    "algorithm": "bayes",
+    "algorithm": "grid",
     # Declare what to optimize, and how:
     "spec": {
         "metric": "loss",
