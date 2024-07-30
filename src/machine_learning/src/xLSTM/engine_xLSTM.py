@@ -2,6 +2,9 @@ import sys
 
 sys.path.append("..")
 
+from comet_ml import Experiment, Artifact
+from comet_ml.integration.pytorch import log_model
+
 import os
 import argparse
 import functools
@@ -10,8 +13,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from comet_ml import Experiment, Artifact
-from comet_ml.integration.pytorch import log_model
 
 
 from torch.utils.data import Dataset
@@ -43,8 +44,8 @@ from processing import make_dirs
 
 from data import create_data_for_lstm
 
-from seq2seq import encode_decode
-from seq2seq import eval_seq2seq
+from xLSTM import model_xLSTM
+from xLSTM import save_output
 
 import torch
 from torch.utils.data import Dataset
@@ -126,10 +127,73 @@ class EarlyStopper:
         return False
 
 
-class OutlierFocusedLoss(nn.Module):
-    def __init__(self, alpha, device):
-        super(OutlierFocusedLoss, self).__init__()
-        self.alpha = alpha
+def train_model(data_loader, model, loss_function, optimizer, device, epoch):
+    num_batches = len(data_loader)
+    total_loss = 0
+    model.train()
+
+    for batch_idx, (X, y) in enumerate(data_loader):
+        # Move data and labels to the appropriate device (GPU/CPU).
+        X, y = X.to(device), y.to(device)
+
+        # Forward pass and loss computation.
+        output = model(X)
+        print("out", output[:, -1, :].squeeze())
+        print("y", y)
+        loss = loss_function(output[:, -1, :], y.squeeze())
+
+        # Zero the gradients, backward pass, and optimization step.
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        gc.collect()
+        # Clear CUDA cache (optional, use only if necessary)
+        torch.cuda.empty_cache()
+
+        # Track the total loss and the number of processed samples.
+        total_loss += loss.item()
+
+    # Compute the average loss for the current epoch.
+    avg_loss = total_loss / num_batches
+    print("epoch", epoch, "train_loss:", avg_loss)
+
+    return avg_loss
+
+
+def test_model(data_loader, model, loss_function, device, epoch):
+    # Test a deep learning model on a given dataset and compute the test loss.
+
+    num_batches = len(data_loader)
+    total_loss = 0
+
+    # Set the model in evaluation mode (no gradient computation).
+    model.eval()
+
+    with torch.no_grad():
+        for batch_idx, (X, y) in enumerate(data_loader):
+            # Move data and labels to the appropriate device (GPU/CPU).
+            X, y = X.to(device), y.to(device)
+
+            # Forward pass to obtain model predictions.
+            output = model(X)
+
+            # Compute loss and add it to the total loss.
+            total_loss += loss_function(output[:, -1, :], y.squeeze()).item()
+            gc.collect()
+            # Clear CUDA cache (optional, use only if necessary)
+            torch.cuda.empty_cache()
+
+        # Calculate the average test loss.
+        avg_loss = total_loss / num_batches
+        print("epoch", epoch, "test_loss:", avg_loss)
+
+    return avg_loss
+
+
+class ExponentialLoss(nn.Module):
+    def __init__(self, beta, device):
+        super(ExponentialLoss, self).__init__()
+        self.beta = beta
         self.device = device
 
     def forward(self, y_true, y_pred):
@@ -142,10 +206,8 @@ class OutlierFocusedLoss(nn.Module):
         # Calculate the base loss (Mean Absolute Error in this case)
         base_loss = torch.abs(error)
 
-        # weights_neg = torch.where(error < 0, 1.0 + 0.1 * torch.abs(error), 1.0)
-
-        # Apply a weighting function to give more focus to outliers
-        weights = (torch.abs(error) + 1).pow(self.alpha)
+        # Apply an exponential weighting function to give more focus to outliers
+        weights = torch.exp(self.beta * base_loss)
 
         # Calculate the weighted loss
         weighted_loss = weights * base_loss
@@ -157,14 +219,13 @@ class OutlierFocusedLoss(nn.Module):
 def main(
     batch_size,
     station,
-    num_layers,
     epochs,
     weight_decay,
     fh,
     model,
-    sequence_length=70,
+    sequence_length=120,
     target="target_error",
-    learning_rate=7e-7,
+    learning_rate=5e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -190,14 +251,10 @@ def main(
     ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
-    print("FEATURES", features)
-    print()
-    print("TARGET", target)
-    print(df_train[target].unique())
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_beta",
+        project_name="xLSTM_beta",
         workspace="shmaronshmevans",
     )
 
@@ -230,28 +287,28 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(15 * len(features))
+    hidden_units = int(9 * len(features))
+    print("num_sensors", num_sensors)
+    layers = ["s", "m", "s"]
 
-    model = encode_decode.ShallowLSTM_seq2seq(
-        num_sensors=num_sensors,
-        hidden_units=hidden_units,
-        num_layers=num_layers,
-        mlp_units=100,
+    model = model_xLSTM.xLSTM(
+        input_size=num_sensors,
+        hidden_size=hidden_units,
+        num_heads=10,
+        layers=layers,
+        forecast_hour=fh,
         device=device,
     ).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    # loss_function = nn.HuberLoss(delta=2.0)
-    # loss_function = nn.MSELoss()
-    loss_function = OutlierFocusedLoss(2.0, device)
-    # loss_function = ExponentialLoss(1.5, device)
-    # loss_function = CubedLoss(device)
+    loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = ExponentialLoss(1.75, device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
-        "num_layers": num_layers,
+        "num_layers": len(layers),
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
@@ -261,25 +318,29 @@ def main(
         "regularization": weight_decay,
         "forecast_hour": fh,
     }
-    print("--- Training LSTM ---")
+    print("--- Training xLSTM ---")
 
-    early_stopper = EarlyStopper(9)
+    early_stopper = EarlyStopper(10)
 
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
     for ix_epoch in range(1, epochs + 1):
         gc.collect()
-        train_loss = model.train_model(
+        train_loss = train_model(
             data_loader=train_loader,
-            loss_func=loss_function,
+            model=model,
+            loss_function=loss_function,
             optimizer=optimizer,
+            device=device,
             epoch=ix_epoch,
-            training_prediction="recursive",
-            teacher_forcing_ratio=0.5,
         )
-        test_loss = model.test_model(
-            data_loader=test_loader, loss_function=loss_function, epoch=ix_epoch
+        test_loss = test_model(
+            data_loader=test_loader,
+            model=model,
+            loss_function=loss_function,
+            device=device,
+            epoch=ix_epoch,
         )
         print(" ")
         train_loss_ls.append(train_loss)
@@ -306,11 +367,11 @@ def main(
         title = f"{station}_loss_{min(test_loss_ls)}"
         torch.save(
             states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}_s2s.pth",
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}_xLSTM.pth",
         )
 
         # make sure main is commented when you run or the first run will do whatever station is listed in main
-        eval_seq2seq.eval_model(
+        save_output.eval_model(
             train_dataset,
             df_train,
             df_test,
@@ -333,11 +394,10 @@ def main(
 
 
 main(
-    batch_size=int(300),
+    batch_size=int(700),
     station="SPRA",
-    num_layers=5,
-    epochs=40,
-    weight_decay=0.02,
+    epochs=50,
+    weight_decay=0,
     fh=6,
     model="HRRR",
 )

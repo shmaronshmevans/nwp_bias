@@ -6,6 +6,20 @@ import gc
 torch.autograd.set_detect_anomaly(True)
 
 
+class SwiGLU(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(SwiGLU, self).__init__()
+        self.w1 = torch.nn.Linear(input_size, output_size)
+        self.w2 = torch.nn.Linear(input_size, output_size)
+        self.w3 = torch.nn.Linear(output_size, output_size)
+
+    def forward(self, x):
+        x1 = self.w1(x)
+        x2 = self.w2(x)
+        hidden = F.silu(x1) * x2
+        return self.w3(hidden)
+
+
 class Attention(nn.Module):
     def __init__(self, hidden_dim, input_dim):
         super(Attention, self).__init__()
@@ -44,20 +58,84 @@ class Attention(nn.Module):
         return F.softmax(attn_weights, dim=1)  # (batch_size, seq_len)
 
 
+class CustomLSTMCell(nn.Module):
+    def __init__(self, input_size, hidden_size, activation=F.tanh):
+        super(CustomLSTMCell, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.activation = activation
+
+        self.W_i = nn.Linear(input_size, hidden_size)
+        self.U_i = nn.Linear(hidden_size, hidden_size, bias=False)
+
+        self.W_f = nn.Linear(input_size, hidden_size)
+        self.U_f = nn.Linear(hidden_size, hidden_size, bias=False)
+
+        self.W_c = nn.Linear(input_size, hidden_size)
+        self.U_c = nn.Linear(hidden_size, hidden_size, bias=False)
+
+        self.W_o = nn.Linear(input_size, hidden_size)
+        self.U_o = nn.Linear(hidden_size, hidden_size, bias=False)
+        self.output_activation = SwiGLU(hidden_size, hidden_size)
+
+    def forward(self, x, h, c):
+        i = F.sigmoid(self.W_i(x) + self.U_i(h))
+        f = F.sigmoid(self.W_f(x) + self.U_f(h))
+        o = F.sigmoid(self.W_o(x) + self.U_o(h))
+        c_tilde = self.output_activation(self.W_c(x) + self.U_c(h))
+        c = f * c + i * c_tilde
+        h = o * self.activation(c)
+        return h, c
+
+
+class CustomLSTM(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, activation=F.tanh):
+        super(CustomLSTM, self).__init__()
+        self.input_size = input_size
+        self.num_layers = num_layers
+        self.hidden_size = hidden_size
+        self.cells = nn.ModuleList()
+
+        # Add first layer cell with input_size
+        self.cells.append(CustomLSTMCell(input_size, hidden_size, activation))
+
+        # Add subsequent layers cells with hidden_size as input_size
+        for _ in range(1, num_layers):
+            self.cells.append(CustomLSTMCell(hidden_size, hidden_size, activation))
+
+    def forward(self, x, h, c):
+        layer_output = x
+        hidden_states = []
+        cell_states = []
+
+        for i, cell in enumerate(self.cells):
+            h_i, c_i = h[i], c[i]
+            h_i, c_i = cell(layer_output, h_i, c_i)
+            layer_output = h_i
+            hidden_states.append(h_i)
+            cell_states.append(c_i)
+
+        hidden_states = torch.stack(hidden_states, dim=0)
+        cell_states = torch.stack(cell_states, dim=0)
+
+        return layer_output, (hidden_states[-1, :, :], cell_states[-1, :, :])
+
+    def init_hidden(self, batch_size):
+        h_0 = torch.zeros(self.num_layers, batch_size, self.hidden_size)
+        c_0 = torch.zeros(self.num_layers, batch_size, self.hidden_size)
+        return h_0, c_0
+
+
 class ShallowRegressionLSTM_encode(nn.Module):
-    def __init__(self, num_sensors, hidden_units, num_layers, mlp_units, device):
+    def __init__(self, num_sensors, hidden_units, num_layers, device):
         super().__init__()
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
         self.device = device
-        self.mlp_units = mlp_units
 
-        self.lstm = nn.LSTM(
-            input_size=num_sensors,
-            hidden_size=hidden_units,
-            num_layers=num_layers,
-            batch_first=True,
+        self.lstm = CustomLSTM(
+            input_size=num_sensors, hidden_size=hidden_units, num_layers=num_layers
         )
 
     def forward(self, x):
@@ -65,24 +143,24 @@ class ShallowRegressionLSTM_encode(nn.Module):
         batch_size = x.shape[0]
         h0 = torch.zeros(self.num_layers, batch_size, self.hidden_units).to(self.device)
         c0 = torch.zeros(self.num_layers, batch_size, self.hidden_units).to(self.device)
-        _, (hn, cn) = self.lstm(x, (h0, c0))
+        x = x.permute(1, 0, 2)
+        _, (hn, cn) = self.lstm(x, h0, c0)
         return hn, cn
 
 
 class ShallowRegressionLSTM_decode(nn.Module):
-    def __init__(self, num_sensors, hidden_units, num_layers, mlp_units, device):
+    def __init__(self, num_sensors, hidden_units, num_layers, device):
         super().__init__()
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
         self.device = device
-        self.mlp_units = mlp_units
 
-        self.lstm = nn.LSTM(
+        self.lstm = CustomLSTM(
             input_size=num_sensors,
             hidden_size=hidden_units,
-            num_layers=self.num_layers,
-            batch_first=True,
+            num_layers=num_layers,
+            # batch_first=True,
         )
 
         self.linear = nn.Linear(
@@ -91,55 +169,43 @@ class ShallowRegressionLSTM_decode(nn.Module):
             bias=False,
         )
 
-        self.mlp = nn.Sequential(
-            nn.Linear(hidden_units + num_sensors, mlp_units),
-            nn.ReLU(),
-            nn.Linear(mlp_units, num_sensors),
-        )
-
         self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x, hidden):
         x = x.to(self.device)
-        out, hidden = self.lstm(x, hidden)
-
-        print("out0", out.shape)
+        out, hidden = self.lstm(x, hidden[0], hidden[1])
+        out = out[:, -1, :].unsqueeze(1)
 
         # Apply attention
         attn_weights = self.attention(hidden[0], x)
         context = attn_weights.unsqueeze(1).bmm(x)
 
         out = torch.cat((out, context), dim=2)
-        print("out1", out.shape)
 
-        # outn = self.linear(out)
-        outn = self.mlp(out)
+        outn = self.linear(out)
         return outn, hidden
 
 
 class ShallowLSTM_seq2seq(nn.Module):
     """Train LSTM encoder-decoder and make predictions"""
 
-    def __init__(self, num_sensors, hidden_units, num_layers, mlp_units, device):
+    def __init__(self, num_sensors, hidden_units, num_layers, device):
         super(ShallowLSTM_seq2seq, self).__init__()
         self.num_sensors = num_sensors
         self.hidden_units = hidden_units
         self.num_layers = num_layers
         self.device = device
-        self.mlp_units = mlp_units
 
         self.encoder = ShallowRegressionLSTM_encode(
             num_sensors=num_sensors,
             hidden_units=hidden_units,
             num_layers=num_layers,
-            mlp_units=mlp_units,
             device=device,
         )
         self.decoder = ShallowRegressionLSTM_decode(
             num_sensors=num_sensors,
             hidden_units=hidden_units,
             num_layers=num_layers,
-            mlp_units=mlp_units,
             device=device,
         )
 
@@ -176,8 +242,6 @@ class ShallowLSTM_seq2seq(nn.Module):
                 decoder_output, decoder_hidden = self.decoder(
                     decoder_input, decoder_hidden
                 )
-
-                # Avoid in-place operation
                 outputs = torch.cat(
                     (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]), dim=1
                 )

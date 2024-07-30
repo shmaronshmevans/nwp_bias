@@ -136,7 +136,6 @@ class SequenceDataset(Dataset):
         return x, self.y[i]
 
 
-
 def make_dirs(today_date, station):
     if (
         os.path.exists(
@@ -272,11 +271,11 @@ def main(
     learning_rate,
     weight_decay,
     hidden_units,
-    epochs = 20, 
-    fh = 16,
-    model = 'HRRR',
-    station = 'SPRA',
-    batch_size = 500,
+    epochs=20,
+    fh=16,
+    model="HRRR",
+    station="SPRA",
+    batch_size=500,
     sequence_length=30,
     target="target_error",
     save_model=True,
@@ -363,7 +362,6 @@ def main(
         "forecast_hour": fh,
     }
 
-
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
@@ -392,7 +390,7 @@ def main(
 
 config = {
     # Pick the Bayes algorithm:
-    "algorithm": "bayes",
+    "algorithm": "grid",
     # Declare what to optimize, and how:
     "spec": {
         "metric": "loss",
@@ -411,9 +409,7 @@ config = {
 opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(
-    project_name="hyperparameter-tuning-for-lstm"
-):
+for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
     loss = main(
         num_layers=experiment.get_parameter("num_layers"),
         learning_rate=experiment.get_parameter("learning_rate"),
