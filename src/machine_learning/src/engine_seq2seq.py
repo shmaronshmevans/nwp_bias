@@ -132,7 +132,7 @@ class OutlierFocusedLoss(nn.Module):
         self.alpha = alpha
         self.device = device
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_pred, y_true):
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
 
@@ -162,9 +162,9 @@ def main(
     weight_decay,
     fh,
     model,
-    sequence_length=70,
+    sequence_length=30,
     target="target_error",
-    learning_rate=7e-7,
+    learning_rate=5e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -183,6 +183,7 @@ def main(
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
@@ -230,7 +231,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(15 * len(features))
+    hidden_units = int(12 * len(features))
 
     model = encode_decode.ShallowLSTM_seq2seq(
         num_sensors=num_sensors,
@@ -248,7 +249,9 @@ def main(
     loss_function = OutlierFocusedLoss(2.0, device)
     # loss_function = ExponentialLoss(1.5, device)
     # loss_function = CubedLoss(device)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.9, patience=4
+    )
 
     hyper_params = {
         "num_layers": num_layers,
@@ -309,12 +312,22 @@ def main(
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}_s2s.pth",
         )
 
+        df_test = pd.concat([df_val, df_test])
+        test_dataset_e = SequenceDataset(
+            df_test,
+            target=target,
+            features=features,
+            sequence_length=sequence_length,
+            forecast_steps=fh,
+            device=device,
+        )
+
         # make sure main is commented when you run or the first run will do whatever station is listed in main
         eval_seq2seq.eval_model(
             train_dataset,
             df_train,
             df_test,
-            test_dataset,
+            test_dataset_e,
             model,
             batch_size,
             title,
@@ -333,11 +346,11 @@ def main(
 
 
 main(
-    batch_size=int(300),
-    station="SPRA",
+    batch_size=int(500),
+    station="SOUT",
     num_layers=5,
-    epochs=40,
-    weight_decay=0.02,
+    epochs=500,
+    weight_decay=0,
     fh=6,
     model="HRRR",
 )

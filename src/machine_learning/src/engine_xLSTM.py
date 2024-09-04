@@ -138,6 +138,8 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
 
         # Forward pass and loss computation.
         output = model(X)
+        # print("out", output[:, -1, :].squeeze())
+        # print("y", y)
         loss = loss_function(output[:, -1, :], y.squeeze())
 
         # Zero the gradients, backward pass, and optimization step.
@@ -214,6 +216,34 @@ class ExponentialLoss(nn.Module):
         return weighted_loss.mean()
 
 
+class OutlierFocusedLoss(nn.Module):
+    def __init__(self, alpha, device):
+        super(OutlierFocusedLoss, self).__init__()
+        self.alpha = alpha
+        self.device = device
+
+    def forward(self, y_pred, y_true):
+        y_true = y_true.to(self.device)
+        y_pred = y_pred.to(self.device)
+
+        # Calculate the error
+        error = y_true - y_pred
+
+        # Calculate the base loss (Mean Absolute Error in this case)
+        base_loss = torch.abs(error)
+
+        weights_neg = torch.where(error < 0, 1.0 + 0.1 * torch.abs(error), 1.0)
+
+        # Apply a weighting function to give more focus to outliers
+        weights = (torch.abs(error) + 1).pow(self.alpha)
+
+        # Calculate the weighted loss
+        weighted_loss = weights * base_loss * weights_neg
+
+        # Return the mean of the weighted loss
+        return weighted_loss.mean()
+
+
 def main(
     batch_size,
     station,
@@ -221,9 +251,9 @@ def main(
     weight_decay,
     fh,
     model,
-    sequence_length=120,
+    sequence_length=30,
     target="target_error",
-    learning_rate=5e-5,
+    learning_rate=5e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -285,7 +315,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(9 * len(features))
+    hidden_units = int(12 * len(features))
     print("num_sensors", num_sensors)
     layers = ["s", "m", "s"]
 
@@ -302,7 +332,8 @@ def main(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     # loss_function = nn.HuberLoss(delta=2.0)
-    loss_function = ExponentialLoss(0.75, device)
+    loss_function = OutlierFocusedLoss(1.75, device)
+    # loss_function = ExponentialLoss(1.75, device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
@@ -392,9 +423,9 @@ def main(
 
 
 main(
-    batch_size=int(15e2),
+    batch_size=int(4000),
     station="SPRA",
-    epochs=100,
+    epochs=50,
     weight_decay=0,
     fh=6,
     model="HRRR",

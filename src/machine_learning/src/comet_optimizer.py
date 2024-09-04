@@ -266,15 +266,50 @@ def test_model(data_loader, model, loss_function, device, epoch):
     return avg_loss
 
 
+class OutlierFocusedLoss(nn.Module):
+    def __init__(self, alpha, device):
+        super(OutlierFocusedLoss, self).__init__()
+        self.alpha = alpha
+        self.device = device
+
+    def forward(self, y_true, y_pred):
+        y_true = y_true.to(self.device)
+        y_pred = y_pred.to(self.device)
+
+        # Calculate the error
+        error = y_true - y_pred
+
+        # Calculate the base loss (Mean Absolute Error in this case)
+        base_loss = torch.abs(error)
+
+        # weights_neg = torch.where(error < 0, 1.0 + 0.1 * torch.abs(error), 1.0)
+
+        # # Apply a weighting function to give more focus to outliers
+        # weights = (torch.abs(error) + 1).pow(self.alpha)
+
+        # # Calculate the weighted loss
+        # weighted_loss = weights * base_loss * weights_neg
+
+        # Apply a weighting function to give more focus to outliers
+        weights = (torch.abs(error) + 1).pow(self.alpha)
+
+        # Calculate the weighted loss
+        weighted_loss = weights * base_loss
+
+        # Return the mean of the weighted loss
+        return weighted_loss.mean()
+
+
 def main(
     num_layers,
     learning_rate,
     weight_decay,
     hidden_units,
+    alpha=2.0,
     epochs=20,
-    fh=16,
+    fh=6,
     model="HRRR",
-    station="SPRA",
+    station="SOUT",
     batch_size=500,
     sequence_length=30,
     target="target_error",
@@ -296,6 +331,7 @@ def main(
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
@@ -343,11 +379,12 @@ def main(
         device=device,
     ).to(device)
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
     # loss_function = nn.MSELoss()
-    loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = nn.HuberLoss(delta=2.0)
+    loss_function = OutlierFocusedLoss(alpha, device)
 
     print("--- Training LSTM ---")
     hyper_params = {
@@ -390,7 +427,7 @@ def main(
 
 config = {
     # Pick the Bayes algorithm:
-    "algorithm": "grid",
+    "algorithm": "bayes",
     # Declare what to optimize, and how:
     "spec": {
         "metric": "loss",
@@ -409,7 +446,7 @@ config = {
 opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm"):
+for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm_v1"):
     loss = main(
         num_layers=experiment.get_parameter("num_layers"),
         learning_rate=experiment.get_parameter("learning_rate"),
