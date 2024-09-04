@@ -43,7 +43,9 @@ def predict(data_loader, model, device):
     with torch.no_grad():
         for batch_idx, (X, y) in enumerate(data_loader):
             X = X.to(device)
+            assert not torch.isnan(X).any(), "NaNs found in x during data preparation"
             y_star = model(X)
+
             output = torch.cat((output, y_star), 0)
     return output
 

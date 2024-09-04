@@ -4,8 +4,8 @@ import os
 import warnings
 import cfgrib
 import metpy.calc as mpcalc
-import cupy as np
-import cudf as pd
+import numpy as np
+import pandas as pd
 import time
 from metpy.units import units
 from scipy import interpolate
@@ -136,7 +136,7 @@ def interpolate_model_data_to_nysm_locations_groupby(df_model, df_nysm, vars_to_
         df[var] = df_model.groupby(["valid_time"])[var].apply(
             interpolate_func_griddata, model_lon_ny, model_lat_ny, xnew, ynew
         )
-    print(df)
+    # print(df)
     df_explode = df.apply(lambda col: col.explode())
 
     # add in the lat & lon & station
@@ -359,7 +359,6 @@ def redefine_precip_intervals_NAM(data, dt):
 def redefine_precip_intervals_GFS(data):
     # Filter rows where the values in the first level of the index are datetime objects
     data = data[pd.Index(map(lambda x: isinstance(x, pd.Timestamp), data.valid_time))]
-    print("after filter check", data)
     tp_data = data[["tp", "lead time", "station", "valid_time", "time"]]
     tp_data = data.copy()
     tp_data["diff"] = tp_data["tp"].diff()
@@ -485,7 +484,7 @@ def main(month, year, model, fh, mask_water=True):
     """
     start_time = time.time()
     model = model.upper()
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh{fh}/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/fh{fh}/"
     # savedir = f'/home/aevans/nwp_bias/src/machine_learning/data/'
     print("Month: ", month)
     if not os.path.exists(
@@ -603,6 +602,7 @@ def main(month, year, model, fh, mask_water=True):
             df_model_nysm_sites = pd.concat(
                 [df_model_nysm_sites_interp, df_model_nysm_sites_nn], axis=0
             )
+            df_model_nysm_sites.set_index("time", inplace=True)
 
         elif model == "HRRR":
             indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
@@ -647,6 +647,7 @@ def main(month, year, model, fh, mask_water=True):
 
         make_dirs(savedir, fh)
         df_model_nysm_sites = df_model_nysm_sites.fillna(0)
+        # df_model_nysm_sites.set_index(inplace=True)
         if mask_water:
             df_model_nysm_sites.to_parquet(
                 f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
@@ -675,10 +676,12 @@ if __name__ == "__main__":
     # # good for bulk cleaning
     model = "hrrr"
 
-    for fh in np.arange(7, 19, 2):
-        for year in np.arange(2020, 2024):
+    for fh in np.arange(1, 19, 2):
+        print("FH", fh)
+        for year in np.arange(2018, 2021):
+            print("YEAR: ", year)
             for month in np.arange(1, 13):
-                print(month)
+                print("Month: ", month)
                 # main(str(month).zfill(2), year, model, str(fh).zfill(2))
                 # Step 1: Init multiprocessing.Pool()
                 pool = mp.Pool(mp.cpu_count())

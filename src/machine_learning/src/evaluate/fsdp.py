@@ -15,13 +15,17 @@ from torchvision import datasets, transforms
 from comet_ml import Experiment, Artifact
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import StepLR, OneCycleLR
 
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    FullStateDictConfig,
+    ShardingStrategy,
+)
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
     BackwardPrefetch,
@@ -31,6 +35,7 @@ from torch.distributed.fsdp.wrap import (
     enable_wrap,
     wrap,
 )
+from torch.cuda.amp import GradScaler, autocast
 
 import pandas as pd
 import numpy as np
@@ -43,6 +48,7 @@ from processing import get_error
 
 from data import hrrr_data
 from data import nysm_data
+from data import create_data_for_lstm, create_data_for_lstm_gfs
 
 from visuals import loss_curves
 from comet_ml.integration.pytorch import log_model
@@ -92,8 +98,8 @@ class SequenceDataset(Dataset):
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
             # zero out NYSM vars from before present
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = x[
-                self.forecast_hr + 1, -int(len(self.stations) * 15) :
+            x[: self.forecast_hr, -int(len(self.stations) * 16) :] = x[
+                self.forecast_hr + 1, -int(len(self.stations) * 16) :
             ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -121,7 +127,7 @@ class EarlyStopper:
         return False
 
 
-def make_dirs(today_date):
+def make_dirs(today_date, station):
     if (
         os.path.exists(
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
@@ -134,16 +140,27 @@ def make_dirs(today_date):
         os.mkdir(
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
         )
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
+        )
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+        )
 
 
-def get_time_title(station, val_loss):
-    title = f"{station}_loss_{val_loss}"
+def get_time_title(station):
     today = datetime.now()
     today_date = today.strftime("%Y%m%d")
     today_date_hr = today.strftime("%Y%m%d_%H:%M")
-    make_dirs(today_date)
+    make_dirs(today_date, station)
 
-    return title, today_date, today_date_hr
+    return today_date, today_date_hr
 
 
 class ShallowRegressionLSTM(nn.Module):
@@ -152,6 +169,7 @@ class ShallowRegressionLSTM(nn.Module):
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
+        self.device = device
 
         self.lstm = nn.LSTM(
             input_size=num_sensors,
@@ -162,266 +180,60 @@ class ShallowRegressionLSTM(nn.Module):
         self.linear = nn.Linear(
             in_features=self.hidden_units, out_features=1, bias=False
         )
+        self.mlp = nn.Sequential(
+            # input, mlp_units
+            nn.Linear(hidden_units, 1500),
+            nn.ReLU(),
+            nn.Linear(1500, 1),
+        )
+        # self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x):
-        x.to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        x.to(self.device)
         batch_size = x.shape[0]
         h0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         c0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
+        # without attention
         _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.linear(
-            hn[0]
+        out = self.mlp(
+            hn[-1]
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
 
 
-def columns_drop_hrrr(df):
-    df = df.drop(
-        columns=[
-            "level_0",
-            "index",
-            "lead time",
-            "lsm",
-            "latitude",
-            "longitude",
-            "time",
-        ]
-    )
-    return df
+class OutlierFocusedLoss(nn.Module):
+    def __init__(self, alpha, device):
+        super(OutlierFocusedLoss, self).__init__()
+        self.alpha = alpha
+        self.device = device
 
+    def forward(self, y_pred, y_true):
+        y_true = y_true.to(self.device)
+        y_pred = y_pred.to(self.device)
 
-def add_suffix(master_df, station):
-    cols = ["valid_time", "time"]
-    master_df = master_df.rename(
-        columns={c: c + f"_{station}" for c in master_df.columns if c not in cols}
-    )
-    return master_df
+        # Calculate the error
+        error = y_true - y_pred
 
+        # Calculate the base loss (Mean Absolute Error in this case)
+        base_loss = torch.abs(error)
 
-def dataframe_wrapper(stations, df):
-    master_df = df[df["station"] == stations[0]]
-    master_df = add_suffix(master_df, stations[0])
-    for station in stations[1:]:
-        df1 = df[df["station"] == station]
-        df1 = add_suffix(df1, station)
-        master_df = master_df.merge(
-            df1, on="valid_time", suffixes=(None, f"_{station}")
-        )
-    return master_df
+        # Apply a weighting function to give more focus to outliers
+        weights = (torch.abs(error) + 1).pow(self.alpha)
 
+        # Calculate the weighted loss
+        weighted_loss = weights * base_loss
 
-def encode(data, col, max_val):
-    data["day_of_year"] = data["valid_time"].dt.dayofyear
-    sin = np.sin(2 * np.pi * data["day_of_year"] / max_val)
-    data.insert(loc=(1), column=f"{col}_sin", value=sin)
-    cos = np.cos(2 * np.pi * data["day_of_year"] / max_val)
-    data.insert(loc=(1), column=f"{col}_cos", value=cos)
-    data = data.drop(columns=["day_of_year"])
-
-    return data
-
-
-def nwp_error(target, station, df):
-    """
-    Calculate the error between NWP model data and NYSM data for a specific target variable.
-
-    Args:
-        target (str): The target variable name (e.g., 't2m' for temperature).
-        station (str): The station identifier for which data is being compared.
-        df (pd.DataFrame): The input DataFrame containing NWP and NYSM data.
-
-    Returns:
-        df (pd.DataFrame): The input DataFrame with the 'target_error' column added.
-
-    This function calculates the error between the NWP (Numerical Weather Prediction) modeldata and NYSM (New York State Mesonet) data for a specific target variable at a given station. The error is computed by subtracting the NYSM data from the NWP model data.
-    """
-
-    # Define a dictionary to map NWP variable names to NYSM variable names.
-    vars_dict = {
-        "t2m": "tair",
-        "mslma": "pres",
-        # Add more variable mappings as needed.
-    }
-
-    # Get the NYSM variable name corresponding to the target variable.
-    nysm_var = vars_dict.get(target)
-
-    # Calculate the 'target_error' by subtracting NYSM data from NWP model data.
-    target_error = df[f"{target}_{station}"] - df[f"{nysm_var}_{station}"]
-    df.insert(loc=(1), column=f"target_error", value=target_error)
-
-    return df
-
-
-def get_closest_stations(nysm_df, neighbors, target_station):
-    lats = nysm_df["lat"].unique()
-    lons = nysm_df["lon"].unique()
-
-    locations_a = pd.DataFrame()
-    locations_a["lat"] = lats
-    locations_a["lon"] = lons
-
-    for column in locations_a[["lat", "lon"]]:
-        rad = np.deg2rad(locations_a[column].values)
-        locations_a[f"{column}_rad"] = rad
-
-    locations_b = locations_a
-
-    ball = BallTree(locations_a[["lat_rad", "lon_rad"]].values, metric="haversine")
-
-    # k: The number of neighbors to return from tree
-    k = neighbors
-    # Executes a query with the second group. This will also return two arrays.
-    distances, indices = ball.query(locations_b[["lat_rad", "lon_rad"]].values, k=k)
-
-    indices_list = [indices[x][0:k] for x in range(len(indices))]
-
-    stations = nysm_df["station"].unique()
-
-    station_dict = {}
-
-    for k, _ in enumerate(stations):
-        station_dict[stations[k]] = indices_list[k]
-
-    utilize_ls = []
-    vals = station_dict.get(target_station)
-    vals
-    for v in vals:
-        x = stations[v]
-        utilize_ls.append(x)
-
-    return utilize_ls
-
-
-def which_fold(df, fold):
-    length = len(df)
-    test_len = int(length * 0.2)
-    df_train = pd.DataFrame()
-
-    for n in np.arange(0, 5):
-        if n != fold:
-            df1 = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
-            df_train = pd.concat([df_train, df1])
-        else:
-            df_test = df.iloc[int(0.2 * n * length) : int(0.2 * (n + 1) * length)]
-
-    return df_train, df_test
-
-
-def create_data_for_model(station):
-    """
-    This function creates and processes data for a LSTM machine learning model.
-
-    Args:
-        station (str): The station identifier for which data is being processed.
-
-    Returns:
-        new_df (pandas DataFrame): A DataFrame containing processed data.
-        df_train (pandas DataFrame): A DataFrame for training the machine learning model.
-        df_test (pandas DataFrame): A DataFrame for testing the machine learning model.
-        features (list): A list of feature names.
-        forecast_lead (int): The lead time for the target variable.
-    """
-
-    # Print a message indicating the current station being processed.
-    print(f"Targeting Error for {station}")
-    fh = 2
-
-    # Load data from NYSM and HRRR sources.
-    print("-- loading data from NYSM --")
-    nysm_df = nysm_data.load_nysm_data()
-    nysm_df.reset_index(inplace=True)
-    print("-- loading data from HRRR --")
-    hrrr_df = hrrr_data.read_hrrr_data(fh)
-
-    # Rename columns for consistency.
-    nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
-
-    # Filter NYSM data to match valid times from HRRR data
-    mytimes = hrrr_df["valid_time"].tolist()
-    nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
-
-    stations = get_closest_stations(nysm_df, 4, station)
-    # stations = nysm_cats_df1["stid"].tolist()
-    # stations = ['OLEA', 'BELM', 'RAND', 'DELE']
-    hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
-    nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
-
-    # format for LSTM
-    hrrr_df1 = columns_drop_hrrr(hrrr_df1)
-    master_df = dataframe_wrapper(stations, hrrr_df1)
-
-    nysm_df1 = nysm_df1.drop(
-        columns=[
-            "index",
-        ]
-    )
-    master_df2 = dataframe_wrapper(stations, nysm_df1)
-
-    # combine HRRR + NYSM data on time
-    master_df = master_df.merge(master_df2, on="valid_time", suffixes=(None, f"_xab"))
-
-    # Calculate the error using NWP data.
-    the_df = nwp_error("t2m", station, master_df)
-    valid_times = the_df["valid_time"].tolist()
-    # encode day of year to be cylcic
-    the_df = encode(the_df, "valid_time", 366)
-    # drop columns
-    the_df = the_df[the_df.columns.drop(list(the_df.filter(regex="station")))]
-    now = datetime.now()
-    print("now =", now)
-    # dd/mm/YY H:M:S
-    dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-
-    # Add EMD and/or Climate Indices
-    # the_df = normalize.normalize_df(the_df, valid_times)
-    the_df.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{dt_string}_full.parquet"
-    )
-    new_df = the_df.drop(columns="valid_time")
-
-    # normalize data
-    cols = ["valid_time_cos", "valid_time_sin"]
-    for k, r in new_df.items():
-        if k in (cols):
-            continue
-        else:
-            means = st.mean(new_df[k])
-            stdevs = st.pstdev(new_df[k])
-            new_df[k] = (new_df[k] - means) / stdevs
-
-    features = list(new_df.columns.difference(["target_error"]))
-    lstm_df = new_df.copy()
-    target_sensor = "target_error"
-    forecast_lead = 0
-    target = f"{target_sensor}_lead_{forecast_lead}"
-    lstm_df.insert(loc=(0), column=target, value=lstm_df[target_sensor])
-    # lstm_df.insert(loc=(0), column=target, value=lstm_df[target_sensor].shift(-forecast_lead))
-    lstm_df = lstm_df.drop(columns=[target_sensor])
-    # lstm_df = lstm_df.iloc[:-forecast_lead]
-    # Split the data into training and testing sets.
-    df_train, df_test = which_fold(lstm_df, 2)
-
-    print("Test Set Fraction", len(df_test) / len(lstm_df))
-
-    # Fill missing values with zeros in the training and testing DataFrames.
-    df_train = df_train.fillna(0)
-    df_test = df_test.fillna(0)
-
-    # Print a message indicating that data processing is complete.
-    print("Data Processed")
-    print("--init model LSTM--")
-
-    return df_train, df_test, features, forecast_lead, stations, target
+        # Return the mean of the weighted loss
+        return weighted_loss.mean()
 
 
 def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epoch):
@@ -429,6 +241,8 @@ def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epo
     total_loss = 0
     model.train()
     ddp_loss = torch.zeros(2).to(int(os.environ["RANK"]) % torch.cuda.device_count())
+
+    scaler = GradScaler()
 
     if sampler:
         sampler.set_epoch(epoch)
@@ -440,13 +254,19 @@ def train_model(data_loader, model, loss_function, optimizer, rank, sampler, epo
         )
 
         # Forward pass and loss computation.
-        output = model(X)
-        loss = loss_function(output, y)
+        # Forward pass with autocast
+        with autocast():
+            output = model(X)
+            loss = loss_function(output, y)
 
         # Zero the gradients, backward pass, and optimization step.
         optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
+
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+        scaler.step(optimizer)
+        scaler.update()
 
         # Track the total loss and the number of processed samples.
         total_loss += loss.item()
@@ -523,19 +343,25 @@ def fsdp_main(rank, world_size, args):
     print("::: In Main :::")
     station = args.station
 
+    today_date, today_date_hr = get_time_title(station)
+
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_model(station)
+    ) = create_data_for_lstm.create_data_for_model(
+        args.station, args.fh, today_date, "t2m"
+    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    print(features)
 
     if rank == 0:
         experiment = Experiment(
             api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-            project_name="v5",
+            project_name="compare-models-v2",
             workspace="shmaronshmevans",
         )
 
@@ -547,7 +373,7 @@ def fsdp_main(rank, world_size, args):
         features=features,
         stations=stations,
         sequence_length=args.sequence_length,
-        forecast_hr=2,
+        forecast_hr=args.fh,
     )
     test_dataset = SequenceDataset(
         df_test,
@@ -555,7 +381,7 @@ def fsdp_main(rank, world_size, args):
         features=features,
         stations=stations,
         sequence_length=args.sequence_length,
-        forecast_hr=2,
+        forecast_hr=args.fh,
     )
 
     sampler1 = DistributedSampler(
@@ -578,16 +404,14 @@ def fsdp_main(rank, world_size, args):
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
 
-    auto_wrap_policy = functools.partial(
-        size_based_auto_wrap_policy, min_num_params=1_000
-    )
+    auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1)
     torch.cuda.set_device(rank)
 
     init_start_event = torch.cuda.Event(enable_timing=True)
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(0.5 * len(features))
+    hidden_units = int(12 * len(features))
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -596,22 +420,25 @@ def fsdp_main(rank, world_size, args):
         device=device,
     ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
 
-    model = FSDP(
+    ml = FSDP(
         model,
+        sync_module_states=True,
+        sharding_strategy=ShardingStrategy.NO_SHARD,
         auto_wrap_policy=auto_wrap_policy,
         mixed_precision=torch.distributed.fsdp.MixedPrecision(
-            param_dtype=torch.float32,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float32,
+            param_dtype=torch.float16,  # Using float16 for parameters
+            reduce_dtype=torch.float32,  # Using float16 for gradient reduction
+            buffer_dtype=torch.float32,  # Using float16 for buffers
             cast_forward_inputs=True,
         ),
     )
 
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
+    optimizer = torch.optim.AdamW(
+        ml.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
     # loss_function = nn.MSELoss()
-    loss_function = nn.HuberLoss(delta=1.5)
+    # loss_function = nn.HuberLoss(delta=1.5)
+    loss_function = OutlierFocusedLoss(2.0, device)
 
     hyper_params = {
         "num_layers": args.num_layers,
@@ -622,18 +449,22 @@ def fsdp_main(rank, world_size, args):
         "batch_size": args.batch_size,
         "station": args.station,
         "regularization": args.weight_decay,
+        "forecast_hour": args.fh,
     }
     print("--- FSDP Engaged ---")
-    scheduler = StepLR(optimizer, step_size=1)
+    scheduler = OneCycleLR(
+        optimizer, max_lr=0.01, steps_per_epoch=len(train_loader), epochs=args.epochs
+    )
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
     for ix_epoch in range(1, args.epochs + 1):
+        sampler1.set_epoch(ix_epoch)
         train_loss = train_model(
-            train_loader, model, loss_function, optimizer, rank, sampler1, ix_epoch
+            train_loader, ml, loss_function, optimizer, rank, sampler1, ix_epoch
         )
 
-        test_loss = test_model(test_loader, model, loss_function, rank)
+        test_loss = test_model(test_loader, ml, loss_function, rank)
         scheduler.step()
         train_loss_ls.append(train_loss)
         test_loss_ls.append(test_loss)
@@ -650,7 +481,7 @@ def fsdp_main(rank, world_size, args):
         print(
             f"CUDA event elapsed time: {init_start_event.elapsed_time(init_end_event) / 1000}sec"
         )
-        print(f"{model}")
+        print(f"{ml}")
 
     if args.save_model:
         # use a barrier to make sure training is done on all ranks
@@ -660,24 +491,18 @@ def fsdp_main(rank, world_size, args):
         print("now =", now)
         # dd/mm/YY H:M:S
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-        states = model.state_dict()
+        states = ml.state_dict()
 
         if rank == 0:
-            title, today_date, today_date_hr = get_time_title(
-                args.station, min(test_loss_ls)
-            )
             torch.save(
                 states,
                 f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/lstm_v{dt_string}.pth",
-            )
-            loss_curves.loss_curves(
-                train_loss_ls, test_loss_ls, title, today_date, dt_string, rank
             )
 
     print("Successful Experiment")
     if rank == 0:
         # Seamlessly log your Pytorch model
-        log_model(experiment, model, model_name="v5")
+        log_model(experiment, ml, model_name="v5")
         experiment.end()
     print("... completed ...")
     torch.cuda.synchronize()

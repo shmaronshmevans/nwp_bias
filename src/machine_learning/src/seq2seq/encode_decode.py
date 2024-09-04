@@ -86,7 +86,7 @@ class ShallowRegressionLSTM_decode(nn.Module):
         )
 
         self.linear = nn.Linear(
-            in_features=self.hidden_units + self.num_sensors,
+            in_features=self.hidden_units,
             out_features=num_sensors,
             bias=False,
         )
@@ -103,17 +103,17 @@ class ShallowRegressionLSTM_decode(nn.Module):
         x = x.to(self.device)
         out, hidden = self.lstm(x, hidden)
 
-        print("out0", out.shape)
+        # print("out0", out.shape)
 
-        # Apply attention
-        attn_weights = self.attention(hidden[0], x)
-        context = attn_weights.unsqueeze(1).bmm(x)
+        # # Apply attention
+        # attn_weights = self.attention(hidden[0], x)
+        # context = attn_weights.unsqueeze(1).bmm(x)
 
-        out = torch.cat((out, context), dim=2)
-        print("out1", out.shape)
+        # out = torch.cat((out, context), dim=2)
+        # print("out1", out.shape)
 
-        # outn = self.linear(out)
-        outn = self.mlp(out)
+        outn = self.linear(out)
+        # outn = self.mlp(out)
         return outn, hidden
 
 

@@ -17,20 +17,20 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=int(10e5),
+        default=int(100),
         help="input batch size for training (default: 64)",
     )
     parser.add_argument(
-        "--sequence_length", type=int, default=120, help="input sequence length"
+        "--sequence_length", type=int, default=30, help="input sequence length"
     )
     parser.add_argument(
         "--target", type=str, default="target_error", help="target column name"
     )
-    parser.add_argument("--station", type=str, default="WANT", help="station name")
+    parser.add_argument("--station", type=str, default="GROV", help="station name")
     parser.add_argument(
-        "--learning_rate", type=float, default=5e-2, help="learning rate"
+        "--learning_rate", type=float, default=5e-5, help="learning rate"
     )
-    parser.add_argument("--num_layers", type=int, default=10, help="number of layers")
+    parser.add_argument("--num_layers", type=int, default=3, help="number of layers")
     parser.add_argument(
         "--epochs",
         type=int,
@@ -41,6 +41,7 @@ if __name__ == "__main__":
         "--seed", type=int, default=101, help="random seed (default: 101)"
     )
     parser.add_argument("--weight_decay", type=float, default=0, help="weight decay")
+    parser.add_argument("--fh", type=int, default=12, help="forecast hour")
     parser.add_argument(
         "--save-model",
         action="store_true",

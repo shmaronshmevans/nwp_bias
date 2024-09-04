@@ -23,7 +23,11 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    FullStateDictConfig,
+    ShardingStrategy,
+)
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
     BackwardPrefetch,
@@ -44,6 +48,7 @@ from processing import get_error
 
 from data import hrrr_data
 from data import nysm_data
+from data import create_data_for_lstm, create_data_for_lstm_gfs
 from datetime import datetime
 
 
@@ -157,7 +162,9 @@ class SequenceDataset(Dataset):
             i_start = i - self.sequence_length + 1
             x = self.X[i_start : (i + 1), :]
             # zero out NYSM vars from before present
-            x[: self.forecast_hr, -int(len(self.stations) * 15) :] = -999.0
+            x[: self.forecast_hr, -int(len(self.stations) * 16) :] = x[
+                self.forecast_hr + 1, -int(len(self.stations) * 16) :
+            ]
         else:
             padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
             x = self.X[0 : (i + 1), :]
@@ -190,6 +197,7 @@ class ShallowRegressionLSTM(nn.Module):
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
         self.num_layers = num_layers
+        self.device = device
 
         self.lstm = nn.LSTM(
             input_size=num_sensors,
@@ -200,26 +208,70 @@ class ShallowRegressionLSTM(nn.Module):
         self.linear = nn.Linear(
             in_features=self.hidden_units, out_features=1, bias=False
         )
+        self.mlp = nn.Sequential(
+            # input, mlp_units
+            nn.Linear(hidden_units, 1500),
+            nn.GELU(),
+            nn.Linear(1500, 1),
+        )
+        # self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x):
-        x.to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        x.to(self.device)
         batch_size = x.shape[0]
         h0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
         c0 = (
             torch.zeros(self.num_layers, batch_size, self.hidden_units)
             .requires_grad_()
-            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+            .to(self.device)
         )
+        # without attention
         _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.linear(
-            hn[0]
+        out = self.mlp(
+            hn[-1]
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
+
+
+def make_dirs(today_date, station):
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+        )
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+        )
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
+        )
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+        )
+
+
+def get_time_title(station):
+    today = datetime.now()
+    today_date = today.strftime("%Y%m%d")
+    today_date_hr = today.strftime("%Y%m%d_%H:%M")
+    make_dirs(today_date, station)
+
+    return today_date, today_date_hr
 
 
 def main(rank, world_size, args):
@@ -232,17 +284,23 @@ def main(rank, world_size, args):
 
     print(" *********")
     print("::: In Main :::")
+    today_date, today_date_hr = get_time_title(args.station)
 
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
         target,
-    ) = fsdp.create_data_for_model(args.station)
+    ) = create_data_for_lstm.create_data_for_model(
+        args.station, args.fh, today_date, "tp"
+    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     setup(rank, world_size)
     num_sensors = int(len(features))
+
+    df_test = pd.concat([df_val, df_test])
 
     train_dataset = SequenceDataset(
         df_train,
@@ -250,7 +308,7 @@ def main(rank, world_size, args):
         features=features,
         stations=stations,
         sequence_length=args.sequence_length,
-        forecast_hr=2,
+        forecast_hr=6,
     )
     test_dataset = SequenceDataset(
         df_test,
@@ -258,15 +316,13 @@ def main(rank, world_size, args):
         features=features,
         stations=stations,
         sequence_length=args.sequence_length,
-        forecast_hr=2,
+        forecast_hr=6,
     )
 
     path = args.model_path
     title_str = path[-29:-4]
 
-    auto_wrap_policy = functools.partial(
-        size_based_auto_wrap_policy, min_num_params=1_000
-    )
+    auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1)
     torch.cuda.set_device(rank)
 
     # load model
@@ -281,11 +337,13 @@ def main(rank, world_size, args):
 
     model = FSDP(
         model,
+        sync_module_states=True,
+        sharding_strategy=ShardingStrategy.NO_SHARD,
         auto_wrap_policy=auto_wrap_policy,
         mixed_precision=torch.distributed.fsdp.MixedPrecision(
-            param_dtype=torch.float32,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float32,
+            param_dtype=torch.float16,  # Using float16 for parameters
+            reduce_dtype=torch.float16,  # Using float16 for gradient reduction
+            buffer_dtype=torch.float16,  # Using float16 for buffers
             cast_forward_inputs=True,
         ),
     )

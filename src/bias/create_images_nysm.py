@@ -138,46 +138,48 @@ def inverse_distance_weighting(x, y, z, xi, yi, power=4):
     return zi
 
 
-def make_dirs(year, month, day):
+def make_dirs(year, month, day, fh):
     if (
         os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/"
-        )
-        == False
-    ):
-        os.mkdir(f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/")
-    if (
-        os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/{month}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/"
         )
         == False
     ):
         os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/{month}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/"
         )
     if (
         os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/{month}/{day}/"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/{month}"
         )
         == False
     ):
         os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/{month}/{day}/"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/{month}"
+        )
+    if (
+        os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/{month}/{day}/"
+        )
+        == False
+    ):
+        os.mkdir(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/{month}/{day}/"
         )
 
 
-def get_time_title(time):
+def get_time_title(time, fh):
     today = time
     year = today.strftime("%Y")
     month = today.strftime("%m")
     day = today.strftime("%d")
     today_date = today.strftime("%Y%m%d")
     today_date_hr = today.strftime("%Y%m%d_%H:%M")
-    make_dirs(year, month, day)
+    make_dirs(year, month, day, fh)
     return year, month, day, today_date, today_date_hr
 
 
-def create_images_interp(df, var_ls, t, year, month, day, today_date_hr):
+def create_images_interp(df, var_ls, t, year, month, day, today_date_hr, fh):
     i = 0
     grid_size = 125
     n_vars = len(var_ls)
@@ -218,7 +220,7 @@ def create_images_interp(df, var_ls, t, year, month, day, today_date_hr):
         i += 1
 
     np.save(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/images/{year}/{month}/{day}/{today_date_hr}.npy",
+        f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh{fh}/{year}/{month}/{day}/{today_date_hr}.npy",
         matrix_3d,
     )
     print(f"Succseful image creation for {today_date_hr}")
@@ -320,6 +322,25 @@ def normalize_df(df):
     return df
 
 
+def images_column(df):
+    images = []
+    times = df["valid_time"].tolist()
+    for t in times:
+        today = t
+        year = today.strftime("%Y")
+        month = today.strftime("%m")
+        day = today.strftime("%d")
+        today_date = today.strftime("%Y%m%d")
+        today_date_hr = today.strftime("%Y%m%d_%H:%M")
+
+        images.append(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/images/fh04/{year}/{month}/{day}/{today_date_hr}.npy"
+        )
+    df["images"] = images
+
+    return df
+
+
 def create_data_for_model(clim_div, forecast_hour, single):
     """
     This function creates and processes data for a vision transformer machine learning model.
@@ -406,6 +427,10 @@ def create_data_for_model(clim_div, forecast_hour, single):
         i += 1
 
         gc.collect()
+
+    final_df = images_column(final_df)
+    final_df.reset_index(drop=True, inplace=True)
+
     return final_df, features, stations
 
 
@@ -414,29 +439,33 @@ def main(clim_div, forecast_hour):
         clim_div, forecast_hour, single=False
     )
     print(features)
-    # final_df.to_csv("/home/aevans/nwp_bias/src/machine_learning/data/images/master_df.csv")
+    final_df.to_csv(
+        "/home/aevans/nwp_bias/src/machine_learning/data/images/fh04/master_df.csv"
+    )
 
-    final_df = final_df[final_df["valid_time"] > datetime(2019, 12, 15, 0, 0, 0)]
+    # final_df = final_df[final_df["valid_time"] > datetime(2018, 8, 1, 0, 0, 0)]
     valid_time = final_df["valid_time"].tolist()
     n = 0
     for t in valid_time:
         print(t)
         print(n)
-        year, month, day, today_date, today_date_hr = get_time_title(t)
-        create_images_interp(final_df, features, n, year, month, day, today_date_hr)
+        year, month, day, today_date, today_date_hr = get_time_title(t, forecast_hour)
+        create_images_interp(
+            final_df, features, n, year, month, day, today_date_hr, forecast_hour
+        )
         n += 1
         print()
 
 
-pool = mp.Pool(mp.cpu_count())
+# pool = mp.Pool(mp.cpu_count())
 
-# Step 2: Use pool.apply() to execute the main function with specified arguments
-results = pool.apply(
-    main,
-    args=("Mohawk Valley", "04"),
-)
+# # Step 2: Use pool.apply() to execute the main function with specified arguments
+# results = pool.apply(
+#     main,
+#     args=("Mohawk Valley", "04"),
+# )
 
-# Step 3: Close the multiprocessing pool
-pool.close()
+# # Step 3: Close the multiprocessing pool
+# pool.close()
 
-# main('Mohawk Valley', "04")
+main("Mohawk Valley", "04")

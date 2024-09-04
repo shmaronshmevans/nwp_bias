@@ -47,7 +47,11 @@ from evaluate import eval_single_gpu
 
 from data import hrrr_data
 from data import nysm_data
-from data import create_data_for_lstm, create_data_for_lstm_gfs
+from data import (
+    create_data_for_lstm,
+    create_data_for_lstm_gfs,
+    create_data_for_lstm_nam,
+)
 
 from visuals import loss_curves
 from comet_ml.integration.pytorch import log_model
@@ -250,6 +254,44 @@ def get_time_title(station):
     return today_date, today_date_hr
 
 
+class Attention(nn.Module):
+    def __init__(self, hidden_dim, input_dim):
+        super(Attention, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
+        self.attn = nn.Linear(self.hidden_dim + self.input_dim, hidden_dim)
+        self.v = nn.Parameter(torch.rand(hidden_dim))
+
+    def forward(self, hidden, encoder_outputs):
+        # hidden: (num_layers, batch_size, hidden_dim)
+        # encoder_outputs: (batch_size, seq_len, hidden_dim)
+
+        # Use the last layer of the hidden state for attention
+        hidden = hidden[-1]  # (batch_size, hidden_dim)
+
+        # Repeat hidden state (decoder hidden state) for each time step
+        hidden = hidden.unsqueeze(1).repeat(
+            1, encoder_outputs.size(1), 1
+        )  # (batch_size, seq_len, hidden_dim)
+
+        # Concatenate hidden state with encoder outputs
+        combined = torch.cat(
+            (hidden, encoder_outputs), dim=2
+        )  # (batch_size, seq_len, hidden_dim + input_dim)
+
+        # Compute energy
+        energy = torch.tanh(self.attn(combined))  # (batch_size, seq_len, hidden_dim)
+
+        # Compute attention weights
+        energy = energy.transpose(1, 2)  # (batch_size, hidden_dim, seq_len)
+        v = self.v.repeat(encoder_outputs.size(0), 1).unsqueeze(
+            1
+        )  # (batch_size, 1, hidden_dim)
+        attn_weights = torch.bmm(v, energy).squeeze(1)  # (batch_size, seq_len)
+
+        return F.softmax(attn_weights, dim=1)  # (batch_size, seq_len)
+
+
 class ShallowRegressionLSTM(nn.Module):
     def __init__(self, num_sensors, hidden_units, num_layers, device):
         super().__init__()
@@ -267,6 +309,13 @@ class ShallowRegressionLSTM(nn.Module):
         self.linear = nn.Linear(
             in_features=self.hidden_units, out_features=1, bias=False
         )
+        self.mlp = nn.Sequential(
+            # input, mlp_units
+            nn.Linear(hidden_units, 1500),
+            nn.ReLU(),
+            nn.Linear(1500, 1),
+        )
+        # self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x):
         x.to(self.device)
@@ -281,10 +330,23 @@ class ShallowRegressionLSTM(nn.Module):
             .requires_grad_()
             .to(self.device)
         )
+        # without attention
         _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.linear(
-            hn
+        out = self.mlp(
+            hn[-1]
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
+
+        # # with attention
+        # out, (hidden, cell) = self.lstm(x, (h0, c0))
+        # hidden = hidden.repeat(int(x.shape[1]/hidden.shape[0]), 1, 1)
+
+        # attn_weights = self.attention(hidden, x)
+        # context = attn_weights.unsqueeze(1).bmm(x)
+        # context = context.repeat(1, int(x.shape[1]), 1)
+
+        # out = torch.cat((out, context), dim=2)
+        # out = self.mlp(out)
+        # out = out[:,-1,-1].squeeze()
 
         return out
 
@@ -300,6 +362,8 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
 
         # Forward pass and loss computation.
         output = model(X)
+        # print("out", output.shape)
+        # print("y", y.shape)
         loss = loss_function(output, y)
 
         # Zero the gradients, backward pass, and optimization step.
@@ -355,7 +419,7 @@ class CustomWeightedLoss(nn.Module):
         self.mse_loss = nn.MSELoss(reduction="none")
         self.device = device
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_pred, y_true):
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
         # Calculate the standard MSE loss
@@ -377,9 +441,12 @@ class OutlierFocusedLoss(nn.Module):
         self.alpha = alpha
         self.device = device
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_pred, y_true):
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
+
+        print("y_true", y_true.shape)
+        print("y_pred", y_pred.shape)
 
         # Calculate the error
         error = y_true - y_pred
@@ -403,7 +470,7 @@ class ExponentialLoss(nn.Module):
         self.beta = beta
         self.device = device
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_pred, y_true):
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
 
@@ -431,7 +498,7 @@ def main(
     weight_decay,
     fh,
     model,
-    sequence_length=15,
+    sequence_length=30,
     target="target_error",
     learning_rate=5e-5,
     save_model=True,
@@ -452,25 +519,23 @@ def main(
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date
+    ) = create_data_for_lstm_nam.create_data_for_model(
+        station, fh, today_date, "u_total"
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
 
-    df_train_resampled = df_train[abs(df_train["target_error_lead_0"]) > 2.0]
-    df_test_resampled = df_test[abs(df_test["target_error_lead_0"]) > 2.0]
-
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="lstm_alpha_clim_div",
+        project_name="lstm_nam_beta",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
-        df_train_resampled,
+        df_train,
         target=target,
         features=features,
         stations=stations,
@@ -480,7 +545,7 @@ def main(
         model=model,
     )
     test_dataset = SequenceDataset(
-        df_test_resampled,
+        df_test,
         target=target,
         features=features,
         stations=stations,
@@ -501,7 +566,8 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(10 * len(features))
+    hidden_units = int(12 * len(features))
+    # hidden_units = 500
 
     model = ShallowRegressionLSTM(
         num_sensors=num_sensors,
@@ -513,10 +579,10 @@ def main(
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    # loss_function = nn.MSELoss()
-    # loss_function = CustomWeightedLoss(-1.5, 1.5, 0.8, device)
-    # loss_function = OutlierFocusedLoss(0.05, device)
-    loss_function = ExponentialLoss(1.5, device)
+    # loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = CustomWeightedLoss(-3.0, 3.0, 0.9, device)
+    loss_function = OutlierFocusedLoss(2.0, device)
+    # loss_function = ExponentialLoss(1.5, device)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
@@ -574,6 +640,7 @@ def main(
         loss_curves.loss_curves(
             train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
         )
+        df_test = pd.concat([df_test, df_val])
         train_dataset_e = SequenceDataset(
             df_train,
             target=target,
@@ -582,7 +649,7 @@ def main(
             sequence_length=sequence_length,
             forecast_hr=fh,
             device=device,
-            model="HRRR",
+            model="NAM",
         )
         test_dataset_e = SequenceDataset(
             df_test,
@@ -592,7 +659,7 @@ def main(
             sequence_length=sequence_length,
             forecast_hr=fh,
             device=device,
-            model="HRRR",
+            model="NAM",
         )
 
         # make sure main is commented when you run or the first run will do whatever station is listed in main
@@ -619,13 +686,13 @@ def main(
 
 
 main(
-    batch_size=int(10e2),
-    station="SPRA",
-    num_layers=1,
-    epochs=200,
+    batch_size=int(200),
+    station="SOUT",
+    num_layers=2,
+    epochs=150,
     weight_decay=0,
     fh=6,
-    model="HRRR",
+    model="NAM",
 )
 
 # # first iteration to target Brooklyn

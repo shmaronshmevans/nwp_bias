@@ -138,8 +138,8 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
 
         # Forward pass and loss computation.
         output = model(X)
-        print("out", output[:, -1, :].squeeze())
-        print("y", y)
+        # print("out", output[:, -1, :].squeeze())
+        # print("y", y)
         loss = loss_function(output[:, -1, :], y.squeeze())
 
         # Zero the gradients, backward pass, and optimization step.
@@ -287,7 +287,7 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(9 * len(features))
+    hidden_units = int(12 * len(features))
     print("num_sensors", num_sensors)
     layers = ["s", "m", "s"]
 
