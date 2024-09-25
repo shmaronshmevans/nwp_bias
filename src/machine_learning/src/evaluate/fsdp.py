@@ -4,6 +4,9 @@ import sys
 
 sys.path.append("..")
 
+from comet_ml import Experiment, Artifact
+from comet_ml.integration.pytorch import log_model
+
 import os
 import argparse
 import functools
@@ -12,7 +15,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from comet_ml import Experiment, Artifact
+
+
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR, OneCycleLR
@@ -302,8 +306,8 @@ def test_model(data_loader, model, loss_function, rank):
     with torch.no_grad():
         for batch_idx, (X, y) in enumerate(data_loader):
             # Move data and labels to the appropriate device (GPU/CPU).
-            X, y = X.to(rank % torch.cuda.device_count()), y.to(
-                rank % torch.cuda.device_count()
+            X, y = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
+                int(os.environ["RANK"]) % torch.cuda.device_count()
             )
 
             # Forward pass to obtain model predictions.

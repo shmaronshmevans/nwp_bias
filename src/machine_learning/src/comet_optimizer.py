@@ -173,7 +173,7 @@ def get_time_title(station):
 
 
 class ShallowRegressionLSTM(nn.Module):
-    def __init__(self, num_sensors, hidden_units, num_layers, device):
+    def __init__(self, num_sensors, hidden_units, num_layers, mlp, device):
         super().__init__()
         self.num_sensors = num_sensors  # this is the number of features
         self.hidden_units = hidden_units
@@ -189,6 +189,14 @@ class ShallowRegressionLSTM(nn.Module):
         self.linear = nn.Linear(
             in_features=self.hidden_units, out_features=1, bias=False
         )
+        self.mlp = nn.Sequential(
+            # input, mlp_units
+            nn.Linear(hidden_units, mlp),
+            # nn.LeakyReLU(),
+            nn.ReLU(),
+            nn.Linear(mlp, 1),
+        )
+        # self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x):
         x.to(self.device)
@@ -203,9 +211,10 @@ class ShallowRegressionLSTM(nn.Module):
             .requires_grad_()
             .to(self.device)
         )
+        # without attention
         _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.linear(
-            hn[0]
+        out = self.mlp(
+            hn[-1]
         ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
         return out
@@ -305,13 +314,14 @@ def main(
     learning_rate,
     weight_decay,
     hidden_units,
+    mlp_units,
+    sequence_length,
     alpha=2.0,
-    epochs=20,
+    epochs=50,
     fh=6,
-    model="HRRR",
-    station="SOUT",
+    model="GFS",
+    station="SCHU",
     batch_size=500,
-    sequence_length=30,
     target="target_error",
     save_model=True,
 ):
@@ -336,8 +346,8 @@ def main(
         forecast_lead,
         stations,
         target,
-    ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date
+    ) = create_data_for_lstm_gfs.create_data_for_model(
+        station, fh, today_date, "u_total"
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     train_dataset = SequenceDataset(
         df_train,
@@ -376,6 +386,7 @@ def main(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
+        mlp=mlp_units,
         device=device,
     ).to(device)
 
@@ -427,7 +438,7 @@ def main(
 
 config = {
     # Pick the Bayes algorithm:
-    "algorithm": "bayes",
+    "algorithm": "grid",
     # Declare what to optimize, and how:
     "spec": {
         "metric": "loss",
@@ -437,8 +448,10 @@ config = {
     "parameters": {
         "num_layers": {"type": "integer", "min": 1, "max": 5},
         "learning_rate": {"type": "float", "min": 5e-20, "max": 1e-1},
-        "weight_decay": {"type": "float", "min": 0, "max": 1},
-        "hidden_units": {"type": "integer", "min": 1.0, "max": 5000.0},
+        "weight_decay": {"type": "float", "min": 0.0, "max": 1.0},
+        "hidden_units": {"type": "integer", "min": 1, "max": 5000},
+        "mlp_units": {"type": "integer", "min": 1, "max": 5000},
+        "sequence_length": {"type": "integer", "min": 1, "max": 250},
     },
     "trials": 30,
 }
@@ -446,12 +459,16 @@ config = {
 opt = Optimizer(config)
 
 # Finally, get experiments, and train your models:
-for experiment in opt.get_experiments(project_name="hyperparameter-tuning-for-lstm_v1"):
+for experiment in opt.get_experiments(
+    project_name="hyperparameter-tuning-for-lstm_gfs_wind"
+):
     loss = main(
         num_layers=experiment.get_parameter("num_layers"),
         learning_rate=experiment.get_parameter("learning_rate"),
         weight_decay=experiment.get_parameter("weight_decay"),
         hidden_units=experiment.get_parameter("hidden_units"),
+        mlp_units=experiment.get_parameter("hidden_units"),
+        sequence_length=experiment.get_parameter("sequence_length"),
     )
 
     experiment.log_metric("loss", loss)

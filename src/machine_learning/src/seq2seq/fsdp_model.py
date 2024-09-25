@@ -1,7 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.cuda.amp import GradScaler, autocast
+import torch.distributed as dist
+from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+
+
 import gc
+import os
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -103,16 +109,6 @@ class ShallowRegressionLSTM_decode(nn.Module):
         x = x.to(self.device)
         out, hidden = self.lstm(x, hidden)
 
-        # print("out0", out.shape)
-
-        # # Apply attention
-        # attn_weights = self.attention(hidden[0], x)
-        # context = attn_weights.unsqueeze(1).bmm(x)
-
-        # out = torch.cat((out, context), dim=2)
-        # print("out1", out.shape)
-
-        # outn = self.linear(out)
         outn = self.mlp(out)
         return outn, hidden
 
@@ -148,6 +144,8 @@ class ShallowLSTM_seq2seq(nn.Module):
         data_loader,
         loss_func,
         optimizer,
+        rank,
+        sampler,
         epoch,
         training_prediction,
         teacher_forcing_ratio,
@@ -155,74 +153,107 @@ class ShallowLSTM_seq2seq(nn.Module):
     ):
         num_batches = len(data_loader)
         total_loss = 0
+        ddp_loss = torch.zeros(2).to(
+            int(os.environ["RANK"]) % torch.cuda.device_count()
+        )
+        scaler = torch.cuda.amp.GradScaler(init_scale=2**16)
         self.train()
+
+        if sampler:
+            sampler.set_epoch(epoch)
 
         for batch_idx, (X, y) in enumerate(data_loader):
             gc.collect()
-            X, y = X.to(self.device), y.to(self.device)
+            X, y = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
+                int(os.environ["RANK"]) % torch.cuda.device_count()
+            )
+            # Check for NaNs in inputs
+            assert not torch.isnan(X).any(), "Input contains NaNs!"
+            assert not torch.isnan(y).any(), "Target contains NaNs!"
 
-            # Encoder forward pass
-            encoder_hidden = self.encoder(X)
+            with autocast():
+                # Encoder forward pass
+                encoder_hidden = self.encoder(X)
 
-            # Initialize outputs tensor
-            outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
+                # Initialize outputs tensor
+                outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
 
-            decoder_input = X[:, -1, :].unsqueeze(
-                1
-            )  # Initialize decoder input to last time step of input sequence
-            decoder_hidden = encoder_hidden
+                decoder_input = X[:, -1, :].unsqueeze(
+                    1
+                )  # Initialize decoder input to last time step of input sequence
+                decoder_hidden = encoder_hidden
 
-            for t in range(y.size(1)):
-                decoder_output, decoder_hidden = self.decoder(
-                    decoder_input, decoder_hidden
-                )
+                for t in range(y.size(1)):
+                    decoder_output, decoder_hidden = self.decoder(
+                        decoder_input, decoder_hidden
+                    )
 
-                # Avoid in-place operation
-                outputs = torch.cat(
-                    (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]), dim=1
-                )
+                    # Avoid in-place operation
+                    outputs = torch.cat(
+                        (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]),
+                        dim=1,
+                    )
 
-                if training_prediction == "recursive":
-                    decoder_input = decoder_output  # Recursive prediction
-                elif training_prediction == "teacher_forcing":
-                    if torch.rand(1).item() < teacher_forcing_ratio:
-                        decoder_input = outputs[:, t, :].unsqueeze(
-                            1
-                        )  # Use true target as next input (teacher forcing)
-                    else:
+                    if training_prediction == "recursive":
                         decoder_input = decoder_output  # Recursive prediction
-                elif training_prediction == "mixed_teacher_forcing":
-                    if torch.rand(1).item() < teacher_forcing_ratio:
-                        decoder_input = outputs[:, t, :].unsqueeze(
-                            1
-                        )  # Use true target as next input (teacher forcing)
-                    else:
-                        decoder_input = decoder_output.unsqueeze(
-                            1
-                        )  # Recursive prediction
+                    elif training_prediction == "teacher_forcing":
+                        if torch.rand(1).item() < teacher_forcing_ratio:
+                            decoder_input = outputs[:, t, :].unsqueeze(
+                                1
+                            )  # Use true target as next input (teacher forcing)
+                        else:
+                            decoder_input = decoder_output  # Recursive prediction
+                    elif training_prediction == "mixed_teacher_forcing":
+                        if torch.rand(1).item() < teacher_forcing_ratio:
+                            decoder_input = outputs[:, t, :].unsqueeze(
+                                1
+                            )  # Use true target as next input (teacher forcing)
+                        else:
+                            decoder_input = decoder_output.unsqueeze(
+                                1
+                            )  # Recursive prediction
+                loss = loss_func(outputs, y)
 
             optimizer.zero_grad()
-            loss = loss_func(outputs, y)
-            loss.backward()
-            optimizer.step()
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            scaler.step(optimizer)
+            scaler.update()
+            # Track the total loss and the number of processed samples.
             total_loss += loss.item()
+            ddp_loss[0] += loss.item()
+            ddp_loss[1] += len(X)
 
             if dynamic_tf and teacher_forcing_ratio > 0:
                 teacher_forcing_ratio = max(0, teacher_forcing_ratio - 0.02)
 
+        # Synchronize and aggregate losses in distributed training.
+        dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
         avg_loss = total_loss / num_batches
-        print(f"Epoch [{epoch}], Loss: {avg_loss:.4f}")
+
+        # Print the average loss on the master process (rank 0).
+        if rank == 0:
+            train_loss = ddp_loss[0] / ddp_loss[1]
+            print("Train Epoch: {} \tLoss: {:.6f}".format(epoch, train_loss))
+
         return avg_loss
 
-    def test_model(self, data_loader, loss_function, epoch):
+    def test_model(self, data_loader, loss_function, epoch, rank):
         num_batches = len(data_loader)
         total_loss = 0
         self.eval()
 
+        # Initialize an array to store loss values.
+        ddp_loss = torch.zeros(3).to(
+            int(os.environ["RANK"]) % torch.cuda.device_count()
+        )
+
         with torch.no_grad():
             for batch_idx, (X, y) in enumerate(data_loader):
                 gc.collect()
-                X, y = X.to(self.device), y.to(self.device)
+                X, y = X.to(int(os.environ["RANK"]) % torch.cuda.device_count()), y.to(
+                    int(os.environ["RANK"]) % torch.cuda.device_count()
+                )
 
                 encoder_hidden = self.encoder(X)
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
@@ -238,34 +269,19 @@ class ShallowLSTM_seq2seq(nn.Module):
                     decoder_input = decoder_output
 
                 total_loss += loss_function(outputs, y).item()
+                # Update aggregated loss values.
+                ddp_loss[0] += total_loss
+                # ddp_loss[0] += total_loss
+                ddp_loss[2] += len(X)
 
         avg_loss = total_loss / num_batches
-        print(f"Epoch [{epoch}], Test Loss: {avg_loss:.4f}")
+
+        # Synchronize and aggregate loss values in distributed testing.
+        dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
+
+        # Print the test loss on the master process (rank 0).
+        if rank == 0:
+            test_loss = ddp_loss[0] / ddp_loss[2]
+            print("Test set: Average loss: {:.4f}\n".format(avg_loss))
+
         return avg_loss
-
-    def predict(self, data_loader):
-        num_batches = len(data_loader)
-        all_outputs = []
-        self.eval()
-
-        with torch.no_grad():
-            for batch_idx, (X, y) in enumerate(data_loader):
-                gc.collect()
-                X, y = X.to(self.device), y.to(self.device)
-
-                encoder_hidden = self.encoder(X)
-                outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
-                decoder_input = X[:, -1, :].unsqueeze(1)
-                decoder_hidden = encoder_hidden
-
-                for t in range(y.size(1)):
-                    # Avoid in-place operation
-                    decoder_output, decoder_hidden = self.decoder(
-                        decoder_input, decoder_hidden
-                    )
-                    outputs[:, t, :] = decoder_output.squeeze(1)
-                    decoder_input = decoder_output
-
-                all_outputs.append(outputs)
-        all_outputs = torch.cat(all_outputs, dim=0)
-        return all_outputs
