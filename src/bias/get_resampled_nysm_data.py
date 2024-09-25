@@ -172,7 +172,7 @@ def main(year):
 
 
 # main(2023)
-years = [str(x) for x in np.arange(2018, 2024)]
+years = [str(x) for x in np.arange(2024, 2025)]
 
 for year in years:
     main(year)

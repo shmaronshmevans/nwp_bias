@@ -30,7 +30,7 @@ def main(start_date, end_date, fh, model):
     """
 
     # Output directory for cleaned data
-    savedir = "/home/aevans/ai2es/cleaned/NAM/"
+    savedir = f"/home/aevans/ai2es/cleaned/{model}/"
 
     # Time interval between data points
     delta = timedelta(days=1)
@@ -82,13 +82,13 @@ def main(start_date, end_date, fh, model):
         print(the_df)
 
 
-for i in np.arange(1, 85):
+for i in np.arange(3, 37, 3):
     fh = str(i).zfill(3)
     main(
-        datetime(2021, 10, 1, 0, 0, 0),
-        datetime(2023, 12, 31, 23, 59, 59),
+        datetime(2024, 1, 1, 0, 0, 0),
+        datetime(2024, 8, 31, 23, 59, 59),
         fh,
-        "NAM",
+        "GFS",
     )
 # # Step 1: Initialize multiprocessing.Pool()
 #     pool = mp.Pool(mp.cpu_count())

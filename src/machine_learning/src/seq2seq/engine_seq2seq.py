@@ -2,6 +2,9 @@ import sys
 
 sys.path.append("..")
 
+from comet_ml import Experiment, Artifact
+from comet_ml.integration.pytorch import log_model
+
 import os
 import argparse
 import functools
@@ -10,8 +13,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from comet_ml import Experiment, Artifact
-from comet_ml.integration.pytorch import log_model
 
 
 from torch.utils.data import Dataset
@@ -49,6 +50,8 @@ from seq2seq import eval_seq2seq
 import torch
 from torch.utils.data import Dataset
 
+print("imports downloaded")
+
 
 class SequenceDataset(Dataset):
     def __init__(
@@ -59,6 +62,7 @@ class SequenceDataset(Dataset):
         sequence_length,
         forecast_steps,
         device,
+        nwp_model,
     ):
         """
         dataframe: DataFrame containing the data
@@ -74,6 +78,7 @@ class SequenceDataset(Dataset):
         self.sequence_length = sequence_length
         self.forecast_steps = forecast_steps
         self.device = device
+        self.nwp_model = nwp_model
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
 
@@ -81,10 +86,21 @@ class SequenceDataset(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        x_start = i
-        x_end = i + self.sequence_length
-        y_start = x_end
-        y_end = y_start + self.forecast_steps
+        if self.nwp_model == "HRRR":
+            x_start = i
+            x_end = i + self.sequence_length
+            y_start = x_end
+            y_end = y_start + self.forecast_steps
+        if self.nwp_model == "GFS":
+            x_start = i
+            x_end = i + self.sequence_length
+            y_start = x_end
+            y_end = y_start + (self.forecast_steps / 3)
+        if self.nwp_model == "NAM":
+            x_start = i
+            x_end = i + self.sequence_length
+            y_start = x_end
+            y_end = y_start + (self.forecast_steps + 2 // 3)
 
         # Input sequence
         x = self.X[x_start:x_end, :]
@@ -132,7 +148,7 @@ class OutlierFocusedLoss(nn.Module):
         self.alpha = alpha
         self.device = device
 
-    def forward(self, y_true, y_pred):
+    def forward(self, y_pred, y_true):
         y_true = y_true.to(self.device)
         y_pred = y_pred.to(self.device)
 
@@ -161,10 +177,12 @@ def main(
     epochs,
     weight_decay,
     fh,
-    model,
-    sequence_length=70,
+    clim_div,
+    nwp_model,
+    model_path,
+    sequence_length=30,
     target="target_error",
-    learning_rate=7e-7,
+    learning_rate=9e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -183,12 +201,13 @@ def main(
     (
         df_train,
         df_test,
+        df_val,
         features,
         forecast_lead,
         stations,
         target,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date
+        station, fh, today_date, "u_total"
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
     print()
@@ -208,6 +227,7 @@ def main(
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
+        nwp_model=nwp_model,
     )
 
     test_dataset = SequenceDataset(
@@ -217,6 +237,7 @@ def main(
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
+        nwp_model=nwp_model,
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
@@ -230,25 +251,29 @@ def main(
     init_end_event = torch.cuda.Event(enable_timing=True)
 
     num_sensors = int(len(features))
-    hidden_units = int(15 * len(features))
+    hidden_units = int(12 * len(features))
 
     model = encode_decode.ShallowLSTM_seq2seq(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
-        mlp_units=100,
+        mlp_units=1500,
         device=device,
     ).to(device)
+
+    if os.path.exists(model_path):
+        print("Loading Parent Model")
+        model.load_state_dict(torch.load(model_path), strict=False)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-    # loss_function = nn.HuberLoss(delta=2.0)
-    # loss_function = nn.MSELoss()
+
     loss_function = OutlierFocusedLoss(2.0, device)
-    # loss_function = ExponentialLoss(1.5, device)
-    # loss_function = CubedLoss(device)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
+
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.75, patience=4
+    )
 
     hyper_params = {
         "num_layers": num_layers,
@@ -304,26 +329,38 @@ def main(
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
         title = f"{station}_loss_{min(test_loss_ls)}"
+        # title = f"{station}_mloutput_eval_fh{fh}"
         torch.save(
             states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}_s2s.pth",
+            model_path,
         )
 
-        # make sure main is commented when you run or the first run will do whatever station is listed in main
-        eval_seq2seq.eval_model(
-            train_dataset,
-            df_train,
-            df_test,
-            test_dataset,
-            model,
-            batch_size,
-            title,
-            target,
-            features,
-            device,
-            station,
-            today_date,
-        )
+        # df_test = pd.concat([df_val, df_test])
+        # test_dataset_e = SequenceDataset(
+        #     df_test,
+        #     target=target,
+        #     features=features,
+        #     sequence_length=sequence_length,
+        #     forecast_steps=fh,
+        #     device=device,
+        #     nwp_model=nwp_model
+        # )
+
+        # # make sure main is commented when you run or the first run will do whatever station is listed in main
+        # eval_seq2seq.eval_model(
+        #     train_dataset,
+        #     df_train,
+        #     df_test,
+        #     test_dataset_e,
+        #     model,
+        #     batch_size,
+        #     title,
+        #     target,
+        #     features,
+        #     device,
+        #     station,
+        #     today_date,
+        # )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
@@ -332,12 +369,36 @@ def main(
     print("... completed ...")
 
 
-main(
-    batch_size=int(300),
-    station="SPRA",
-    num_layers=5,
-    epochs=40,
-    weight_decay=0.02,
-    fh=6,
-    model="HRRR",
-)
+# main(
+#     batch_size=int(500),
+#     station="SOUT",
+#     num_layers=3,
+#     epochs=500,
+#     weight_decay=0.1,
+#     fh=6,
+#     clim_div = c,
+#     nwp_model = 'HRRR',
+#     model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/fh{str(f).zfill(2)}/{c}.pth",
+# )
+
+
+c = "Westen Plateau"
+
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == c]
+stations = df["stid"].unique()
+
+
+for f in np.arange(1, 19):
+    for s in stations:
+        main(
+            batch_size=int(400),
+            station=s,
+            num_layers=3,
+            epochs=350,
+            weight_decay=0.1,
+            fh=f,
+            clim_div=c,
+            nwp_model="HRRR",
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{c}_u_total.pth",
+        )

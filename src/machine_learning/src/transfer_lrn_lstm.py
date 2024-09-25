@@ -7,6 +7,7 @@ sys.path.append("..")
 import os
 import argparse
 import functools
+
 from comet_ml import Experiment, Artifact
 from comet_ml.integration.pytorch import log_model
 
@@ -18,7 +19,6 @@ from torchvision import datasets, transforms
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
-
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -33,7 +33,6 @@ from torch.distributed.fsdp.wrap import (
     enable_wrap,
     wrap,
 )
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 
 import pandas as pd
 import numpy as np
@@ -130,66 +129,6 @@ class SequenceDataset(Dataset):
         return x, self.y[i]
 
 
-class SequenceDataset_v2(Dataset):
-    def __init__(
-        self,
-        dataframe,
-        target,
-        features,
-        sequence_length,
-        forecast_steps,
-        device,
-    ):
-        """
-        dataframe: DataFrame containing the data
-        target: Name of the target column
-        features: List of feature column names
-        sequence_length: Length of input sequences
-        forecast_steps: Number of future steps to forecast
-        device: Device to place the tensors on (CPU or GPU)
-        """
-        self.dataframe = dataframe
-        self.features = features
-        self.target = target
-        self.sequence_length = sequence_length
-        self.forecast_steps = forecast_steps
-        self.device = device
-        self.y = torch.tensor(dataframe[target].values).float().to(device)
-        self.X = torch.tensor(dataframe[features].values).float().to(device)
-
-    def __len__(self):
-        return self.X.shape[0]
-
-    def __getitem__(self, i):
-        x_start = i
-        x_end = i + self.sequence_length
-        y_start = x_end
-        y_end = y_start + self.forecast_steps
-
-        # Input sequence
-        x = self.X[x_start:x_end, :]
-
-        # Target sequence
-        y = self.y[y_start:y_end].unsqueeze(1)
-
-        if x.shape[0] < self.sequence_length:
-            print("padding input tensor")
-            _x = torch.zeros(
-                ((self.sequence_length - x.shape[0]), self.X.shape[1]),
-                device=self.device,
-            )
-            x = torch.cat((x, _x), 0)
-
-        if y.shape[0] < self.forecast_steps:
-            print("padding target")
-            _y = torch.zeros(
-                ((self.forecast_steps - y.shape[0]), 1), device=self.device
-            )
-            y = torch.cat((y, _y), 0)
-
-        return x, y
-
-
 class EarlyStopper:
     def __init__(self, patience, min_delta=0):
         self.patience = patience
@@ -244,44 +183,6 @@ def get_time_title(station):
     return today_date, today_date_hr
 
 
-class Attention(nn.Module):
-    def __init__(self, hidden_dim, input_dim):
-        super(Attention, self).__init__()
-        self.hidden_dim = hidden_dim
-        self.input_dim = input_dim
-        self.attn = nn.Linear(self.hidden_dim + self.input_dim, hidden_dim)
-        self.v = nn.Parameter(torch.rand(hidden_dim))
-
-    def forward(self, hidden, encoder_outputs):
-        # hidden: (num_layers, batch_size, hidden_dim)
-        # encoder_outputs: (batch_size, seq_len, hidden_dim)
-
-        # Use the last layer of the hidden state for attention
-        hidden = hidden[-1]  # (batch_size, hidden_dim)
-
-        # Repeat hidden state (decoder hidden state) for each time step
-        hidden = hidden.unsqueeze(1).repeat(
-            1, encoder_outputs.size(1), 1
-        )  # (batch_size, seq_len, hidden_dim)
-
-        # Concatenate hidden state with encoder outputs
-        combined = torch.cat(
-            (hidden, encoder_outputs), dim=2
-        )  # (batch_size, seq_len, hidden_dim + input_dim)
-
-        # Compute energy
-        energy = torch.tanh(self.attn(combined))  # (batch_size, seq_len, hidden_dim)
-
-        # Compute attention weights
-        energy = energy.transpose(1, 2)  # (batch_size, hidden_dim, seq_len)
-        v = self.v.repeat(encoder_outputs.size(0), 1).unsqueeze(
-            1
-        )  # (batch_size, 1, hidden_dim)
-        attn_weights = torch.bmm(v, energy).squeeze(1)  # (batch_size, seq_len)
-
-        return F.softmax(attn_weights, dim=1)  # (batch_size, seq_len)
-
-
 class ShallowRegressionLSTM(nn.Module):
     def __init__(self, num_sensors, hidden_units, num_layers, device):
         super().__init__()
@@ -301,12 +202,11 @@ class ShallowRegressionLSTM(nn.Module):
         )
         self.mlp = nn.Sequential(
             # input, mlp_units
-            nn.Linear(hidden_units, 500),
+            nn.Linear(hidden_units, 1500),
             # nn.LeakyReLU(),
             nn.ReLU(),
-            nn.Linear(500, 1),
+            nn.Linear(1500, 1),
         )
-        # self.attention = Attention(hidden_units, num_sensors)
 
     def forward(self, x):
         x.to(self.device)
@@ -323,21 +223,7 @@ class ShallowRegressionLSTM(nn.Module):
         )
         # without attention
         _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.mlp(
-            hn[-1]
-        ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
-
-        # # with attention
-        # out, (hidden, cell) = self.lstm(x, (h0, c0))
-        # hidden = hidden.repeat(int(x.shape[1]/hidden.shape[0]), 1, 1)
-
-        # attn_weights = self.attention(hidden, x)
-        # context = attn_weights.unsqueeze(1).bmm(x)
-        # context = context.repeat(1, int(x.shape[1]), 1)
-
-        # out = torch.cat((out, context), dim=2)
-        # out = self.mlp(out)
-        # out = out[:,-1,-1].squeeze()
+        out = self.mlp(hn[-1]).flatten()
 
         return out
 
@@ -353,8 +239,6 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
 
         # Forward pass and loss computation.
         output = model(X)
-        # print("out", output.shape)
-        # print("y", y.shape)
         loss = loss_function(output, y)
 
         # Zero the gradients, backward pass, and optimization step.
@@ -374,8 +258,8 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
     return avg_loss
 
 
-def test_model(data_loader, model, loss_function, device, epoch):
-    # Test a deep learning model on a given dataset and compute the test loss.
+def val_model(data_loader, model, loss_function, device, epoch):
+    # Test a deep learning model on a given dataset and compute the val loss.
 
     num_batches = len(data_loader)
     total_loss = 0
@@ -396,34 +280,9 @@ def test_model(data_loader, model, loss_function, device, epoch):
 
         # Calculate the average test loss.
         avg_loss = total_loss / num_batches
-        print("epoch", epoch, "test_loss:", avg_loss)
+        print("epoch", epoch, "val_loss:", avg_loss)
 
     return avg_loss
-
-
-class CustomWeightedLoss(nn.Module):
-    def __init__(self, window_min, window_max, weight, device):
-        super(CustomWeightedLoss, self).__init__()
-        self.window_min = window_min
-        self.window_max = window_max
-        self.weight = weight
-        self.mse_loss = nn.MSELoss(reduction="none")
-        self.device = device
-
-    def forward(self, y_pred, y_true):
-        y_true = y_true.to(self.device)
-        y_pred = y_pred.to(self.device)
-        # Calculate the standard MSE loss
-        loss = self.mse_loss(y_pred, y_true)
-
-        # Create a mask for the values within the window
-        mask = ((y_true >= self.window_min) & (y_true <= self.window_max)).float()
-
-        # Apply the weights to the loss
-        weighted_loss = (1 + (self.weight - 1) * mask) * loss
-
-        # Return the mean of the weighted loss
-        return weighted_loss.mean()
 
 
 class OutlierFocusedLoss(nn.Module):
@@ -460,32 +319,6 @@ class OutlierFocusedLoss(nn.Module):
         return weighted_loss.mean()
 
 
-class ExponentialLoss(nn.Module):
-    def __init__(self, beta, device):
-        super(ExponentialLoss, self).__init__()
-        self.beta = beta
-        self.device = device
-
-    def forward(self, y_pred, y_true):
-        y_true = y_true.to(self.device)
-        y_pred = y_pred.to(self.device)
-
-        # Calculate the error
-        error = y_true - y_pred
-
-        # Calculate the base loss (Mean Absolute Error in this case)
-        base_loss = torch.abs(error)
-
-        # Apply an exponential weighting function to give more focus to outliers
-        weights = torch.exp(self.beta * base_loss)
-
-        # Calculate the weighted loss
-        weighted_loss = weights * base_loss
-
-        # Return the mean of the weighted loss
-        return weighted_loss.mean()
-
-
 def main(
     batch_size,
     station,
@@ -493,10 +326,12 @@ def main(
     epochs,
     weight_decay,
     fh,
-    model,
-    learning_rate,
+    clim_div,
+    nwp_model,
+    model_path,
     sequence_length=30,
     target="target_error",
+    learning_rate=9e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -521,18 +356,17 @@ def main(
         stations,
         target,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, "tp"
+        station, fh, today_date, "u_total"
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
-
-    # df_train_resampled = df_train[abs(df_train["target_error_lead_0"]) > 2.0]
-    # df_test_resampled = df_test[abs(df_test["target_error_lead_0"]) > 2.0]
+    print(station)
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="fh-drift-gfs",
+        project_name="retrain",
         workspace="shmaronshmevans",
     )
+
     train_dataset = SequenceDataset(
         df_train,
         target=target,
@@ -541,24 +375,24 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model=model,
+        model=nwp_model,
     )
-    test_dataset = SequenceDataset(
-        df_test,
+    val_dataset = SequenceDataset(
+        df_val,
         target=target,
         features=features,
         stations=stations,
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model=model,
+        model=nwp_model,
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
-    test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
+    val_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
 
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
-    test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
+    val_loader = torch.utils.data.DataLoader(val_dataset, **val_kwargs)
     print("!! Data Loaders Succesful !!")
 
     init_start_event = torch.cuda.Event(enable_timing=True)
@@ -574,13 +408,22 @@ def main(
         device=device,
     ).to(device)
 
+    print("Loading Parent Model")
+    model.load_state_dict(torch.load(model_path))
+
+    # Freeze layers if desired
+    # Freeze only the first two LSTM layers
+    for i, param in enumerate(model.lstm.parameters()):
+        if i < 2:
+            param.requires_grad = False  # Freeze first two layers
+
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=learning_rate,
+        weight_decay=weight_decay,
     )
 
-    # loss_function = nn.HuberLoss(delta=2.0)
     loss_function = OutlierFocusedLoss(2.0, device)
-
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
 
     hyper_params = {
@@ -600,27 +443,26 @@ def main(
 
     init_start_event.record()
     train_loss_ls = []
-    test_loss_ls = []
+    val_loss_ls = []
     for ix_epoch in range(1, epochs + 1):
         gc.collect()
         train_loss = train_model(
             train_loader, model, loss_function, optimizer, device, ix_epoch
         )
-
-        test_loss = test_model(test_loader, model, loss_function, device, ix_epoch)
+        val_loss = val_model(val_loader, model, loss_function, device, ix_epoch)
         print(" ")
         train_loss_ls.append(train_loss)
-        test_loss_ls.append(test_loss)
+        val_loss_ls.append(val_loss)
         # log info for comet and loss curves
         experiment.set_epoch(ix_epoch)
-        experiment.log_metric("test_loss", test_loss)
+        experiment.log_metric("val_loss", val_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
-        if ix_epoch > 150:
-            if early_stopper.early_stop(test_loss):
-                print(f"Early stopping at epoch {ix_epoch}")
-                break
+        scheduler.step(val_loss)
+        # if ix_epoch > 50:
+        if early_stopper.early_stop(val_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
 
     init_end_event.record()
 
@@ -631,15 +473,16 @@ def main(
         # dd/mm/YY H:M:S
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
-        title = f"{station}_loss_{min(test_loss_ls)}"
+        title = f"{station}_loss_{min(val_loss_ls)}"
+        # title = f'retrain_{station}_actual'
         torch.save(
             states,
             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}.pth",
         )
-        loss_curves.loss_curves(
-            train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
-        )
-        df_test = pd.concat([df_val, df_test])
+        # loss_curves.loss_curves(
+        #     train_loss_ls, val_loss_ls, title, today_date, dt_string, rank=0
+        # )
+        df_test = pd.concat([df_test, df_val])
         train_dataset_e = SequenceDataset(
             df_train,
             target=target,
@@ -679,93 +522,29 @@ def main(
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="v9")
+    log_model(experiment, model, model_name="retrain")
     experiment.end()
     print("... completed ...")
 
 
-lr_ls = [5e-7, 5e-6, 5e-5]
-layer_ls = [3, 2, 1]
-
-main(
-    batch_size=int(1000),
-    station="MANH",
-    num_layers=3,
-    epochs=500,
-    weight_decay=0,
-    fh=12,
-    model="HRRR",
-    learning_rate=9e-5,
-)
-
-
-# while epoch_reacher < 30:
-#     lr = (lr*10)
-#     epoch_reacher = main(
-#     batch_size=int(500),
-#     station="HAMM",
-#     num_layers=2,
-#     epochs=150,
-#     weight_decay=0,
-#     fh=18,
-#     model="GFS",
-#     learning_rate=lr,
-# )
-
-
-# # first iteration to target Brooklyn
-# for f in np.arange(2,19,2):
-#     print(f"Forecast Hour {f}")
-#     main(
-#         batch_size=int(10e3),
-#         station='BKLN',
-#         num_layers=5,
-#         epochs=100,
-#         weight_decay=0,
-#         fh=f
-#     )
-
-
-# station_ls = ['BUFF', 'DELE', 'EDWA', 'ESSX', 'PISE', 'SCHU', 'TYRO', 'WALT', 'WANT', 'WEST']
+c = "Great Lakes"
+fh = 12
 
 # # second iteration for experiment
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# clim_divs = nysm_clim["climate_division_name"].unique()
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == c]
 
-# for c in clim_divs:
-#     print(c)
-#     df = nysm_clim[nysm_clim["climate_division_name"] == c]
-#     temp = df["stid"].unique()
-#     station = random.sample(sorted(temp), 1)
-#     for n, _ in enumerate(station):
-#         print(station[n])
-#         f = 12
-#         print("FH", f)
-#         for l in lr_ls:
-#             for z in layer_ls:
-#                 main(
-#                 batch_size=int(500),
-#                 station=station[n],
-#                 num_layers=z,
-#                 epochs=150,
-#                 weight_decay=0,
-#                 fh=f,
-#                 model="NAM",
-#                 learning_rate=l,
-#             )
+stations = df["stid"].unique()
 
-
-# for f in np.arange(3,37,3):
-#     print("FH", f)
-#     for l in lr_ls:
-#         for z in layer_ls:
-#             main(
-#             batch_size=int(500),
-#             station='SCHU',
-#             num_layers=z,
-#             epochs=500,
-#             weight_decay=0,
-#             fh=f,
-#             model="GFS",
-#             learning_rate=l,
-#             )
+# for s in stations:
+main(
+    batch_size=int(5000),
+    station="BUFF",
+    num_layers=3,
+    epochs=500,
+    weight_decay=0.05,
+    fh=fh,
+    clim_div="Great Lakes",
+    nwp_model="HRRR",
+    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/fh{str(fh).zfill(2)}/Great Lakes_u_total.pth",
+)

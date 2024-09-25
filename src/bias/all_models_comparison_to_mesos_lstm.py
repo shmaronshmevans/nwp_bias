@@ -11,6 +11,7 @@ from metpy.units import units
 from scipy import interpolate
 from sklearn.neighbors import BallTree
 from multiprocessing import Process
+import argparse
 
 from sklearn import preprocessing
 from sklearn import utils
@@ -672,15 +673,14 @@ def main(month, year, model, fh, mask_water=True):
 # main(str(1).zfill(2), 2022, 'nam', '001')
 
 if __name__ == "__main__":
-    # # multiprocessing v2
-    # # good for bulk cleaning
+    # multiprocessing v2
+    # good for bulk cleaning
     model = "hrrr"
-
-    for fh in np.arange(1, 19, 2):
+    for fh in np.arange(1, 19):
         print("FH", fh)
-        for year in np.arange(2018, 2021):
+        for year in np.arange(2024, 2025):
             print("YEAR: ", year)
-            for month in np.arange(1, 13):
+            for month in np.arange(1, 9):
                 print("Month: ", month)
                 # main(str(month).zfill(2), year, model, str(fh).zfill(2))
                 # Step 1: Init multiprocessing.Pool()
@@ -693,3 +693,17 @@ if __name__ == "__main__":
 
                 # Step 3: Don't forget to close
                 pool.close()
+
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--n_cpus", type=int, default=mp.cpu_count(), help="Number of CPUs to use")
+    # args = parser.parse_args()
+
+    # model = "hrrr"
+    # fh = 17
+
+    # # Prepare the list of arguments to pass to the main function
+    # tasks = [(str(month).zfill(2), year, model, str(fh).zfill(2)) for year in np.arange(2021, 2024) for month in np.arange(1, 13)]
+
+    # # Init multiprocessing.Pool() with dynamically assigned CPU count
+    # with mp.Pool(args.n_cpus) as pool:
+    #     results = pool.starmap(main, tasks)
