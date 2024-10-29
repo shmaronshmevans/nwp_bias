@@ -27,6 +27,7 @@ from torch.distributed.fsdp import (
     FullyShardedDataParallel as FSDP,
     FullStateDictConfig,
     ShardingStrategy,
+    StateDictType,
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     CPUOffload,
@@ -55,6 +56,10 @@ import torch
 from torch.utils.data import Dataset
 
 torch.autograd.set_detect_anomaly(True)
+import torch.backends.cudnn as cudnn
+import signal
+
+cudnn.enabled = False
 
 
 def setup(rank, world_size):
@@ -64,8 +69,9 @@ def setup(rank, world_size):
 def cleanup():
     # Synchronize all processes before cleanup
     if dist.is_initialized():
-        dist.barrier()
-    dist.destroy_process_group()
+        dist.destroy_process_group()
+    # # Forcefully kill the process (this kills the process, but make sure to safeguard your data first)
+    # os.kill(os.getpid(), signal.SIGKILL)
 
 
 class SequenceDataset(Dataset):
@@ -205,6 +211,8 @@ def fsdp_main(rank, world_size, args):
     weight_decay = args.weight_decay
     nwp_model = args.nwp_model
     model_path = args.model_path
+    metvar = args.metvar
+    clim_div = args.climate_division
 
     # make saving directories for model weights and output
     today_date, today_date_hr = make_dirs.get_time_title(station)
@@ -218,18 +226,15 @@ def fsdp_main(rank, world_size, args):
         forecast_lead,
         stations,
         target,
+        vt,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, "tp"
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
-    print("FEATURES", features)
-    print()
-    print("TARGET", target)
-    print(df_train[target].unique())
 
     if rank == 0:
         experiment = Experiment(
             api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-            project_name="seq2seq_beta",
+            project_name="seq2seq_beta_fsdp",
             workspace="shmaronshmevans",
         )
 
@@ -275,7 +280,9 @@ def fsdp_main(rank, world_size, args):
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
 
-    auto_wrap_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=1)
+    auto_wrap_policy = functools.partial(
+        size_based_auto_wrap_policy, min_num_params=1e6
+    )
     torch.cuda.set_device(rank)
 
     init_start_event = torch.cuda.Event(enable_timing=True)
@@ -292,18 +299,12 @@ def fsdp_main(rank, world_size, args):
         device=device,
     ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
 
-    if rank == 0 and os.path.exists(model_path):
-        print("Loading Parent Model")
-        checkpoint = torch.load(model_path, map_location=torch.device("cpu"))
-        model.load_state_dict(checkpoint, strict=False)
-
-    # Broadcast the model parameters to all processes
-    torch.distributed.barrier()
     ml = FSDP(
         model,
+        device_id=rank,
         sync_module_states=True,
+        auto_wrap_policy=None,
         sharding_strategy=ShardingStrategy.NO_SHARD,
-        auto_wrap_policy=auto_wrap_policy,
         mixed_precision=torch.distributed.fsdp.MixedPrecision(
             param_dtype=torch.float32,  # Using float16 for parameters
             reduce_dtype=torch.float32,  # Using float32 for gradient reduction
@@ -311,6 +312,20 @@ def fsdp_main(rank, world_size, args):
             cast_forward_inputs=True,
         ),
     )
+    # Assume the model is wrapped with FSDP and stored in the 'ml' variable
+    if os.path.exists(model_path):
+        checkpoint = torch.load(
+            model_path, map_location=lambda storage, loc: storage.cuda(rank)
+        )
+
+        # Load the state dict into the model (FSDP wrapped)
+        ml.load_state_dict(checkpoint, strict=False)
+
+    # Synchronize all processes to ensure everyone has the state dict loaded
+    dist.barrier()
+    torch.cuda.synchronize()
+
+    # Continue training after the model has been loaded and broadcasted
 
     optimizer = torch.optim.AdamW(
         ml.parameters(), lr=learning_rate, weight_decay=weight_decay
@@ -332,11 +347,9 @@ def fsdp_main(rank, world_size, args):
         "station": station,
         "regularization": weight_decay,
         "forecast_hour": fh,
+        "climate_div": clim_div,
     }
     print("--- Training LSTM ---")
-    scheduler = OneCycleLR(
-        optimizer, max_lr=0.01, steps_per_epoch=len(train_loader), epochs=args.epochs
-    )
 
     early_stopper = EarlyStopper(9)
 
@@ -367,7 +380,7 @@ def fsdp_main(rank, world_size, args):
             rank=rank,
         )
 
-        scheduler.step()
+        scheduler.step(train_loss)
         print(" ")
 
         train_loss_ls.append(train_loss)
@@ -414,7 +427,19 @@ def fsdp_main(rank, world_size, args):
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         # use a barrier to make sure training is done on all ranks
         dist.barrier()
-        states = ml.state_dict()
+
+        full_state_dict_config = FullStateDictConfig(
+            offload_to_cpu=True
+        )  # Offload to CPU for saving
+        with FSDP.state_dict_type(
+            ml, StateDictType.FULL_STATE_DICT, full_state_dict_config
+        ):
+            states = ml.state_dict()
+
+    # Only rank 0 saves the model
+    if rank == 0:
+        print("Saving Model")
+        torch.save(states, model_path)
 
         if rank == 0:
             print("Saving Model")

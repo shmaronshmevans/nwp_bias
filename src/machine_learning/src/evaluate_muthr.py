@@ -24,9 +24,13 @@ import statistics as st
 
 from processing import make_dirs
 
-from data import create_data_for_lstm
+from data import (
+    create_data_for_lstm,
+    create_data_for_lstm_nam,
+    create_data_for_lstm_gfs,
+)
 
-from seq2seq import encode_decode
+from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
 
 import torch
@@ -79,12 +83,12 @@ class SequenceDataset(Dataset):
             x_start = i
             x_end = i + self.sequence_length
             y_start = x_end
-            y_end = y_start + (self.forecast_steps / 3)
+            y_end = y_start + int(self.forecast_steps / 3)
         if self.nwp_model == "NAM":
             x_start = i
             x_end = i + self.sequence_length
             y_start = x_end
-            y_end = y_start + (self.forecast_steps + 2 // 3)
+            y_end = y_start + int(self.forecast_steps + 2 // 3)
 
         # Input sequence
         x = self.X[x_start:x_end, :]
@@ -179,7 +183,7 @@ def z_score(new_df):
 
 
 def refit(df):
-    indexes = random_sampler(df, 2000)
+    indexes = random_sampler(df, 200)
     df = df.loc[indexes]
 
     targets = []
@@ -201,8 +205,10 @@ def refit(df):
 
 
 def linear_fit(df, df_out, diff):
+    df_out = df_out.copy()
+    df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
-    top_200_max_values = df["target_error_lead_0"].nlargest(2000)
+    top_200_max_values = df["target_error_lead_0"].nlargest(200)
     top_200_indexes = top_200_max_values.index
 
     alphas = []
@@ -210,7 +216,7 @@ def linear_fit(df, df_out, diff):
     for i in top_200_indexes:
         target, lstm_val, _, _ = df.loc[i].values
         alpha = abs(target / lstm_val)
-        if alpha > 6:
+        if alpha > 10:
             continue
         else:
             alphas.append(alpha)
@@ -247,9 +253,11 @@ def get_performance_metrics(df):
 
 
 def quadratic_fit(df_calc, df_out, diff):
+    df_calc = df_calc.copy()
+    df_out = df_out.copy()
     # Fit a quadratic polynomial (degree 2) to the residuals
     # polyfit returns the coefficients for a quadratic fit: ax^2 + bx + c
-    coefficients = np.polyfit(df_calc["Model forecast"], df_calc["diff"], 3)
+    coefficients = np.polyfit(df_calc["Model forecast"], df_calc["diff"], 2)
     # Create a polynomial function using the coefficients
     quadratic_fit = np.poly1d(coefficients)
 
@@ -287,6 +295,8 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
     (
         df_train,
@@ -298,11 +308,10 @@ def main(
         target,
         valid_time,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, "u_total"
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
 
-    df_eval = pd.concat([df_train, df_val])
-    df_eval = pd.concat([df_eval, df_test])
+    df_eval = pd.concat([df_train, df_val, df_test])
 
     test_dataset = SequenceDataset(
         df_eval,
@@ -322,17 +331,21 @@ def main(
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
 
-    model = encode_decode.ShallowLSTM_seq2seq(
+    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
         mlp_units=1500,
         device=device,
+        num_stations=len(stations),
     ).to(device)
 
-    if os.path.exists(model_path):
-        print("Loading Parent Model")
-        model.load_state_dict(torch.load(model_path), strict=False)
+    if os.path.exists(encoder_path):
+        print("Loading Encoder Model")
+        model.encoder.load_state_dict(torch.load(f"{encoder_path}"), strict=False)
+    if os.path.exists(decoder_path):
+        print("Loading Decoder Model")
+        model.decoder.load_state_dict(torch.load(decoder_path))
     # make sure main is commented when you run or the first run will do whatever station is listed in main
     df_out = model_out(
         df_eval, test_dataset, model, batch_size, target, features, device, station
@@ -344,6 +357,9 @@ def main(
     # Trim valid_time to match the length of df_out
     valid_time = valid_time[: len(df_out)]
     df_out["valid_time"] = valid_time
+    df_out.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+    )
 
     # calculate post processing on validation set
     time1 = datetime(2022, 1, 1, 0, 0, 0)
@@ -352,80 +368,107 @@ def main(
     df_calc, diff = refit(df_calc)
 
     # quadratic fit
-    # df_out, quadratic_fit = quadratic_fit(df_calc, df_out, diff)
+    df_out_new_quad, quad_fit = quadratic_fit(df_calc, df_out, diff)
 
-    # linear fit
-    df_out, multiply = linear_fit(df_calc, df_out, diff)
+    # # linear fit
+    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
     time3 = datetime(2023, 1, 1, 0, 0, 0)
     time4 = datetime(2023, 12, 31, 23, 59, 0)
-    df_evaluate = date_filter(df_out, time3, time4)
+    df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
+    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
     # Get performance metrics
-    mae, mse = get_performance_metrics(df_evaluate)
+    mae1, mse1 = get_performance_metrics(df_evaluate_quad)
+    mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
     # quadratic save
-    # df_save = pd.DataFrame({
-    #     'station': [station],
-    #     'forecast_hour': [fh],
-    #     'alpha': [quadratic_fit[0]],
-    #     'beta': [quadratic_fit[1]],
-    #     'charli': [quadratic_fit[2]],
-    #     'delta': [quadratic_fit[3]],
-    #     'mae': [mae],
-    #     'mse': [mse]
-    # })
+    df_save_quad = pd.DataFrame(
+        {
+            "station": [station],
+            "forecast_hour": [fh],
+            "alpha": [quad_fit[0]],
+            "beta": [quad_fit[1]],
+            "charli": [quad_fit[2]],
+            "mae": [mae1],
+            "mse": [mse1],
+        }
+    )
 
     # linear save
-    df_save = pd.DataFrame(
+    df_save_linear = pd.DataFrame(
         {
             "station": [station],
             "forecast_hour": [fh],
             "alpha": [multiply],
             "diff": [diff],
-            "mae": [mae],
-            "mse": [mse],
+            "mae": [mae2],
+            "mse": [mse2],
         }
     )
 
     if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{metvar}_lookup.csv"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv"
     ):
-        df_og = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{metvar}_lookup.csv"
+        df_og_quad = pd.read_csv(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv"
         )
-        df_save = pd.concat([df_og, df_save])
+        df_save_quad = pd.concat([df_og_quad, df_save_quad])
 
-    df_save.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{metvar}_lookup.csv",
+    df_save_quad.to_csv(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv",
+        index=False,
+    )
+
+    if os.path.exists(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    ):
+        df_og_linear = pd.read_csv(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+        )
+        df_save_linear = pd.concat([df_og_linear, df_save_linear])
+
+    df_save_linear.to_csv(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
         index=False,
     )
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_ml_output.parquet"
+    df_out_new_linear.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
+    df_out_new_quad.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
+    )
+    gc.collect()
+    torch.cuda.empty_cache()
     # END OF MAIN
 
 
-c = "Great Lakes"
-metvar = "u_total"
+c = "Central Lakes"
+nwp = "HRRR"
 
+# metvar_ls = ["t2m", "u_total", "tp"]
+metvar_ls = ["u_total"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
 
-
-for f in np.arange(1, 19):
-    for s in stations:
-        main(
-            batch_size=int(500),
-            station=s,
-            num_layers=3,
-            fh=f,
-            clim_div=c,
-            nwp_model="HRRR",
-            metvar=metvar,
-            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{c}_{metvar}.pth",
-        )
+for m in metvar_ls:
+    print(m)
+    for f in np.arange(1, 13):
+        print(f)
+        for s in stations:
+            print(s)
+            main(
+                batch_size=int(5000),
+                station=s,
+                num_layers=3,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp,
+                metvar=m,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+            )
+            gc.collect()
