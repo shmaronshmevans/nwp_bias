@@ -49,6 +49,7 @@ def run_script_recursively(
 
 if __name__ == "__main__":
     c = "Mohawk Valley"
+    metvar = "tp"
 
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
     df = nysm_clim[nysm_clim["climate_division_name"] == c]
@@ -64,5 +65,5 @@ if __name__ == "__main__":
                 fh=f,
                 nwp_model="HRRR",
                 climate_division_name=c,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{c}_tp.pth",
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{c}_{metvar}.pth",
             )

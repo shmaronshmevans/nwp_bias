@@ -103,8 +103,6 @@ class ShallowRegressionLSTM_decode(nn.Module):
             nn.Linear(mlp_units, num_sensors),
         )
 
-        self.attention = Attention(hidden_units, num_sensors)
-
     def forward(self, x, hidden):
         x = x.to(self.device)
         out, hidden = self.lstm(x, hidden)
@@ -130,14 +128,18 @@ class ShallowLSTM_seq2seq(nn.Module):
             num_layers=num_layers,
             mlp_units=mlp_units,
             device=device,
-        )
+        ).to(device)
         self.decoder = ShallowRegressionLSTM_decode(
             num_sensors=num_sensors,
             hidden_units=hidden_units,
             num_layers=num_layers,
             mlp_units=mlp_units,
             device=device,
-        )
+        ).to(device)
+
+        # # Wrap submodules in FSDP
+        self.encoder = FSDP(self.encoder, device_id=device)
+        self.decoder = FSDP(self.decoder, device_id=device)
 
     def train_model(
         self,
@@ -156,7 +158,7 @@ class ShallowLSTM_seq2seq(nn.Module):
         ddp_loss = torch.zeros(2).to(
             int(os.environ["RANK"]) % torch.cuda.device_count()
         )
-        scaler = torch.cuda.amp.GradScaler(init_scale=2**16)
+        # scaler = torch.cuda.amp.GradScaler(init_scale=2**8)  # No need for AMP scaler now
         self.train()
 
         if sampler:
@@ -171,54 +173,52 @@ class ShallowLSTM_seq2seq(nn.Module):
             assert not torch.isnan(X).any(), "Input contains NaNs!"
             assert not torch.isnan(y).any(), "Target contains NaNs!"
 
-            with autocast():
-                # Encoder forward pass
-                encoder_hidden = self.encoder(X)
+            # No autocast here since AMP is disabled
+            # Encoder forward pass
+            encoder_hidden = self.encoder(X)
 
-                # Initialize outputs tensor
-                outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
+            # Initialize outputs tensor
+            outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
 
-                decoder_input = X[:, -1, :].unsqueeze(
-                    1
-                )  # Initialize decoder input to last time step of input sequence
-                decoder_hidden = encoder_hidden
+            decoder_input = X[:, -1, :].unsqueeze(
+                1
+            )  # Initialize decoder input to last time step of input sequence
+            decoder_hidden = encoder_hidden
 
-                for t in range(y.size(1)):
-                    decoder_output, decoder_hidden = self.decoder(
-                        decoder_input, decoder_hidden
-                    )
+            for t in range(y.size(1)):
+                decoder_output, decoder_hidden = self.decoder(
+                    decoder_input, decoder_hidden
+                )
 
-                    # Avoid in-place operation
-                    outputs = torch.cat(
-                        (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]),
-                        dim=1,
-                    )
+                # Avoid in-place operation
+                outputs = torch.cat(
+                    (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]),
+                    dim=1,
+                )
 
-                    if training_prediction == "recursive":
+                if training_prediction == "recursive":
+                    decoder_input = decoder_output  # Recursive prediction
+                elif training_prediction == "teacher_forcing":
+                    if torch.rand(1).item() < teacher_forcing_ratio:
+                        decoder_input = outputs[:, t, :].unsqueeze(
+                            1
+                        )  # Use true target as next input (teacher forcing)
+                    else:
                         decoder_input = decoder_output  # Recursive prediction
-                    elif training_prediction == "teacher_forcing":
-                        if torch.rand(1).item() < teacher_forcing_ratio:
-                            decoder_input = outputs[:, t, :].unsqueeze(
-                                1
-                            )  # Use true target as next input (teacher forcing)
-                        else:
-                            decoder_input = decoder_output  # Recursive prediction
-                    elif training_prediction == "mixed_teacher_forcing":
-                        if torch.rand(1).item() < teacher_forcing_ratio:
-                            decoder_input = outputs[:, t, :].unsqueeze(
-                                1
-                            )  # Use true target as next input (teacher forcing)
-                        else:
-                            decoder_input = decoder_output.unsqueeze(
-                                1
-                            )  # Recursive prediction
-                loss = loss_func(outputs, y)
+                elif training_prediction == "mixed_teacher_forcing":
+                    if torch.rand(1).item() < teacher_forcing_ratio:
+                        decoder_input = outputs[:, t, :].unsqueeze(
+                            1
+                        )  # Use true target as next input (teacher forcing)
+                    else:
+                        decoder_input = decoder_output.unsqueeze(
+                            1
+                        )  # Recursive prediction
+            loss = loss_func(outputs, y)
 
             optimizer.zero_grad()
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            scaler.step(optimizer)
-            scaler.update()
+            loss.backward()  # Direct backward pass without AMP scaling
+            optimizer.step()  # Direct optimizer step without AMP scaling
             # Track the total loss and the number of processed samples.
             total_loss += loss.item()
             ddp_loss[0] += loss.item()
@@ -265,7 +265,10 @@ class ShallowLSTM_seq2seq(nn.Module):
                     decoder_output, decoder_hidden = self.decoder(
                         decoder_input, decoder_hidden
                     )
-                    outputs[:, t, :] = decoder_output.squeeze(1)
+                    outputs = torch.cat(
+                        (outputs[:, :t, :], decoder_output, outputs[:, t + 1 :, :]),
+                        dim=1,
+                    )
                     decoder_input = decoder_output
 
                 total_loss += loss_function(outputs, y).item()

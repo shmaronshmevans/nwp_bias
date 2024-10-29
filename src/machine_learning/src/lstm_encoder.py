@@ -301,10 +301,10 @@ class ShallowRegressionLSTM(nn.Module):
         )
         self.mlp = nn.Sequential(
             # input, mlp_units
-            nn.Linear(hidden_units, 500),
+            nn.Linear(hidden_units, 1500),
             # nn.LeakyReLU(),
             nn.ReLU(),
-            nn.Linear(500, 1),
+            nn.Linear(1500, 1),
         )
         # self.attention = Attention(hidden_units, num_sensors)
 
@@ -353,8 +353,6 @@ def train_model(data_loader, model, loss_function, optimizer, device, epoch):
 
         # Forward pass and loss computation.
         output = model(X)
-        # print("out", output.shape)
-        # print("y", y.shape)
         loss = loss_function(output, y)
 
         # Zero the gradients, backward pass, and optimization step.
@@ -493,8 +491,11 @@ def main(
     epochs,
     weight_decay,
     fh,
-    model,
+    nwp_model,
     learning_rate,
+    metvar,
+    model_path,
+    clim_div,
     sequence_length=30,
     target="target_error",
     save_model=True,
@@ -512,25 +513,14 @@ def main(
     station = station
     today_date, today_date_hr = get_time_title(station)
 
-    (
-        df_train,
-        df_test,
-        df_val,
-        features,
-        forecast_lead,
-        stations,
-        target,
-    ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, "tp"
+    (df_train, df_test, df_val, features, forecast_lead, stations, target, vt) = (
+        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
 
-    # df_train_resampled = df_train[abs(df_train["target_error_lead_0"]) > 2.0]
-    # df_test_resampled = df_test[abs(df_test["target_error_lead_0"]) > 2.0]
-
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="fh-drift-gfs",
+        project_name="lstm-encoder-hrrr-t2m",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -541,8 +531,9 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model=model,
+        model=nwp_model,
     )
+    df_test = pd.concat([df_val, df_test])
     test_dataset = SequenceDataset(
         df_test,
         target=target,
@@ -551,7 +542,7 @@ def main(
         sequence_length=sequence_length,
         forecast_hr=fh,
         device=device,
-        model=model,
+        model=nwp_model,
     )
 
     train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
@@ -574,14 +565,24 @@ def main(
         device=device,
     ).to(device)
 
+    if os.path.exists(model_path):
+        print("Loading Parent Model")
+        model.load_state_dict(torch.load(model_path), strict=False)
+
+        # Freeze only the first two LSTM layers
+    for i, param in enumerate(model.lstm.parameters()):
+        if i < 2:
+            param.requires_grad = False  # Freeze first two layers
+
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
 
-    # loss_function = nn.HuberLoss(delta=2.0)
     loss_function = OutlierFocusedLoss(2.0, device)
 
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.5, patience=4
+    )
 
     hyper_params = {
         "num_layers": num_layers,
@@ -593,6 +594,8 @@ def main(
         "station": station,
         "regularization": weight_decay,
         "forecast_hour": fh,
+        "climate_division": clim_div,
+        "metvar": metvar,
     }
     print("--- Training LSTM ---")
 
@@ -617,7 +620,7 @@ def main(
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         scheduler.step(test_loss)
-        if ix_epoch > 150:
+        if ix_epoch > 50:
             if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
@@ -632,140 +635,86 @@ def main(
         dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
         title = f"{station}_loss_{min(test_loss_ls)}"
+        # save_path = f'/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/fh{str(fh).zfill(2)}/{clim_div}/{station}_{met_var}_child.pth'
+
         torch.save(
             states,
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}/lstm_v{dt_string}_{station}.pth",
+            model_path,
         )
-        loss_curves.loss_curves(
-            train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
-        )
-        df_test = pd.concat([df_val, df_test])
-        train_dataset_e = SequenceDataset(
-            df_train,
-            target=target,
-            features=features,
-            stations=stations,
-            sequence_length=sequence_length,
-            forecast_hr=fh,
-            device=device,
-            model="HRRR",
-        )
-        test_dataset_e = SequenceDataset(
-            df_test,
-            target=target,
-            features=features,
-            stations=stations,
-            sequence_length=sequence_length,
-            forecast_hr=fh,
-            device=device,
-            model="HRRR",
-        )
+        # loss_curves.loss_curves(
+        #     train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
+        # )
+        # df_test = pd.concat([df_val, df_test])
+        # train_dataset_e = SequenceDataset(
+        #     df_train,
+        #     target=target,
+        #     features=features,
+        #     stations=stations,
+        #     sequence_length=sequence_length,
+        #     forecast_hr=fh,
+        #     device=device,
+        #     model=nwp_model,
+        # )
+        # test_dataset_e = SequenceDataset(
+        #     df_test,
+        #     target=target,
+        #     features=features,
+        #     stations=stations,
+        #     sequence_length=sequence_length,
+        #     forecast_hr=fh,
+        #     device=device,
+        #     model=nwp_model,
+        # )
 
-        # make sure main is commented when you run or the first run will do whatever station is listed in main
-        eval_single_gpu.eval_model(
-            train_dataset_e,
-            df_train,
-            df_test,
-            test_dataset_e,
-            model,
-            batch_size,
-            title,
-            target,
-            features,
-            device,
-            station,
-            today_date,
-        )
+        # # make sure main is commented when you run or the first run will do whatever station is listed in main
+        # eval_single_gpu.eval_model(
+        #     train_dataset_e,
+        #     df_train,
+        #     df_test,
+        #     test_dataset_e,
+        #     model,
+        #     batch_size,
+        #     title,
+        #     target,
+        #     features,
+        #     device,
+        #     station,
+        #     today_date,
+        # )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
-    log_model(experiment, model, model_name="v9")
+    # log_model(experiment, model, model_name="final_iteration")
     experiment.end()
     print("... completed ...")
+    # END OF MAIN
 
 
-lr_ls = [5e-7, 5e-6, 5e-5]
-layer_ls = [3, 2, 1]
-
-main(
-    batch_size=int(1000),
-    station="MANH",
-    num_layers=3,
-    epochs=500,
-    weight_decay=0,
-    fh=12,
-    model="HRRR",
-    learning_rate=9e-5,
-)
+clim_div = "Mohawk Valley"
+nwp_model = "HRRR"
+metvar_ls = ["t2m", "u_total", "tp"]
 
 
-# while epoch_reacher < 30:
-#     lr = (lr*10)
-#     epoch_reacher = main(
-#     batch_size=int(500),
-#     station="HAMM",
-#     num_layers=2,
-#     epochs=150,
-#     weight_decay=0,
-#     fh=18,
-#     model="GFS",
-#     learning_rate=lr,
-# )
+# second iteration for experiment
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+clim_divs = nysm_clim["climate_division_name"].unique()
+df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
+stations = df["stid"].unique()
 
 
-# # first iteration to target Brooklyn
-# for f in np.arange(2,19,2):
-#     print(f"Forecast Hour {f}")
-#     main(
-#         batch_size=int(10e3),
-#         station='BKLN',
-#         num_layers=5,
-#         epochs=100,
-#         weight_decay=0,
-#         fh=f
-#     )
-
-
-# station_ls = ['BUFF', 'DELE', 'EDWA', 'ESSX', 'PISE', 'SCHU', 'TYRO', 'WALT', 'WANT', 'WEST']
-
-# # second iteration for experiment
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# clim_divs = nysm_clim["climate_division_name"].unique()
-
-# for c in clim_divs:
-#     print(c)
-#     df = nysm_clim[nysm_clim["climate_division_name"] == c]
-#     temp = df["stid"].unique()
-#     station = random.sample(sorted(temp), 1)
-#     for n, _ in enumerate(station):
-#         print(station[n])
-#         f = 12
-#         print("FH", f)
-#         for l in lr_ls:
-#             for z in layer_ls:
-#                 main(
-#                 batch_size=int(500),
-#                 station=station[n],
-#                 num_layers=z,
-#                 epochs=150,
-#                 weight_decay=0,
-#                 fh=f,
-#                 model="NAM",
-#                 learning_rate=l,
-#             )
-
-
-# for f in np.arange(3,37,3):
-#     print("FH", f)
-#     for l in lr_ls:
-#         for z in layer_ls:
-#             main(
-#             batch_size=int(500),
-#             station='SCHU',
-#             num_layers=z,
-#             epochs=500,
-#             weight_decay=0,
-#             fh=f,
-#             model="GFS",
-#             learning_rate=l,
-#             )
+for f in np.arange(1, 19):
+    for met_var in metvar_ls:
+        for s in stations:
+            main(
+                batch_size=int(2000),
+                station=s,
+                num_layers=3,
+                epochs=150,
+                weight_decay=0.1,
+                fh=f,
+                nwp_model=nwp_model,
+                learning_rate=9e-5,
+                metvar=met_var,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/fh{str(f).zfill(2)}/{clim_div}_{met_var}_muthur.pth",
+                clim_div=clim_div,
+            )
