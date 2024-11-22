@@ -31,6 +31,44 @@ class ShallowRegressionLSTM_encode(nn.Module):
         return hn, cn
 
 
+class Attention(nn.Module):
+    def __init__(self, hidden_dim, input_dim):
+        super(Attention, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.input_dim = input_dim
+        self.attn = nn.Linear(self.hidden_dim + self.input_dim, hidden_dim)
+        self.v = nn.Parameter(torch.rand(hidden_dim))
+
+    def forward(self, hidden, encoder_outputs):
+        # hidden: (num_layers, batch_size, hidden_dim)
+        # encoder_outputs: (batch_size, seq_len, hidden_dim)
+
+        # Use the last layer of the hidden state for attention
+        hidden = hidden[-1]  # (batch_size, hidden_dim)
+
+        # Repeat hidden state (decoder hidden state) for each time step
+        hidden = hidden.unsqueeze(1).repeat(
+            1, encoder_outputs.size(1), 1
+        )  # (batch_size, seq_len, hidden_dim)
+
+        # Concatenate hidden state with encoder outputs
+        combined = torch.cat(
+            (hidden, encoder_outputs), dim=2
+        )  # (batch_size, seq_len, hidden_dim + input_dim)
+
+        # Compute energy
+        energy = torch.tanh(self.attn(combined))  # (batch_size, seq_len, hidden_dim)
+
+        # Compute attention weights
+        energy = energy.transpose(1, 2)  # (batch_size, hidden_dim, seq_len)
+        v = self.v.repeat(encoder_outputs.size(0), 1).unsqueeze(
+            1
+        )  # (batch_size, 1, hidden_dim)
+        attn_weights = torch.bmm(v, energy).squeeze(1)  # (batch_size, seq_len)
+
+        return F.softmax(attn_weights, dim=1)  # (batch_size, seq_len)
+
+
 class ShallowRegressionLSTM_decode(nn.Module):
     def __init__(self, num_sensors, hidden_units, num_layers, mlp_units, device):
         super().__init__()
@@ -41,28 +79,36 @@ class ShallowRegressionLSTM_decode(nn.Module):
         self.mlp_units = mlp_units
 
         self.lstm = nn.LSTM(
-            input_size=num_sensors,
-            hidden_size=hidden_units,
+            input_size=self.num_sensors,
+            hidden_size=self.hidden_units,
             num_layers=self.num_layers,
             batch_first=True,
         )
 
         self.linear = nn.Linear(
             in_features=self.hidden_units,
-            out_features=num_sensors,
+            out_features=self.num_sensors,
             bias=False,
         )
 
         self.mlp = nn.Sequential(
-            nn.Linear(hidden_units, mlp_units),
+            nn.Linear(self.hidden_units + self.num_sensors, self.mlp_units),
             nn.LeakyReLU(),
-            nn.Linear(mlp_units, num_sensors),
+            nn.Linear(self.mlp_units, self.num_sensors),
         )
+
+        self.attention = Attention(hidden_units, num_sensors)  # Add Attention mechanism
 
     def forward(self, x, hidden):
         x = x.to(self.device)
         out, hidden = self.lstm(x, hidden)
 
+        # Apply attention
+        attn_weights = self.attention(hidden[0], x)
+        context = attn_weights.unsqueeze(1).bmm(x)
+        out = torch.cat((out, context), dim=2)
+
+        # pass through mlp
         outn = self.mlp(out)
         return outn, hidden
 
@@ -103,7 +149,8 @@ class ShallowLSTM_seq2seq_multi_task(nn.Module):
         epoch,
         training_prediction,
         teacher_forcing_ratio,
-        dynamic_tf=False,
+        dynamic_tf=True,
+        decay_rate=0.02,
     ):
         num_batches = len(data_loader)
         total_loss = 0
@@ -132,6 +179,13 @@ class ShallowLSTM_seq2seq_multi_task(nn.Module):
                     decoder_input = decoder_output
                 elif training_prediction == "teacher_forcing":
                     if torch.rand(1).item() < teacher_forcing_ratio:
+                        # Determine the padding required
+                        padding_dim = (
+                            X.shape[-1] - y.shape[-1]
+                        )  # Difference in feature dimensions
+                        if padding_dim > 0:
+                            # Pad the last dimension of y to match X
+                            y = F.pad(y, (0, padding_dim), mode="constant", value=0)
                         decoder_input = y[:, t, :].unsqueeze(1)
                     else:
                         decoder_input = decoder_output
@@ -139,11 +193,13 @@ class ShallowLSTM_seq2seq_multi_task(nn.Module):
             optimizer.zero_grad()
             loss = loss_func(outputs, y)
             loss.backward()
+            # Add gradient clipping
+            torch.nn.utils.clip_grad_norm_(self.parameters(), 0.25)
             optimizer.step()
             total_loss += loss.item()
 
             if dynamic_tf and teacher_forcing_ratio > 0:
-                teacher_forcing_ratio = max(0, teacher_forcing_ratio - 0.02)
+                teacher_forcing_ratio = max(0, teacher_forcing_ratio - decay_rate)
 
         avg_loss = total_loss / num_batches
         print(f"Epoch [{epoch}], Loss: {avg_loss:.4f}")

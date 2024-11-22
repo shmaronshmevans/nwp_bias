@@ -41,7 +41,80 @@ import random
 print("imports downloaded")
 
 
+# class SequenceDataset(Dataset):
+#     def __init__(
+#         self,
+#         dataframe,
+#         target,
+#         features,
+#         sequence_length,
+#         forecast_steps,
+#         device,
+#         nwp_model,
+#     ):
+#         """
+#         dataframe: DataFrame containing the data
+#         target: Name of the target column
+#         features: List of feature column names
+#         sequence_length: Length of input sequences
+#         forecast_steps: Number of future steps to forecast
+#         device: Device to place the tensors on (CPU or GPU)
+#         """
+#         self.dataframe = dataframe
+#         self.features = features
+#         self.target = target
+#         self.sequence_length = sequence_length
+#         self.forecast_steps = forecast_steps
+#         self.device = device
+#         self.nwp_model = nwp_model
+#         self.y = torch.tensor(dataframe[target].values).float().to(device)
+#         self.X = torch.tensor(dataframe[features].values).float().to(device)
+
+#     def __len__(self):
+#         return self.X.shape[0]
+
+#     def __getitem__(self, i):
+#         if self.nwp_model == "HRRR":
+#             x_start = i
+#             x_end = i + self.sequence_length
+#             y_start = x_end
+#             y_end = y_start + self.forecast_steps
+#         if self.nwp_model == "GFS":
+#             x_start = i
+#             x_end = i + self.sequence_length
+#             y_start = x_end
+#             y_end = y_start + int(self.forecast_steps / 3)
+#         if self.nwp_model == "NAM":
+#             x_start = i
+#             x_end = i + self.sequence_length
+#             y_start = x_end
+#             y_end = y_start + int(self.forecast_steps + 2 // 3)
+
+#         # Input sequence
+#         x = self.X[x_start:x_end, :]
+
+#         # Target sequence
+#         y = self.y[y_start:y_end].unsqueeze(1)
+
+#         if x.shape[0] < self.sequence_length:
+#             _x = torch.zeros(
+#                 ((self.sequence_length - x.shape[0]), self.X.shape[1]),
+#                 device=self.device,
+#             )
+#             x = torch.cat((x, _x), 0)
+
+#         if y.shape[0] < self.forecast_steps:
+#             _y = torch.zeros(
+#                 ((self.forecast_steps - y.shape[0]), 1), device=self.device
+#             )
+#             y = torch.cat((y, _y), 0)
+
+#         return x, y
+
+
 class SequenceDataset(Dataset):
+    """Dataset class for multi-task learning with station-specific data."""
+
     def __init__(
         self,
         dataframe,
@@ -52,14 +125,6 @@ class SequenceDataset(Dataset):
         device,
         nwp_model,
     ):
-        """
-        dataframe: DataFrame containing the data
-        target: Name of the target column
-        features: List of feature column names
-        sequence_length: Length of input sequences
-        forecast_steps: Number of future steps to forecast
-        device: Device to place the tensors on (CPU or GPU)
-        """
         self.dataframe = dataframe
         self.features = features
         self.target = target
@@ -76,40 +141,86 @@ class SequenceDataset(Dataset):
     def __getitem__(self, i):
         if self.nwp_model == "HRRR":
             x_start = i
-            x_end = i + self.sequence_length
-            y_start = x_end
+            x_end = i + (self.sequence_length + self.forecast_steps)
+            y_start = i + self.sequence_length
             y_end = y_start + self.forecast_steps
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (self.sequence_length + self.forecast_steps):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + self.forecast_steps) - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < self.forecast_steps:
+                _y = torch.zeros(
+                    (self.forecast_steps - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
+
+            x[-self.forecast_steps :, -int(4 * 16) :] = x[
+                -int(self.forecast_steps + 1), -int(4 * 16) :
+            ].clone()
+
         if self.nwp_model == "GFS":
             x_start = i
-            x_end = i + self.sequence_length
-            y_start = x_end
+            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
+            y_start = i + self.sequence_length
             y_end = y_start + int(self.forecast_steps / 3)
-        if self.nwp_model == "NAM":
-            x_start = i
-            x_end = i + self.sequence_length
-            y_start = x_end
-            y_end = y_start + int(self.forecast_steps + 2 // 3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
 
-        # Input sequence
-        x = self.X[x_start:x_end, :]
+            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + int(self.forecast_steps / 3))
+                        - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
 
-        # Target sequence
-        y = self.y[y_start:y_end].unsqueeze(1)
+            if y.shape[0] < int(self.forecast_steps / 3):
+                _y = torch.zeros(
+                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
 
-        if x.shape[0] < self.sequence_length:
-            _x = torch.zeros(
-                ((self.sequence_length - x.shape[0]), self.X.shape[1]),
-                device=self.device,
-            )
-            x = torch.cat((x, _x), 0)
-
-        if y.shape[0] < self.forecast_steps:
-            _y = torch.zeros(
-                ((self.forecast_steps - y.shape[0]), 1), device=self.device
-            )
-            y = torch.cat((y, _y), 0)
-
+            x[-int(self.forecast_steps / 3) :, -int(4 * 16) :] = x[
+                -(int(self.forecast_steps / 3) + 1), -int(4 * 16) :
+            ].clone()
         return x, y
+
+
+def find_shift(ldf):
+    fh_s = []
+    mean_s_ls = []
+    mean_abs_ls = []
+    for i in np.arange(1, 60):
+        df = ldf.copy()
+        df["Model forecast"] = df["Model forecast"].shift(i).fillna(0)
+        df["diff"] = df.iloc[:, 0] - df.iloc[:, 1]
+        mean = st.mean(abs(df["diff"]))
+        mean_s = st.mean(df["diff"] ** 2)
+        fh_s.append(i)
+        mean_s_ls.append(mean_s)
+        mean_abs_ls.append(mean)
+
+    results_df = pd.DataFrame(
+        {"fh_s": fh_s, "mean_s_ls": mean_s_ls, "mean_abs_ls": mean_abs_ls}
+    )
+    # Get the row with the smallest mean squared error
+    best_fit = results_df.nsmallest(1, "mean_s_ls")
+    shifter = best_fit["fh_s"].values[0]
+
+    ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).fillna(-999)
+    return ldf
 
 
 def model_out(
@@ -126,16 +237,15 @@ def model_out(
         test_dataset, batch_size=batch_size, shuffle=False
     )
 
-    # Debugging: check the lengths of the predictions
-    # Debugging: check the lengths of the data
-    print(f"Length of test DataLoader: {len(test_eval_loader)}")
-    print(f"Length of df_test: {len(df_test)}")
-
     ystar_col = "Model forecast"
     test_predictions = model.predict(test_eval_loader).cpu().numpy()
 
+    print(f"Length of test DataLoader: {len(test_predictions)}")
+    print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
+
     # Trim the DataFrames to match the DataLoader lengths if necessary
-    if len(df_test) > len(test_predictions):
+    if len(df_test.iloc[:, 0]) > len(test_predictions):
+        print("Trimming Dataframe")
         df_test = df_test.iloc[-len(test_predictions) :]
 
     df_test[ystar_col] = test_predictions[:, -1, 0]
@@ -147,6 +257,8 @@ def model_out(
         mean = st.mean(vals)
         std = st.pstdev(vals)
         df_out[c] = df_out[c] * std + mean
+
+    df_out = find_shift(df_out)
 
     df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
     return df_out
@@ -271,6 +383,42 @@ def quadratic_fit(df_calc, df_out, diff):
     return df_out, quadratic_fit
 
 
+def align_predictions_with_targets(
+    df_out, predictions, sequence_length, forecast_steps
+):
+    """
+    Aligns model predictions with target values based on sequence length and forecast steps.
+
+    Args:
+        df_out (pd.DataFrame): DataFrame to hold the aligned model forecasts.
+        predictions (np.array): Array of model predictions.
+        sequence_length (int): The length of each input sequence.
+        forecast_steps (int): Number of forecast steps for each sequence.
+
+    Returns:
+        pd.DataFrame: Updated DataFrame with aligned predictions.
+    """
+    aligned_forecasts = []
+    for i in range(len(predictions)):
+        # Calculate the index shift based on sequence length and forecast_steps
+        start_idx = i * forecast_steps + sequence_length
+        end_idx = start_idx + forecast_steps
+
+        # Ensure we do not exceed the DataFrame length
+        if end_idx <= len(df_out):
+            aligned_forecasts.extend(predictions[i, :forecast_steps, 0])
+        else:
+            # Handle cases at the end of the dataset by truncating
+            aligned_forecasts.extend(predictions[i, : len(df_out) - start_idx, 0])
+
+    # Place aligned forecasts in DataFrame, using fillna to handle any gaps
+    df_out["Model forecast"] = pd.Series(aligned_forecasts, index=df_out.index).fillna(
+        -999
+    )
+
+    return df_out
+
+
 def main(
     batch_size,
     station,
@@ -280,7 +428,7 @@ def main(
     nwp_model,
     metvar,
     model_path,
-    sequence_length=30,
+    sequence_length=15,
     target="target_error",
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -307,7 +455,7 @@ def main(
         stations,
         target,
         valid_time,
-    ) = create_data_for_lstm.create_data_for_model(
+    ) = create_data_for_lstm_gfs.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
 
@@ -329,13 +477,13 @@ def main(
     print("!! Data Loaders Succesful !!")
 
     num_sensors = int(len(features))
-    hidden_units = int(12 * len(features))
+    hidden_units = int(7 * len(features))
 
     model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
-        mlp_units=1500,
+        mlp_units=500,
         device=device,
         num_stations=len(stations),
     ).to(device)
@@ -351,9 +499,6 @@ def main(
         df_eval, test_dataset, model, batch_size, target, features, device, station
     )
 
-    df_out["Model forecast"] = (
-        df_out["Model forecast"].shift(sequence_length).fillna(-999)
-    )
     # Trim valid_time to match the length of df_out
     valid_time = valid_time[: len(df_out)]
     df_out["valid_time"] = valid_time
@@ -446,23 +591,22 @@ def main(
     # END OF MAIN
 
 
-c = "Central Lakes"
-nwp = "HRRR"
-
-# metvar_ls = ["t2m", "u_total", "tp"]
-metvar_ls = ["u_total"]
+c = "Western Plateau"
+nwp = "GFS"
+metvar_ls = ["t2m", "u_total", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
 
+
 for m in metvar_ls:
     print(m)
-    for f in np.arange(1, 13):
+    for f in np.arange(3, 37, 3):
         print(f)
         for s in stations:
             print(s)
             main(
-                batch_size=int(5000),
+                batch_size=int(1000),
                 station=s,
                 num_layers=3,
                 fh=f,

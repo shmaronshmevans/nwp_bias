@@ -67,24 +67,62 @@ class SequenceDatasetMultiTask(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        x_start = i
-        x_end = i + self.sequence_length
-        y_start = x_end
-        y_end = y_start + self.forecast_steps
+        if self.nwp_model == "HRRR":
+            x_start = i
+            x_end = i + (self.sequence_length + self.forecast_steps)
+            y_start = i + self.sequence_length
+            y_end = y_start + self.forecast_steps
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
 
-        x = self.X[x_start:x_end, :]
-        y = self.y[y_start:y_end].unsqueeze(1)
+            if x.shape[0] < (self.sequence_length + self.forecast_steps):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + self.forecast_steps) - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
 
-        if x.shape[0] < self.sequence_length:
-            _x = torch.zeros(
-                (self.sequence_length - x.shape[0], self.X.shape[1]), device=self.device
-            )
-            x = torch.cat((x, _x), 0)
+            if y.shape[0] < self.forecast_steps:
+                _y = torch.zeros(
+                    (self.forecast_steps - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
 
-        if y.shape[0] < self.forecast_steps:
-            _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
-            y = torch.cat((y, _y), 0)
+            x[-self.forecast_steps :, -int(4 * 16) :] = x[
+                -int(self.forecast_steps + 1), -int(4 * 16) :
+            ].clone()
 
+        if self.nwp_model == "GFS":
+            x_start = i
+            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
+            y_start = i + self.sequence_length
+            y_end = y_start + int(self.forecast_steps / 3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + int(self.forecast_steps / 3))
+                        - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < int(self.forecast_steps / 3):
+                _y = torch.zeros(
+                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
+
+            x[-int(self.forecast_steps / 3) :, -int(4 * 16) :] = x[
+                -(int(self.forecast_steps / 3) + 1), -int(4 * 16) :
+            ].clone()
         return x, y
 
 
@@ -132,6 +170,12 @@ class OutlierFocusedLoss(nn.Module):
 
         # Return the mean of the weighted loss
         return weighted_loss.mean()
+
+
+def get_model_file_size(file_path):
+    size_bytes = os.path.getsize(file_path)
+    size_mb = size_bytes / (1024 * 1024)
+    print(f"Model file size: {size_mb:.2f} MB")
 
 
 def main(
@@ -183,7 +227,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_t2m_hrrr_multitask",
+        project_name="seq2seq_hrrr_multitask",
         workspace="shmaronshmevans",
     )
 
@@ -233,21 +277,21 @@ def main(
 
     if os.path.exists(encoder_path):
         print("Loading Encoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path))
-        for i, param in enumerate(model.encoder.parameters()):
-            if i < 2:
-                param.requires_grad = False  # Freeze first two layers
+        model.encoder.load_state_dict(torch.load(encoder_path))
+        # Example usage for encoder and decoder
+        get_model_file_size(encoder_path)
     else:
         if os.path.exists(model_path):
             print("Loading Parent Model")
             model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
             for i, param in enumerate(model.encoder.parameters()):
-                if i < 2:
+                if i < 1:
                     param.requires_grad = False  # Freeze first two layers
 
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
         model.decoder.load_state_dict(torch.load(decoder_path))
+        get_model_file_size(decoder_path)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
@@ -321,37 +365,6 @@ def main(
         # title = f"{station}_mloutput_eval_fh{fh}"
         torch.save(model.encoder.state_dict(), f"{encoder_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
-        # torch.save(
-        #     states,
-        #     model_path,
-        # )
-
-        # df_test = pd.concat([df_val, df_test])
-        # test_dataset_e = SequenceDataset(
-        #     df_test,
-        #     target=target,
-        #     features=features,
-        #     sequence_length=sequence_length,
-        #     forecast_steps=fh,
-        #     device=device,
-        #     nwp_model=nwp_model
-        # )
-
-        # # make sure main is commented when you run or the first run will do whatever station is listed in main
-        # eval_seq2seq.eval_model(
-        #     train_dataset,
-        #     df_train,
-        #     df_test,
-        #     test_dataset_e,
-        #     model,
-        #     batch_size,
-        #     title,
-        #     target,
-        #     features,
-        #     device,
-        #     station,
-        #     today_date,
-        # )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
@@ -363,8 +376,8 @@ def main(
     # End of MAIN
 
 
-c = "Central Lakes"
-metvar = "u_total"
+c = "Great Lakes"
+metvar_ls = ["tp", "t2m", "u_total"]
 nwp_model = "HRRR"
 print(c)
 
@@ -373,20 +386,21 @@ df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
 
 
-for f in np.arange(1, 13):
+for f in np.arange(6, 19):
     print(f)
     for s in stations:
-        print(s)
-        main(
-            batch_size=int(8000),
-            station=s,
-            num_layers=3,
-            epochs=350,
-            weight_decay=0,
-            fh=f,
-            clim_div=c,
-            nwp_model=nwp_model,
-            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
-            metvar=metvar,
-        )
-        gc.collect()
+        for metvar in metvar_ls:
+            print(s)
+            main(
+                batch_size=int(5000),
+                station=s,
+                num_layers=3,
+                epochs=350,
+                weight_decay=1e-8,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp_model,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+                metvar=metvar,
+            )
+            gc.collect()

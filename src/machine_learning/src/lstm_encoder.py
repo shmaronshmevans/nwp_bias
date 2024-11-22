@@ -109,9 +109,9 @@ class SequenceDataset(Dataset):
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: int(self.forecast_hr / 3), -int(len(self.stations) * 16) :] = x[
-                    int(self.forecast_hr / 3), -int(len(self.stations) * 16) :
-                ]
+                x[-int(self.forecast_hr / 3) :, -int(len(self.stations) * 16) :] = x[
+                    -int((self.forecast_hr / 3) + 1), -int(len(self.stations) * 16) :
+                ].clone()
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
                 x = self.X[0 : (i + 1), :]
@@ -302,8 +302,8 @@ class ShallowRegressionLSTM(nn.Module):
         self.mlp = nn.Sequential(
             # input, mlp_units
             nn.Linear(hidden_units, 1500),
-            # nn.LeakyReLU(),
-            nn.ReLU(),
+            nn.LeakyReLU(),
+            # nn.ReLU(),
             nn.Linear(1500, 1),
         )
         # self.attention = Attention(hidden_units, num_sensors)
@@ -514,13 +514,13 @@ def main(
     today_date, today_date_hr = get_time_title(station)
 
     (df_train, df_test, df_val, features, forecast_lead, stations, target, vt) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
+        create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date, metvar)
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="lstm-encoder-hrrr-t2m",
+        project_name="lstm-encoder-gfs",
         workspace="shmaronshmevans",
     )
     train_dataset = SequenceDataset(
@@ -569,10 +569,10 @@ def main(
         print("Loading Parent Model")
         model.load_state_dict(torch.load(model_path), strict=False)
 
-        # Freeze only the first two LSTM layers
-    for i, param in enumerate(model.lstm.parameters()):
-        if i < 2:
-            param.requires_grad = False  # Freeze first two layers
+    #     # Freeze only the first two LSTM layers
+    # for i, param in enumerate(model.lstm.parameters()):
+    #     if i < 2:
+    #         param.requires_grad = False  # Freeze first two layers
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
@@ -581,7 +581,7 @@ def main(
     loss_function = OutlierFocusedLoss(2.0, device)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.5, patience=4
+        optimizer, factor=0.75, patience=4
     )
 
     hyper_params = {
@@ -619,9 +619,9 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
+        scheduler.step(train_loss)
         if ix_epoch > 50:
-            if early_stopper.early_stop(test_loss):
+            if early_stopper.early_stop(train_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
 
@@ -641,46 +641,6 @@ def main(
             states,
             model_path,
         )
-        # loss_curves.loss_curves(
-        #     train_loss_ls, test_loss_ls, title, today_date, dt_string, rank=0
-        # )
-        # df_test = pd.concat([df_val, df_test])
-        # train_dataset_e = SequenceDataset(
-        #     df_train,
-        #     target=target,
-        #     features=features,
-        #     stations=stations,
-        #     sequence_length=sequence_length,
-        #     forecast_hr=fh,
-        #     device=device,
-        #     model=nwp_model,
-        # )
-        # test_dataset_e = SequenceDataset(
-        #     df_test,
-        #     target=target,
-        #     features=features,
-        #     stations=stations,
-        #     sequence_length=sequence_length,
-        #     forecast_hr=fh,
-        #     device=device,
-        #     model=nwp_model,
-        # )
-
-        # # make sure main is commented when you run or the first run will do whatever station is listed in main
-        # eval_single_gpu.eval_model(
-        #     train_dataset_e,
-        #     df_train,
-        #     df_test,
-        #     test_dataset_e,
-        #     model,
-        #     batch_size,
-        #     title,
-        #     target,
-        #     features,
-        #     device,
-        #     station,
-        #     today_date,
-        # )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
@@ -691,7 +651,7 @@ def main(
 
 
 clim_div = "Mohawk Valley"
-nwp_model = "HRRR"
+nwp_model = "GFS"
 metvar_ls = ["t2m", "u_total", "tp"]
 
 
@@ -702,19 +662,19 @@ df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 stations = df["stid"].unique()
 
 
-for f in np.arange(1, 19):
+for f in np.arange(3, 13, 3):
     for met_var in metvar_ls:
         for s in stations:
             main(
-                batch_size=int(2000),
+                batch_size=int(5000),
                 station=s,
                 num_layers=3,
                 epochs=150,
-                weight_decay=0.1,
+                weight_decay=1e-12,
                 fh=f,
                 nwp_model=nwp_model,
                 learning_rate=9e-5,
                 metvar=met_var,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/fh{str(f).zfill(2)}/{clim_div}_{met_var}_muthur.pth",
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/fh{str(f).zfill(3)}/{clim_div}_{met_var}_muthur.pth",
                 clim_div=clim_div,
             )
