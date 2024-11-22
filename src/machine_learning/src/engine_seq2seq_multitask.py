@@ -40,6 +40,50 @@ from seq2seq import eval_seq2seq
 print("imports loaded")
 
 
+"""
+        if self.nwp_model == "HRRR":
+            x_start = i
+            x_end = i + (self.sequence_length+self.forecast_steps)
+            y_start = i + self.sequence_length
+            y_end = y_start + self.forecast_steps
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (self.sequence_length+self.forecast_steps):
+                _x = torch.zeros(
+                    ((self.sequence_length+self.forecast_steps) - x.shape[0], self.X.shape[1]), device=self.device
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < self.forecast_steps:
+                _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
+                y = torch.cat((y, _y), 0)
+
+            
+            x[-self.forecast_steps: , -int(4 * 16) :] = x[-int(self.forecast_steps+1), -int(4 * 16) :].clone()
+
+        if self.nwp_model == "GFS":
+            x_start = i
+            x_end = i + (self.sequence_length+ int(self.forecast_steps/3))
+            y_start = i + self.sequence_length
+            y_end = y_start + int(self.forecast_steps/3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (self.sequence_length+int(self.forecast_steps/3)):
+                _x = torch.zeros(
+                    ((self.sequence_length+int(self.forecast_steps/3)) - x.shape[0], self.X.shape[1]), device=self.device
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < int(self.forecast_steps/3):
+                _y = torch.zeros((int(self.forecast_steps/3) - y.shape[0], 1), device=self.device)
+                y = torch.cat((y, _y), 0)
+
+            x[-int(self.forecast_steps/3): , -int(4 * 16) :] = x[-(int(self.forecast_steps/3)+1), -int(4 * 16) :].clone()
+"""
+
+
 class SequenceDatasetMultiTask(Dataset):
     """Dataset class for multi-task learning with station-specific data."""
 
@@ -67,24 +111,62 @@ class SequenceDatasetMultiTask(Dataset):
         return self.X.shape[0]
 
     def __getitem__(self, i):
-        x_start = i
-        x_end = i + self.sequence_length
-        y_start = x_end
-        y_end = y_start + self.forecast_steps
+        if self.nwp_model == "HRRR":
+            x_start = i
+            x_end = i + (self.sequence_length + self.forecast_steps)
+            y_start = i + self.sequence_length
+            y_end = y_start + self.forecast_steps
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
 
-        x = self.X[x_start:x_end, :]
-        y = self.y[y_start:y_end].unsqueeze(1)
+            if x.shape[0] < (self.sequence_length + self.forecast_steps):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + self.forecast_steps) - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
 
-        if x.shape[0] < self.sequence_length:
-            _x = torch.zeros(
-                (self.sequence_length - x.shape[0], self.X.shape[1]), device=self.device
-            )
-            x = torch.cat((x, _x), 0)
+            if y.shape[0] < self.forecast_steps:
+                _y = torch.zeros(
+                    (self.forecast_steps - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
 
-        if y.shape[0] < self.forecast_steps:
-            _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
-            y = torch.cat((y, _y), 0)
+            x[-self.forecast_steps :, -int(4 * 16) :] = x[
+                -int(self.forecast_steps + 1), -int(4 * 16) :
+            ].clone()
 
+        if self.nwp_model == "GFS":
+            x_start = i
+            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
+            y_start = i + self.sequence_length
+            y_end = y_start + int(self.forecast_steps / 3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + int(self.forecast_steps / 3))
+                        - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < int(self.forecast_steps / 3):
+                _y = torch.zeros(
+                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
+                )
+                y = torch.cat((y, _y), 0)
+
+            x[-int(self.forecast_steps / 3) :, -int(4 * 16) :] = x[
+                -(int(self.forecast_steps / 3) + 1), -int(4 * 16) :
+            ].clone()
         return x, y
 
 
@@ -147,7 +229,7 @@ def main(
     metvar,
     sequence_length=30,
     target="target_error",
-    learning_rate=9e-5,
+    learning_rate=9e-6,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -173,7 +255,7 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm.create_data_for_model(
+    ) = create_data_for_lstm_gfs.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
@@ -182,7 +264,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_t2m_hrrr_multitask",
+        project_name="seq2seq_gfs_multitask",
         workspace="shmaronshmevans",
     )
 
@@ -252,7 +334,6 @@ def main(
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
-        "forecast_lead": forecast_lead,
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
@@ -275,7 +356,7 @@ def main(
             optimizer=optimizer,
             epoch=ix_epoch,
             training_prediction="recursive",
-            teacher_forcing_ratio=0.5,
+            teacher_forcing_ratio=1.0,
         )
         test_loss = model.test_model(
             data_loader=test_loader,
@@ -291,8 +372,7 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
-        if early_stopper.early_stop(test_loss):
+        if early_stopper.early_stop(train_loss):
             print(f"Early stopping at epoch {ix_epoch}")
             break
 
@@ -309,37 +389,6 @@ def main(
         # title = f"{station}_mloutput_eval_fh{fh}"
         torch.save(model.encoder.state_dict(), f"{model_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
-        # torch.save(
-        #     states,
-        #     model_path,
-        # )
-
-        # df_test = pd.concat([df_val, df_test])
-        # test_dataset_e = SequenceDataset(
-        #     df_test,
-        #     target=target,
-        #     features=features,
-        #     sequence_length=sequence_length,
-        #     forecast_steps=fh,
-        #     device=device,
-        #     nwp_model=nwp_model
-        # )
-
-        # # make sure main is commented when you run or the first run will do whatever station is listed in main
-        # eval_seq2seq.eval_model(
-        #     train_dataset,
-        #     df_train,
-        #     df_test,
-        #     test_dataset_e,
-        #     model,
-        #     batch_size,
-        #     title,
-        #     target,
-        #     features,
-        #     device,
-        #     station,
-        #     today_date,
-        # )
 
     print("Successful Experiment")
     # Seamlessly log your Pytorch model
@@ -351,9 +400,9 @@ def main(
     # End of MAIN
 
 
-c = "Central Lakes"
-metvar = "u_total"
-nwp_model = "HRRR"
+c = "Northern Plateau"
+metvar_ls = ["u_total", "t2m", "tp"]
+nwp_model = "GFS"
 print(c)
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
@@ -361,20 +410,21 @@ df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
 
 
-for f in np.arange(1, 13):
+for f in np.arange(3, 13, 3):
     print(f)
     for s in stations:
-        print(s)
-        main(
-            batch_size=int(8000),
-            station=s,
-            num_layers=3,
-            epochs=350,
-            weight_decay=0,
-            fh=f,
-            clim_div=c,
-            nwp_model=nwp_model,
-            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
-            metvar=metvar,
-        )
-        gc.collect()
+        for metvar in metvar_ls:
+            print(s)
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                epochs=1000,
+                weight_decay=0.0,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp_model,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+                metvar=metvar,
+            )
+            gc.collect()

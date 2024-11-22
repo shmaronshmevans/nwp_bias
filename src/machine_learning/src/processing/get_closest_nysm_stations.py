@@ -5,7 +5,10 @@ from sklearn import preprocessing
 from sklearn import utils
 
 
-def get_closest_stations(nysm_df, neighbors, target_station):
+def get_closest_stations(nysm_df, neighbors, target_station, nwp_model):
+    # Earth's radius in kilometers
+    EARTH_RADIUS_KM = 6378
+
     lats = nysm_df["lat"].unique()
     lons = nysm_df["lon"].unique()
 
@@ -26,20 +29,39 @@ def get_closest_stations(nysm_df, neighbors, target_station):
     # Executes a query with the second group. This will also return two arrays.
     distances, indices = ball.query(locations_b[["lat_rad", "lon_rad"]].values, k=k)
 
-    indices_list = [indices[x][0:k] for x in range(len(indices))]
+    # Convert distances from radians to kilometers
+    distances_km = distances * EARTH_RADIUS_KM
 
+    # source info to creare a dictionary
+    indices_list = [indices[x][0:k] for x in range(len(indices))]
+    distances_list = [distances_km[x][0:k] for x in range(len(distances_km))]
     stations = nysm_df["station"].unique()
 
+    # create dictionary
     station_dict = {}
-
     for k, _ in enumerate(stations):
-        station_dict[stations[k]] = indices_list[k]
+        station_dict[stations[k]] = (indices_list[k], distances_list[k])
 
     utilize_ls = []
-    vals = station_dict.get(target_station)
-    vals
-    for v in vals:
-        x = stations[v]
-        utilize_ls.append(x)
+    vals, dists = station_dict.get(target_station)
+
+    if nwp_model == "GFS":
+        utilize_ls.append(target_station)
+        for v, d in zip(vals, dists):
+            if d >= 28 and len(utilize_ls) < 4:
+                x = stations[v]
+                utilize_ls.append(x)
+
+    if nwp_model == "NAM":
+        utilize_ls.append(target_station)
+        for v, d in zip(vals, dists):
+            if d >= 12 and len(utilize_ls) < 4:
+                x = stations[v]
+                utilize_ls.append(x)
+
+    if nwp_model == "HRRR":
+        for v, d in zip(vals, dists):
+            x = stations[v]
+            utilize_ls.append(x)
 
     return utilize_ls

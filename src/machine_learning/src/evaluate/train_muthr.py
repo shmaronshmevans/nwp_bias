@@ -97,8 +97,8 @@ class SequenceDataset(Dataset):
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: self.forecast_hr, -int(len(self.stations) * 16) :] = x[
-                    self.forecast_hr, -int(len(self.stations) * 16) :
+                x[-self.forecast_hr :, -int(len(self.stations) * 16) :] = x[
+                    -self.forecast_hr, -int(len(self.stations) * 16) :
                 ]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -108,8 +108,8 @@ class SequenceDataset(Dataset):
             if i >= self.sequence_length - 1:
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
-                x[: int(self.forecast_hr / 3), -int(len(self.stations) * 16) :] = x[
-                    int(self.forecast_hr / 3), -int(len(self.stations) * 16) :
+                x[-int(self.forecast_hr / 3) :, -int(len(self.stations) * 16) :] = x[
+                    -int(self.forecast_hr / 3), -int(len(self.stations) * 16) :
                 ]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
@@ -120,8 +120,10 @@ class SequenceDataset(Dataset):
                 i_start = i - self.sequence_length + 1
                 x = self.X[i_start : (i + 1), :]
                 x[
-                    : int((self.forecast_hr + 2) // 3), -int(len(self.stations) * 16) :
-                ] = x[int((self.forecast_hr + 2) // 3), -int(len(self.stations) * 16) :]
+                    -int((self.forecast_hr + 2) // 3) :, -int(len(self.stations) * 16) :
+                ] = x[
+                    -int((self.forecast_hr + 2) // 3), -int(len(self.stations) * 16) :
+                ]
             else:
                 padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
                 x = self.X[0 : (i + 1), :]

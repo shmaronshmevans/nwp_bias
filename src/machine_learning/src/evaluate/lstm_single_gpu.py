@@ -92,17 +92,6 @@ class SequenceDataset(Dataset):
     def __len__(self):
         return self.X.shape[0]
 
-    # def __getitem__(self, i):
-    #     if i >= self.sequence_length - 1:
-    #         i_start = i - self.sequence_length + 1
-    #         x = self.X[i_start:(i + 1), :]
-    #     else:
-    #         padding = self.X[0].repeat(self.sequence_length - i - 1, 1)
-    #         x = self.X[0:(i + 1), :]
-    #         x = torch.cat((padding, x), 0)
-
-    #     return x, self.y[i]
-
     def __getitem__(self, i):
         if self.model == "HRRR":
             if i >= self.sequence_length - 1:
