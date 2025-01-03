@@ -72,14 +72,28 @@ def get_resampled_precip_data(df, interval, method):
     interval: the frequency at which the data should be resampled
     method: min, max, mean, etc. [str]
     """
-    precip_diff = df.groupby("station").diff().reset_index().set_index("time_5M")
+    print(df)
+    precip_diff = df.groupby("station").diff().reset_index()
     # remove unrealistic precipitation values (e.g., > 500 mm / 5 min)
     precip_diff.loc[precip_diff["precip_total"] > 500.0, "precip_total"] = np.nan
-    return (
-        precip_diff.groupby("station")
-        .resample(interval, label="right")
+    print(precip_diff)
+    print(
+        precip_diff.groupby(["station", pd.Grouper(freq=interval, key="time_5M")])[
+            "precip_total"
+        ]
         .apply(method)
         .rename_axis(index={"time_5M": f"time_{interval}"})
+        .reset_index()
+        .set_index(["station", f"time_{interval}"])
+    )
+    return (
+        precip_diff.groupby(["station", pd.Grouper(freq=interval, key="time_5M")])[
+            "precip_total"
+        ]
+        .apply(method)
+        .rename_axis(index={"time_5M": f"time_{interval}"})
+        .reset_index()
+        .set_index(["station", f"time_{interval}"])
     )
 
 
@@ -142,6 +156,8 @@ def get_nysm_dataframe_for_resampled(df_nysm, freq):
 
     precip_combined = pd.concat(precip_dfs, axis=1)
     wind_combined = pd.concat(wind_dfs, axis=1)
+    print(precip_combined)
+    print(wind_combined)
 
     # Concatenate precip and wind data frames
     nysm_obs = pd.concat([wind_combined, precip_combined], axis=1)

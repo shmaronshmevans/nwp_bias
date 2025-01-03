@@ -40,6 +40,13 @@ from seq2seq import eval_seq2seq
 print("imports loaded")
 
 
+def custom_collate(batch):
+    batch = [item for item in batch if item is not None]
+    if not batch:
+        return None  # Return None if the batch is empty
+    return torch.utils.data.default_collate(batch)
+
+
 class SequenceDatasetMultiTask(Dataset):
     """Dataset class for multi-task learning with station-specific data."""
 
@@ -52,6 +59,7 @@ class SequenceDatasetMultiTask(Dataset):
         forecast_steps,
         device,
         nwp_model,
+        metvar,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -60,6 +68,7 @@ class SequenceDatasetMultiTask(Dataset):
         self.forecast_steps = forecast_steps
         self.device = device
         self.nwp_model = nwp_model
+        self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
 
@@ -74,6 +83,10 @@ class SequenceDatasetMultiTask(Dataset):
             y_end = y_start + self.forecast_steps
             x = self.X[x_start:x_end, :]
             y = self.y[y_start:y_end].unsqueeze(1)
+
+            # # Check if all elements in the target 'y' are zero
+            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+            #     return None  # Skip the sequence if all target values are zero
 
             if x.shape[0] < (self.sequence_length + self.forecast_steps):
                 _x = torch.zeros(
@@ -103,6 +116,10 @@ class SequenceDatasetMultiTask(Dataset):
             x = self.X[x_start:x_end, :]
             y = self.y[y_start:y_end].unsqueeze(1)
 
+            # # Check if all elements in the target 'y' are zero
+            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+            #     return None  # Skip the sequence if all target values are zero
+
             if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
                 _x = torch.zeros(
                     (
@@ -120,8 +137,44 @@ class SequenceDatasetMultiTask(Dataset):
                 )
                 y = torch.cat((y, _y), 0)
 
-            x[-int(self.forecast_steps / 3) :, -int(4 * 16) :] = x[
-                -(int(self.forecast_steps / 3) + 1), -int(4 * 16) :
+            x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
+                -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
+            ].clone()
+
+        if self.nwp_model == "NAM":
+            x_start = i
+            x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
+            y_start = i + self.sequence_length
+            y_end = y_start + int((self.forecast_steps + 2) // 3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            # # Check if all elements in the target 'y' are zero
+            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+            #     return None  # Skip the sequence if all target values are zero
+
+            if x.shape[0] < (
+                self.sequence_length + int((self.forecast_steps + 2) // 3)
+            ):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + int((self.forecast_steps + 2) // 3))
+                        - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < int((self.forecast_steps + 2) // 3):
+                _y = torch.zeros(
+                    (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
+                    device=self.device,
+                )
+                y = torch.cat((y, _y), 0)
+
+            x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
+                -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
         return x, y
 
@@ -191,7 +244,7 @@ def main(
     metvar,
     sequence_length=30,
     target="target_error",
-    learning_rate=9e-5,
+    learning_rate=9e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -218,7 +271,7 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm.create_data_for_model(
+    ) = create_data_for_lstm_gfs.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
@@ -227,7 +280,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_hrrr_multitask",
+        project_name="seq2seq_gfs_multitask_good_stations_check",
         workspace="shmaronshmevans",
     )
 
@@ -239,6 +292,7 @@ def main(
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
+        metvar=metvar,
     )
 
     df_test = pd.concat([df_val, df_test])
@@ -250,10 +304,21 @@ def main(
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
+        metvar=metvar,
     )
 
-    train_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": True}
-    test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
+    train_kwargs = {
+        "batch_size": batch_size,
+        "pin_memory": False,
+        "shuffle": True,
+        "collate_fn": custom_collate,
+    }
+    test_kwargs = {
+        "batch_size": batch_size,
+        "pin_memory": False,
+        "shuffle": False,
+        "collate_fn": custom_collate,
+    }
 
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
@@ -298,6 +363,8 @@ def main(
     )
 
     loss_function = OutlierFocusedLoss(2.0, device)
+    # loss_function = nn.HuberLoss(delta=2.0)
+    # loss_function = nn.L1Loss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.75, patience=4
@@ -318,7 +385,7 @@ def main(
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(9)
+    early_stopper = EarlyStopper(10)
 
     init_start_event.record()
     train_loss_ls = []
@@ -376,27 +443,26 @@ def main(
     # End of MAIN
 
 
-c = "Great Lakes"
-metvar_ls = ["tp", "t2m", "u_total"]
-nwp_model = "HRRR"
-print(c)
+c = "Coastal"
+metvar_ls = ["t2m"]
+nwp_model = "GFS"
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
+# stations = df["stid"].unique()
+stations = ["BKLN"]
 
-
-for f in np.arange(6, 19):
+for f in np.arange(3, 37, 3):
     print(f)
     for s in stations:
         for metvar in metvar_ls:
             print(s)
             main(
-                batch_size=int(5000),
+                batch_size=int(1000),
                 station=s,
                 num_layers=3,
-                epochs=350,
-                weight_decay=1e-8,
+                epochs=5000,
+                weight_decay=0.0,
                 fh=f,
                 clim_div=c,
                 nwp_model=nwp_model,

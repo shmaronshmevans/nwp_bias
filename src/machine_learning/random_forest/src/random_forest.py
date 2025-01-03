@@ -258,9 +258,14 @@ def main(station, fh, sequence_length, batch_size, epochs, log_interval):
     print(device)
     torch.manual_seed(101)
 
-    df_train, df_test, features, forecast_lead, stations, target = (
-        create_data_for_lstm.create_data_for_model(station, fh)
-    )
+    (
+        df_train,
+        df_test,
+        features,
+        forecast_lead,
+        stations,
+        target,
+    ) = create_data_for_lstm.create_data_for_model(station, fh)
 
     train_dataset = SequenceDataset(
         df_train,

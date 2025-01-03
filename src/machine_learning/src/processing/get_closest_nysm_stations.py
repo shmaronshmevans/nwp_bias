@@ -48,7 +48,7 @@ def get_closest_stations(nysm_df, neighbors, target_station, nwp_model):
     if nwp_model == "GFS":
         utilize_ls.append(target_station)
         for v, d in zip(vals, dists):
-            if d >= 28 and len(utilize_ls) < 4:
+            if d >= 30 and len(utilize_ls) < 5:
                 x = stations[v]
                 utilize_ls.append(x)
 
