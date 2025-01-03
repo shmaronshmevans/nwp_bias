@@ -30,6 +30,8 @@ def load_nysm_data(year):
 
     nysm_1H_obs = pd.read_parquet(f"{nysm_path}nysm_1H_obs_{year}.parquet")
     nysm_3H_obs = pd.read_parquet(f"{nysm_path}nysm_3H_obs_{year}.parquet")
+    nysm_1H_obs.fillna(-999, inplace=True)
+    nysm_3H_obs.fillna(-999, inplace=True)
     return nysm_1H_obs, nysm_3H_obs
 
 
@@ -41,10 +43,14 @@ def read_data_ny(model, month, year, fh):
 
     li = []
     for filename in filelist:
-        df_temp = pd.read_parquet(filename)
-        li.append(
-            df_temp.reset_index()
-        )  # reset the index in case indices are different among files
+        try:
+            df_temp = pd.read_parquet(filename)
+            li.append(
+                df_temp.reset_index()
+            )  # reset the index in case indices are different among files
+        except:
+            continue
+
     df = pd.concat(li)
     return df
 
@@ -108,7 +114,7 @@ def interpolate_model_data_to_nysm_locations_groupby(df_model, df_nysm, vars_to_
     xnew = df_nysm["lon"]
     ynew = df_nysm["lat"]
 
-    df_model = df_model.reset_index().set_index("time")
+    df_model = df_model.set_index("time")
 
     # if vals != points in interpolation routine
     # called a few lines below, it's because this line is finding multiple of the same valid_times which occurs at times later in the month
@@ -278,8 +284,9 @@ def find_closest_station(query_lat, query_lon, df):
 
 def df_with_nysm_locations(df, df_nysm, indices_list):
     # needs to mirror the df manipulations in get_locations_for_ball_tree locations a and b
-    df = df.reset_index()
-    df_nysm = df_nysm.dropna().reset_index()
+    df.reset_index(inplace=True)
+    df_nysm.dropna(inplace=True)
+    df_nysm.reset_index(inplace=True)
     df_closest_locs = df.iloc[indices_list][["latitude", "longitude"]]
     df_closest_locs = df_closest_locs.drop_duplicates()
     df_nysm_station_locs = df_nysm.groupby("station")[["lat", "lon"]].mean()
@@ -485,7 +492,7 @@ def main(month, year, model, fh, mask_water=True):
     """
     start_time = time.time()
     model = model.upper()
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/fh{fh}/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/{model}_data/fh{fh}/"
     # savedir = f'/home/aevans/nwp_bias/src/machine_learning/data/'
     print("Month: ", month)
     if not os.path.exists(
@@ -517,9 +524,9 @@ def main(month, year, model, fh, mask_water=True):
             pres,
             "orog",
             "tcc",
-            "asnow",
+            # "asnow",
             "cape",
-            # "cin",
+            "cin",
             "dswrf",
             "dlwrf",
             "gh",
@@ -675,24 +682,24 @@ def main(month, year, model, fh, mask_water=True):
 if __name__ == "__main__":
     # multiprocessing v2
     # good for bulk cleaning
-    model = "hrrr"
-    for fh in np.arange(1, 19):
+    model = "gfs"
+    for fh in np.arange(3, 37, 3):
         print("FH", fh)
-        for year in np.arange(2024, 2025):
+        for year in np.arange(2018, 2024):
             print("YEAR: ", year)
-            for month in np.arange(1, 9):
+            for month in np.arange(1, 13):
                 print("Month: ", month)
-                # main(str(month).zfill(2), year, model, str(fh).zfill(2))
-                # Step 1: Init multiprocessing.Pool()
-                pool = mp.Pool(mp.cpu_count())
+                main(str(month).zfill(2), year, model, str(fh).zfill(3))
+                # # Step 1: Init multiprocessing.Pool()
+                # pool = mp.Pool(mp.cpu_count())
 
-                # Step 2: `pool.apply` the `howmany_within_range()`
-                results = pool.apply(
-                    main, args=(str(month).zfill(2), year, model, str(fh).zfill(2))
-                )
+                # # Step 2: `pool.apply` the `howmany_within_range()`
+                # results = pool.apply(
+                #     main, args=(str(month).zfill(2), year, model, str(fh).zfill(3))
+                # )
 
-                # Step 3: Don't forget to close
-                pool.close()
+                # # Step 3: Don't forget to close
+                # pool.close()
 
     # parser = argparse.ArgumentParser()
     # parser.add_argument("--n_cpus", type=int, default=mp.cpu_count(), help="Number of CPUs to use")

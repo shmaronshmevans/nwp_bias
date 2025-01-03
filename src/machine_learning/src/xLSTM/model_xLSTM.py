@@ -162,9 +162,12 @@ class sLSTM(nn.Module):
         if state is not None:
             state = torch.stack(list(state))
             assert state.ndim == 4
-            num_hidden, state_num_layers, state_batch_size, state_input_size = (
-                state.size()
-            )
+            (
+                num_hidden,
+                state_num_layers,
+                state_batch_size,
+                state_input_size,
+            ) = state.size()
             assert num_hidden == 4
             assert state_num_layers == self.num_layers
             assert state_batch_size == batch_size
@@ -301,9 +304,12 @@ class mLSTM(nn.Module):
         if state is not None:
             state = torch.stack(list(state))
             assert state.ndim == 4
-            num_hidden, state_num_layers, state_batch_size, state_input_size = (
-                state.size()
-            )
+            (
+                num_hidden,
+                state_num_layers,
+                state_batch_size,
+                state_input_size,
+            ) = state.size()
             assert num_hidden == 4
             assert state_num_layers == self.num_layers
             assert state_batch_size == batch_size
@@ -380,9 +386,12 @@ class xLSTM(nn.Module):
         if state is not None:
             state = torch.stack(list(state))
             assert state.ndim == 4
-            num_hidden, state_num_layers, state_batch_size, state_input_size = (
-                state.size()
-            )
+            (
+                num_hidden,
+                state_num_layers,
+                state_batch_size,
+                state_input_size,
+            ) = state.size()
             assert num_hidden == 4
             assert state_num_layers == self.num_layers
             assert state_batch_size == batch_size

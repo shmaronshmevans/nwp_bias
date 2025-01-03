@@ -321,23 +321,28 @@ class ShallowRegressionLSTM(nn.Module):
             .requires_grad_()
             .to(self.device)
         )
-        # without attention
-        _, (hn, _) = self.lstm(x, (h0, c0))
-        out = self.mlp(
-            hn[-1]
-        ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
+        # # without attention
+        # _, (hn, _) = self.lstm(x, (h0, c0))
+        # out = self.mlp(
+        #     hn[-1]
+        # ).flatten()  # First dim of Hn is num_layers, which is set to 1 above.
 
-        # # with attention
-        # out, (hidden, cell) = self.lstm(x, (h0, c0))
-        # hidden = hidden.repeat(int(x.shape[1]/hidden.shape[0]), 1, 1)
+        # with attention
+        # LSTM output and hidden state
+        lstm_out, (hidden, cell) = self.lstm(x, (h0, c0))
 
-        # attn_weights = self.attention(hidden, x)
-        # context = attn_weights.unsqueeze(1).bmm(x)
-        # context = context.repeat(1, int(x.shape[1]), 1)
+        # Attention mechanism
+        attn_weights = self.attention(hidden, lstm_out)
+        context = attn_weights.unsqueeze(1).bmm(
+            lstm_out
+        )  # Weighted sum of encoder outputs
 
-        # out = torch.cat((out, context), dim=2)
-        # out = self.mlp(out)
-        # out = out[:,-1,-1].squeeze()
+        # Combine context and LSTM output
+        out = torch.cat((lstm_out, context.repeat(1, lstm_out.size(1), 1)), dim=2)
+
+        # Pass through MLP
+        out = self.mlp(out)
+        out = out[:, -1, -1].squeeze()  # Final output
 
         return out
 
@@ -513,8 +518,17 @@ def main(
     station = station
     today_date, today_date_hr = get_time_title(station)
 
-    (df_train, df_test, df_val, features, forecast_lead, stations, target, vt) = (
-        create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date, metvar)
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        forecast_lead,
+        stations,
+        target,
+        vt,
+    ) = create_data_for_lstm_gfs.create_data_for_model(
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print(features)
 
@@ -621,7 +635,7 @@ def main(
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         scheduler.step(train_loss)
         if ix_epoch > 50:
-            if early_stopper.early_stop(train_loss):
+            if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
 
@@ -650,9 +664,9 @@ def main(
     # END OF MAIN
 
 
-clim_div = "Mohawk Valley"
+clim_div = "Hudson Valley"
 nwp_model = "GFS"
-metvar_ls = ["t2m", "u_total", "tp"]
+metvar_ls = ["t2m"]
 
 
 # second iteration for experiment
@@ -662,19 +676,22 @@ df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 stations = df["stid"].unique()
 
 
-for f in np.arange(3, 13, 3):
+for f in np.arange(3, 37, 3):
     for met_var in metvar_ls:
         for s in stations:
-            main(
-                batch_size=int(5000),
-                station=s,
-                num_layers=3,
-                epochs=150,
-                weight_decay=1e-12,
-                fh=f,
-                nwp_model=nwp_model,
-                learning_rate=9e-5,
-                metvar=met_var,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/fh{str(f).zfill(3)}/{clim_div}_{met_var}_muthur.pth",
-                clim_div=clim_div,
-            )
+            if s == "SUFF":
+                continue
+            else:
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    epochs=150,
+                    weight_decay=1e-12,
+                    fh=f,
+                    nwp_model=nwp_model,
+                    learning_rate=5e-7,
+                    metvar=met_var,
+                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/{s}_{met_var}_muthur_encode.pth",
+                    clim_div=clim_div,
+                )

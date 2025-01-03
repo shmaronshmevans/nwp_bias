@@ -41,77 +41,6 @@ import random
 print("imports downloaded")
 
 
-# class SequenceDataset(Dataset):
-#     def __init__(
-#         self,
-#         dataframe,
-#         target,
-#         features,
-#         sequence_length,
-#         forecast_steps,
-#         device,
-#         nwp_model,
-#     ):
-#         """
-#         dataframe: DataFrame containing the data
-#         target: Name of the target column
-#         features: List of feature column names
-#         sequence_length: Length of input sequences
-#         forecast_steps: Number of future steps to forecast
-#         device: Device to place the tensors on (CPU or GPU)
-#         """
-#         self.dataframe = dataframe
-#         self.features = features
-#         self.target = target
-#         self.sequence_length = sequence_length
-#         self.forecast_steps = forecast_steps
-#         self.device = device
-#         self.nwp_model = nwp_model
-#         self.y = torch.tensor(dataframe[target].values).float().to(device)
-#         self.X = torch.tensor(dataframe[features].values).float().to(device)
-
-#     def __len__(self):
-#         return self.X.shape[0]
-
-#     def __getitem__(self, i):
-#         if self.nwp_model == "HRRR":
-#             x_start = i
-#             x_end = i + self.sequence_length
-#             y_start = x_end
-#             y_end = y_start + self.forecast_steps
-#         if self.nwp_model == "GFS":
-#             x_start = i
-#             x_end = i + self.sequence_length
-#             y_start = x_end
-#             y_end = y_start + int(self.forecast_steps / 3)
-#         if self.nwp_model == "NAM":
-#             x_start = i
-#             x_end = i + self.sequence_length
-#             y_start = x_end
-#             y_end = y_start + int(self.forecast_steps + 2 // 3)
-
-#         # Input sequence
-#         x = self.X[x_start:x_end, :]
-
-#         # Target sequence
-#         y = self.y[y_start:y_end].unsqueeze(1)
-
-#         if x.shape[0] < self.sequence_length:
-#             _x = torch.zeros(
-#                 ((self.sequence_length - x.shape[0]), self.X.shape[1]),
-#                 device=self.device,
-#             )
-#             x = torch.cat((x, _x), 0)
-
-#         if y.shape[0] < self.forecast_steps:
-#             _y = torch.zeros(
-#                 ((self.forecast_steps - y.shape[0]), 1), device=self.device
-#             )
-#             y = torch.cat((y, _y), 0)
-
-#         return x, y
-
-
 class SequenceDataset(Dataset):
     """Dataset class for multi-task learning with station-specific data."""
 
@@ -124,6 +53,7 @@ class SequenceDataset(Dataset):
         forecast_steps,
         device,
         nwp_model,
+        metvar,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -132,6 +62,7 @@ class SequenceDataset(Dataset):
         self.forecast_steps = forecast_steps
         self.device = device
         self.nwp_model = nwp_model
+        self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
 
@@ -192,8 +123,40 @@ class SequenceDataset(Dataset):
                 )
                 y = torch.cat((y, _y), 0)
 
-            x[-int(self.forecast_steps / 3) :, -int(4 * 16) :] = x[
-                -(int(self.forecast_steps / 3) + 1), -int(4 * 16) :
+            x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
+                -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
+            ].clone()
+
+        if self.nwp_model == "NAM":
+            x_start = i
+            x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
+            y_start = i + self.sequence_length
+            y_end = y_start + int((self.forecast_steps + 2) // 3)
+            x = self.X[x_start:x_end, :]
+            y = self.y[y_start:y_end].unsqueeze(1)
+
+            if x.shape[0] < (
+                self.sequence_length + int((self.forecast_steps + 2) // 3)
+            ):
+                _x = torch.zeros(
+                    (
+                        (self.sequence_length + int((self.forecast_steps + 2) // 3))
+                        - x.shape[0],
+                        self.X.shape[1],
+                    ),
+                    device=self.device,
+                )
+                x = torch.cat((x, _x), 0)
+
+            if y.shape[0] < int((self.forecast_steps + 2) // 3):
+                _y = torch.zeros(
+                    (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
+                    device=self.device,
+                )
+                y = torch.cat((y, _y), 0)
+
+            x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
+                -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
         return x, y
 
@@ -320,7 +283,10 @@ def linear_fit(df, df_out, diff):
     df_out = df_out.copy()
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
-    top_200_max_values = df["target_error_lead_0"].nlargest(200)
+    length = len(df["target_error_lead_0"].values)
+    tener = int(length * 0.05)
+    print(tener)
+    top_200_max_values = df["target_error_lead_0"].nlargest(250)
     top_200_indexes = top_200_max_values.index
 
     alphas = []
@@ -328,7 +294,7 @@ def linear_fit(df, df_out, diff):
     for i in top_200_indexes:
         target, lstm_val, _, _ = df.loc[i].values
         alpha = abs(target / lstm_val)
-        if alpha > 10:
+        if alpha > 12:
             continue
         else:
             alphas.append(alpha)
@@ -428,7 +394,7 @@ def main(
     nwp_model,
     metvar,
     model_path,
-    sequence_length=15,
+    sequence_length=30,
     target="target_error",
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -469,6 +435,7 @@ def main(
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
+        metvar=metvar,
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
@@ -477,13 +444,13 @@ def main(
     print("!! Data Loaders Succesful !!")
 
     num_sensors = int(len(features))
-    hidden_units = int(7 * len(features))
+    hidden_units = int(12 * len(features))
 
     model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
-        mlp_units=500,
+        mlp_units=1500,
         device=device,
         num_stations=len(stations),
     ).to(device)
@@ -503,7 +470,7 @@ def main(
     valid_time = valid_time[: len(df_out)]
     df_out["valid_time"] = valid_time
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
     # calculate post processing on validation set
@@ -581,22 +548,23 @@ def main(
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     df_out_new_quad.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
 
 
-c = "Western Plateau"
+c = "Northern Plateau"
 nwp = "GFS"
-metvar_ls = ["t2m", "u_total", "tp"]
+metvar_ls = ["t2m"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
+# stations = df["stid"].unique()
+stations = ["CROG"]
 
 
 for m in metvar_ls:
@@ -606,7 +574,7 @@ for m in metvar_ls:
         for s in stations:
             print(s)
             main(
-                batch_size=int(1000),
+                batch_size=int(500),
                 station=s,
                 num_layers=3,
                 fh=f,

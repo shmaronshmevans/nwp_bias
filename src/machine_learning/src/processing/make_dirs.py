@@ -2,30 +2,52 @@ import os
 from datetime import datetime
 
 
+# def make_dirs(today_date, station):
+#     if (
+#         os.path.exists(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+#         )
+#         == False
+#     ):
+#         os.mkdir(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+#         )
+#         os.mkdir(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+#         )
+#     if (
+#         os.path.exists(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+#         )
+#         == False
+#     ):
+#         os.mkdir(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
+#         )
+#         os.mkdir(
+#             f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+#         )
+
+
 def make_dirs(today_date, station):
     if (
         os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}"
         )
         == False
     ):
         os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}"
         )
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}"
-        )
+
     if (
         os.path.exists(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}"
         )
         == False
     ):
         os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_vis/{today_date}/{station}"
-        )
-        os.mkdir(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}"
         )
 
 
