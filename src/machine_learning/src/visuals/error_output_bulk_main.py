@@ -11,23 +11,23 @@ import statistics as st
 
 
 def get_errors(lookup_path, station, metvar):
-    for i in np.arange(3, 37, 3):
+    for i in np.arange(1, 37):
         ldf = pd.read_parquet(
-            f"{lookup_path}/{station}_fh{str(i)}_{metvar}_GFS_ml_output_linear.parquet"
+            f"{lookup_path}/{station}_fh{str(i)}_{metvar}_NAM_ml_output_linear.parquet"
         )
-        met_df = nysm_data.load_nysm_data(gfs=True)
+        met_df = nysm_data.load_nysm_data(gfs=False)
         met_df = met_df[met_df["station"] == station]
         met_df = met_df.rename(columns={"time_1H": "valid_time"})
 
-        time1 = datetime(2023, 1, 1, 0, 0, 0)
-        time2 = datetime(2023, 12, 31, 23, 59, 59)
+        time1 = datetime(2023, 12, 1, 0, 0, 0)
+        time2 = datetime(2024, 11, 30, 23, 59, 59)
 
         ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
         met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
 
         ldf["diff"] = ldf.iloc[:, 0] - ldf.iloc[:, 1]
 
-        if i == 3:
+        if i == 1:
             df = ldf.copy()
         else:
             # For subsequent iterations, merge the diff data on valid_time
@@ -45,6 +45,9 @@ def func_main(lookup_path, stations, metvar):
     for s in stations:
         df, met_df = get_errors(lookup_path, s, metvar)
 
+        for k in met_df.columns:
+            print(k)
+
         ## plot fh_drift
         mae_ls = []
         sq_ls = []
@@ -59,7 +62,7 @@ def func_main(lookup_path, stations, metvar):
         mae_ls.append(st.mean(abs_ls))
         sq_ls.append(st.mean(val_ls))
 
-        for i in np.arange(6, 37, 3):
+        for i in np.arange(2, 37):
             val_ls = []
             abs_ls = []
             for d in df[f"diff_{i}"].values:
@@ -71,7 +74,7 @@ def func_main(lookup_path, stations, metvar):
 
         r2_ls = error_output_bulk_funcs.calculate_r2(df)
 
-        error_output_bulk_funcs.plot_fh_drift(mae_ls, sq_ls, r2_ls, np.arange(3, 37, 3))
+        error_output_bulk_funcs.plot_fh_drift(mae_ls, sq_ls, r2_ls, np.arange(1, 37))
 
         # just plot fh's 1, 6, 12, 18, then bulk_fh
         ## plot hexbins
@@ -90,7 +93,7 @@ def func_main(lookup_path, stations, metvar):
 
         error_output_bulk_funcs.create_scatterplot(target_vals, lstm_vals, 1)
 
-        for p in np.arange(6, 37, 3):
+        for p in np.arange(2, 37):
             lstms = df[f"Model forecast_{p}"].values
             targs = df[f"target_error_lead_0_{p}"].values
 
@@ -160,15 +163,15 @@ def func_main(lookup_path, stations, metvar):
 ## END OF MAIN
 
 
-clim_div = "Coastal"
-lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/20250102/BKLN"
-metvar = "t2m"
+clim_div = "Hudson Valley"
+lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/20241220/VOOR"
+metvar = "u_total"
 
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 # stations = df["stid"].unique()
-stations = ["BKLN"]
+stations = ["VOOR"]
 
 
 func_main(lookup_path, stations, metvar)

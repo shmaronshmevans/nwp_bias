@@ -271,12 +271,13 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm_gfs.create_data_for_model(
+    ) = create_data_for_lstm_nam.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
     print()
     print("TARGET", target)
+    exit()
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
@@ -443,16 +444,16 @@ def main(
     # End of MAIN
 
 
-c = "Coastal"
-metvar_ls = ["t2m"]
-nwp_model = "GFS"
+c = "Hudson Valley"
+metvar_ls = ["u_total"]
+nwp_model = "NAM"
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 # stations = df["stid"].unique()
-stations = ["BKLN"]
+stations = ["VOOR"]
 
-for f in np.arange(3, 37, 3):
+for f in np.arange(1, 2):
     print(f)
     for s in stations:
         for metvar in metvar_ls:

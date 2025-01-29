@@ -242,12 +242,12 @@ def groupby_month_total(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Mean LSTM Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Mean LSTM Error", fontsize=28)
     ax.set_title("Monthly Mean Error for LSTM Predictions", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -305,12 +305,12 @@ def groupby_month_std(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
     ax.set_title("Monthly Standard Deviation of NWP Error", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -370,12 +370,12 @@ def groupby_abs_month_total(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
     ax.set_title("Monthly Mean Absolute Error for LSTM Predictions", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -420,12 +420,12 @@ def boxplot_monthly_error(df):
     ax.set_xticklabels(month_labels)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("NWP Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("NWP Error", fontsize=28)
     ax.set_title("Monthly Box-and-Whisker Plot of Errors for NWP Error", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Show plot
@@ -488,13 +488,13 @@ def groupby_time_abs(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
     ax.set_title("Mean Absolute Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -558,13 +558,13 @@ def groupby_time(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Mean LSTM Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Mean LSTM Error", fontsize=28)
     ax.set_title("Mean Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -609,14 +609,14 @@ def boxplot_time_of_day_error(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("NWP Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("NWP Error", fontsize=28)
     ax.set_title(
         "Box-and-Whisker Plot of NWP Error Grouped by Time of Day", fontsize=32
     )
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -676,13 +676,13 @@ def groupby_time_std(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
     ax.set_title("Standard Deviation of Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=14)
-    plt.yticks(fontsize=14)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
@@ -726,7 +726,7 @@ def create_scatterplot(x_column, y_column, fh):
     plt.xlim(-6, 6)
     plt.ylim(-6, 6)
     plt.ylabel("LSTM", fontsize=24)
-    plt.title("Target Temp Error v LSTM Predictions", fontsize=32)
+    plt.title("Target Wind Error v LSTM Predictions", fontsize=32)
     # Customize tick mark font size
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
@@ -738,7 +738,7 @@ def create_scatterplot(x_column, y_column, fh):
     )
 
 
-def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
+def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
     fig, ax = plt.subplots(figsize=(24, 6))
     x = df["valid_time"]
 
@@ -767,21 +767,6 @@ def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
         label="LSTM Output",
     )
 
-    # plt.axvline(
-    #     x=test_set_start,
-    #     c="green",
-    #     linestyle="--",
-    #     linewidth=2.0,
-    #     label="Test Set Start",
-    # )
-    # plt.axvline(
-    #     x=test_set_finish,
-    #     c="red",
-    #     linestyle="--",
-    #     linewidth=2.0,
-    #     label="Test Set Finish",
-    # )
-
     # Fill daytime hours with white color
     ax.fill_between(
         x_numeric, -4, 4.1, where=day_mask, color="white", alpha=0.5, label="Daytime"
@@ -792,7 +777,7 @@ def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
         x_numeric, -4, 4.1, where=~day_mask, color="grey", alpha=0.2, label="Nighttime"
     )
 
-    ax.set_title(f"Temp Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
+    ax.set_title(f"Wind Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
     # plt.ylim(-5, 5.)
     ax.legend()
     plt.show()
@@ -861,7 +846,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     plt.xlabel("Forecast Hour (FH)", fontsize=20)
     plt.ylabel("Error and R² Values", fontsize=20)
     plt.title(
-        "Error Metrics as a Function of Forecast Hour \n GFS, Temp-Error, Voorheesville",
+        "Error Metrics as a Function of Forecast Hour \n NAM, Wind-Error, Voorheesville",
         fontsize=24,
     )
     plt.legend(fontsize=14)
@@ -897,7 +882,7 @@ def calculate_r2(df):
     r2 = r2_score(targets, lstms)
     r2_ls.append(r2)
 
-    for i in np.arange(6, 37, 3):
+    for i in np.arange(2, 37):
         lstms_ = []
         targets_ = []
 
