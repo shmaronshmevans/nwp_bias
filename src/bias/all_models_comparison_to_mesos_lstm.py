@@ -70,7 +70,7 @@ def read_data_ny_v2(model, month, year, fh):
     for filename in filelist:
         try:
             df_temp = pd.read_parquet(
-                filename, columns=["valid_time", "tp", "latitude", "longitude"]
+                filename, columns=["valid_time", "time", "tp", "latitude", "longitude"]
             )
             df_temp.reset_index(inplace=True, drop=True)
             li.append(
@@ -380,7 +380,7 @@ def df_with_nysm_locations(df, df_nysm, indices_list):
     """
 
     # Ensure the DataFrame index is reset for proper row selection
-    df.reset_index(inplace=True)
+    # df.reset_index(inplace=True)
 
     # Drop any missing values in NYSM data and reset its index
     df_nysm.dropna(inplace=True)
@@ -450,59 +450,7 @@ def df_with_nysm_locations(df, df_nysm, indices_list):
     return df_save, interpolate_stations
 
 
-def redefine_precip_intervals_NAM(data, dt):
-    # dt is 1 for 1H and 3 for 3H
-    tp_data = data.reset_index().set_index(["valid_time", "time", "station"])[["tp"]]
-    # get valid times 00, 06, 12, & 18
-    tp_data["new tp keep"] = tp_data[
-        (tp_data.index.get_level_values(level=0).hour == 12 + dt)
-        | (tp_data.index.get_level_values(level=0).hour == 0 + dt)
-    ]
-    tp_data["tp to diff"] = tp_data[
-        (tp_data.index.get_level_values(level=0).hour != 12 + dt)
-        | (tp_data.index.get_level_values(level=0).hour != 0 + dt)
-    ]["tp"]
-    dummy = (
-        tp_data.reset_index()
-        .set_index(["station", "time", "valid_time"])
-        .sort_index(level=1)
-        .shift(periods=1)
-    )
-    tp_data["tp shifted"] = dummy.reset_index().set_index(
-        ["valid_time", "time", "station"]
-    )["tp"]
-    tp_data["tp diff"] = tp_data["tp to diff"] - tp_data["tp shifted"]
-    tp_data["new_tp"] = tp_data["new tp keep"].combine_first(tp_data["tp diff"])
-    tp_data = tp_data.drop(
-        columns=["new tp keep", "tp to diff", "tp shifted", "tp diff"]
-    )
-
-    # merge in with original dataframe
-    data = data.reset_index().set_index(["valid_time", "time", "station"])
-    data["new_tp"] = tp_data["new_tp"].clip(lower=0)
-    return data
-
-
-def redefine_precip_intervals_GFS(data):
-    # Filter rows where the values in the first level of the index are datetime objects
-    data = data[pd.Index(map(lambda x: isinstance(x, pd.Timestamp), data.valid_time))]
-    tp_data = data[["tp", "lead time", "station", "valid_time", "time"]]
-    tp_data = data.copy()
-    tp_data["diff"] = tp_data["tp"].diff()
-
-    for i, _ in enumerate(tp_data["diff"]):
-        if tp_data["diff"].iloc[i] < 0:
-            tp_data["diff"].iloc[0] = 0
-    tp_data["new_tp"] = tp_data["tp"] + tp_data["diff"]
-    data["new_tp"] = tp_data["new_tp"]
-    for i, _ in enumerate(tp_data["new_tp"]):
-        if tp_data["new_tp"].iloc[i] < 0:
-            tp_data["new_tp"].iloc[0] = 0
-    data = data.set_index(["station", "time", "valid_time"])
-    return data
-
-
-def redefine_precip_intervals_HRRR(data, prev_fh):
+def redefine_precip_intervals(data, prev_fh, model):
     """
     Adjusts total precipitation ('tp') values in HRRR forecast data to represent hourly intervals.
 
@@ -521,8 +469,12 @@ def redefine_precip_intervals_HRRR(data, prev_fh):
     pd.DataFrame: The modified dataset with adjusted hourly precipitation values.
     """
 
-    # Shift `valid_time` forward by 1 hour in `prev_fh`
-    prev_fh["valid_time"] = prev_fh["valid_time"] + pd.to_timedelta(1, unit="h")
+    if model == "GFS":
+        # Shift `valid_time` forward by 1 hour in `prev_fh`
+        prev_fh["valid_time"] = prev_fh["valid_time"] + pd.to_timedelta(3, unit="h")
+    else:
+        # Shift `valid_time` forward by 1 hour in `prev_fh`
+        prev_fh["valid_time"] = prev_fh["valid_time"] + pd.to_timedelta(1, unit="h")
 
     # Merge `tp` from `prev_fh` into `data` based on `valid_time`
     data = pd.merge(
@@ -536,32 +488,9 @@ def redefine_precip_intervals_HRRR(data, prev_fh):
     data["tp"] = data["tp"].clip(lower=0)
 
     # Drop unnecessary columns from the merged dataset
-    data = data.drop(
-        columns=["tp_prev_fh", "index_prev_fh", "latitude_prev_fh", "longitude_prev_fh"]
-    )
+    data = data.loc[:, ~data.columns.str.contains("prev_fh")]
 
     return data
-
-
-def drop_unwanted_time_diffs(df_model_both_sites, t_int):
-    # get rid of uneven time intervals that mess up precipitation forecasts
-
-    # t_int == 3 for GFS and NAM > f36
-    # t_int == 1 for NAM <= f36 & HRRR
-    df_model_both_sites["lead time diff"] = df_model_both_sites.groupby(
-        ["station", "time"]
-    )["lead time"].diff()
-    # following line fixes the issue where the lead time difference is nan for f01 and f39 because of the diff - we don't want to drop these later in the func
-    df_model_both_sites = df_model_both_sites.fillna(value={"lead time diff": t_int})
-
-    df_model_both_sites = df_model_both_sites.drop(
-        df_model_both_sites[
-            (df_model_both_sites["lead time diff"] > t_int)
-            | (df_model_both_sites["lead time diff"].isnull())
-        ].index
-    )
-    df_model_both_sites = df_model_both_sites.drop(columns=["lead time diff"])
-    return df_model_both_sites
 
 
 def mask_out_water(model, df_model):
@@ -624,6 +553,7 @@ def main(month, year, model, fh, mask_water=True):
     model = model.upper()
 
     print("Month: ", month)
+    print("Model: ", model)
     if not os.path.exists(
         f"{savedir}/{model}_{year}_{month}_direct_compare_to_nysm_sites_mask_water.parquet"
     ):
@@ -639,10 +569,24 @@ def main(month, year, model, fh, mask_water=True):
         gc.collect()
         print("Loading Model Data")
 
-        if fh != "01":
+        if model == "HRRR" and fh != "01":
             print("Loading Previous Model Data")
             previous_fh_df = read_data_ny_v2(
                 model, month, year, str(int(fh) - 1).zfill(2)
+            )
+            gc.collect()
+
+        if model == "NAM" and fh != "001":
+            print("Loading Previous Model Data")
+            previous_fh_df = read_data_ny_v2(
+                model, month, year, str(int(fh) - 1).zfill(3)
+            )
+            gc.collect()
+
+        if model == "GFS" and fh != "003":
+            print("Loading Previous Model Data")
+            previous_fh_df = read_data_ny_v2(
+                model, month, year, str(int(fh) - 3).zfill(3)
             )
             gc.collect()
 
@@ -705,7 +649,6 @@ def main(month, year, model, fh, mask_water=True):
                 pres,
                 "orog",
                 "tcc",
-                # "asnow",
                 "cape",
                 "cin",
                 "dswrf",
@@ -717,23 +660,59 @@ def main(month, year, model, fh, mask_water=True):
             gc.collect()
 
             # nearest neighbor
-            df_model_nysm_sites_nn, interpolate_stations = df_with_nysm_locations(
-                df_model_ny, nysm_1H_obs, indices_list_ny
-            )
-            gc.collect()
-
-            # interpolation
-            df_model_nysm_sites_interp = (
-                interpolate_model_data_to_nysm_locations_groupby(
-                    df_model_ny, nysm_1H_obs, vars_to_interp
+            if model == "NAM":
+                df_model_nysm_sites_nn, interpolate_stations = df_with_nysm_locations(
+                    df_model_ny, nysm_1H_obs, indices_list_ny
                 )
-            )
+                if fh != "001":
+                    # nn
+                    previous_fh_df_nn, interpolate_stations = df_with_nysm_locations(
+                        previous_fh_df, nysm_1H_obs, indices_list_ny
+                    )
+                    previous_fh_df_nn.reset_index(inplace=True)
+                    # interpolation
+                    previous_fh_df = interpolate_model_data_to_nysm_locations_groupby(
+                        previous_fh_df,
+                        nysm_1H_obs,
+                        ["valid_time", "time", "latitude", "longitude", "tp"],
+                    )
+                gc.collect()
+                # interpolation
+                df_model_nysm_sites_interp = (
+                    interpolate_model_data_to_nysm_locations_groupby(
+                        df_model_ny, nysm_1H_obs, vars_to_interp
+                    )
+                )
+
+            if model == "GFS":
+                df_model_nysm_sites_nn, interpolate_stations = df_with_nysm_locations(
+                    df_model_ny, nysm_3H_obs, indices_list_ny
+                )
+                if fh != "003":
+                    previous_fh_df_nn, interpolate_stations = df_with_nysm_locations(
+                        df_model_ny, nysm_3H_obs, indices_list_ny
+                    )
+                    previous_fh_df_nn.reset_index(inplace=True)
+                    # interpolation
+                    previous_fh_df = interpolate_model_data_to_nysm_locations_groupby(
+                        previous_fh_df,
+                        nysm_3H_obs,
+                        ["valid_time", "time", "latitude", "longitude", "tp"],
+                    )
+                gc.collect()
+
+                # interpolation
+                df_model_nysm_sites_interp = (
+                    interpolate_model_data_to_nysm_locations_groupby(
+                        df_model_ny, nysm_3H_obs, vars_to_interp
+                    )
+                )
+
             df_model_nysm_sites_nn["lead time"] = (
                 df_model_nysm_sites_nn["lead time"].astype(float).round(0).astype(int)
             )
 
             df_model_nysm_sites_nn.reset_index(inplace=True)
-            gc.collect()
 
             # join dataframes
             # Filter out rows where 'station' is not in interpolate_stations
@@ -751,15 +730,31 @@ def main(month, year, model, fh, mask_water=True):
             df_model_nysm_sites.set_index("time", inplace=True)
             gc.collect()
 
+            if (model == "NAM" and fh != "001") or (model == "GFS" and fh != "003"):
+                # join dataframes
+                # Filter out rows where 'station' is not in interpolate_stations
+                previous_fh_df_nn = previous_fh_df_nn[
+                    ~previous_fh_df_nn["station"].isin(interpolate_stations)
+                ]
+                # Filter out rows where 'station' is in interpolate_stations
+                previous_fh_df = previous_fh_df[
+                    previous_fh_df["station"].isin(interpolate_stations)
+                ]
+
+                previous_fh_df = pd.concat([previous_fh_df, previous_fh_df_nn], axis=0)
+                previous_fh_df.set_index("time", inplace=True)
+                gc.collect()
+
         elif model == "HRRR":
             gc.collect()
             indices_list_ny = get_ball_tree_indices_ny(df_model_ny, nysm_1H_obs)
             df_model_nysm_sites, interpolate_stations = df_with_nysm_locations(
                 df_model_ny, nysm_1H_obs, indices_list_ny
             )
-            previous_fh_df, interpolate_stations = df_with_nysm_locations(
-                previous_fh_df, nysm_1H_obs, indices_list_ny
-            )
+            if fh != "01":
+                previous_fh_df, interpolate_stations = df_with_nysm_locations(
+                    previous_fh_df, nysm_1H_obs, indices_list_ny
+                )
 
             # to avoid future issues, convert lead time to float, round, and then convert to integer
             # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
@@ -768,41 +763,27 @@ def main(month, year, model, fh, mask_water=True):
             )
             gc.collect()
 
-        # # now get precip forecasts in smallest intervals (e.g., 1-h and 3-h) possible
-        # if model == "NAM":
-        #     model_data_1H_ny = df_model_nysm_sites[
-        #         df_model_nysm_sites["lead time"] <= 36
-        #     ]
-        #     model_data_3H_ny = df_model_nysm_sites[
-        #         df_model_nysm_sites["lead time"] > 36
-        #     ]
-
-        #     # NY
-        #     df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-        #     df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-        #     df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-        #     df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
-        #     df_model_sites_1H_ny = redefine_precip_intervals_NAM(model_data_1H_ny, 1)
-        #     df_model_sites_1H_ny = drop_unwanted_time_diffs(df_model_sites_1H_ny, 1.0)
-        #     df_model_sites_3H_ny = redefine_precip_intervals_NAM(model_data_3H_ny, 3)
-        #     df_model_sites_3H_ny = drop_unwanted_time_diffs(df_model_sites_3H_ny, 3.0)
-
-        #     df_model_nysm_sites = pd.concat(
-        #         [df_model_sites_1H_ny, df_model_sites_3H_ny]
-        #     )
-        # if model == "GFS":
-        #     # print("GFS Pre Check", df_model_nysm_sites)
-        #     # df_model_nysm_sites = redefine_precip_intervals_GFS(df_model_nysm_sites)
+        if model == "GFS" and fh != "003":
+            gc.collect()
+            print("Redefining Precip")
+            previous_fh_df.reset_index(inplace=True)
+            df_model_nysm_sites = redefine_precip_intervals(
+                df_model_nysm_sites, previous_fh_df, model
+            )
 
         if model == "HRRR" and fh != "01":
             gc.collect()
             print("Redefining Precip")
             previous_fh_df.reset_index(inplace=True)
-            for c in previous_fh_df.columns:
-                print(c)
-            print(previous_fh_df)
-            df_model_nysm_sites = redefine_precip_intervals_HRRR(
-                df_model_nysm_sites, previous_fh_df
+            df_model_nysm_sites = redefine_precip_intervals(
+                df_model_nysm_sites, previous_fh_df, model
+            )
+        if model == "NAM" and fh != "001":
+            gc.collect()
+            print("Redefining Precip")
+            previous_fh_df.reset_index(inplace=True)
+            df_model_nysm_sites = redefine_precip_intervals(
+                df_model_nysm_sites, previous_fh_df, model
             )
 
         make_dirs(savedir, fh)
@@ -830,36 +811,42 @@ def main(month, year, model, fh, mask_water=True):
         exit
 
 
-# main(str(1).zfill(2), 2022, 'nam', '001')
+####   END OF MAIN
 
 if __name__ == "__main__":
-    # good for bulk cleaning
-    # model = "hrrr"
-    # for fh in np.arange(1, 19):
-    #     print("FH", fh)
-    #     for year in np.arange(2018, 2025):
-    #         print("YEAR: ", year)
-    #         for month in np.arange(1, 13):
-    #             print("Month: ", month)
-    #             main(str(month).zfill(2), year, model, str(fh).zfill(2))
-
-    # multiprocessing v2
+    # # One at a time
     model = "hrrr"
+    for fh in np.arange(1, 19):
+        print("FH", fh)
+        for year in np.arange(2018, 2025):
+            print("YEAR: ", year)
+            for month in np.arange(1, 13):
+                try:
+                    print("Month: ", month)
+                    main(str(month).zfill(2), year, model, str(fh).zfill(2))
+                except:
+                    continue
 
-    # Step 1: Initialize multiprocessing pool
-    pool = mp.Pool(mp.cpu_count())  # Use all available CPU cores
+    # # multiprocessing
+    """
+    recommend 16 threads and 250 GB of memory
+    """
+    # model = "gfs"
 
-    # Step 2: Collect all tasks
-    tasks = [
-        (str(month).zfill(2), year, model, str(fh).zfill(2))
-        for fh in np.arange(1, 19)
-        for year in np.arange(2018, 2025)
-        for month in np.arange(1, 13)
-    ]
+    # # Step 1: Initialize multiprocessing pool
+    # pool = mp.Pool(mp.cpu_count())  # Use all available CPU cores
 
-    # Step 3: Run tasks in parallel
-    pool.starmap(main, tasks)
+    # # Step 2: Collect all tasks
+    # tasks = [
+    #     (str(month).zfill(2), year, model, str(fh).zfill(3))
+    #     for fh in np.arange(3, 37, 3)
+    #     for year in np.arange(2018, 2024)
+    #     for month in np.arange(1, 13)
+    # ]
 
-    # Step 4: Close pool
-    pool.close()
-    pool.join()  # Ensure all processes finish before exiting
+    # # Step 3: Run tasks in parallel
+    # pool.starmap(main, tasks)
+
+    # # Step 4: Close pool
+    # pool.close()
+    # pool.join()  # Ensure all processes finish before exiting

@@ -6,10 +6,6 @@ import numpy as np
 import gc
 from datetime import datetime
 
-# comet
-from comet_ml import Experiment, Artifact
-from comet_ml.integration.pytorch import log_model
-
 # pytorch
 import torch
 import torchvision
@@ -27,15 +23,6 @@ from collections import OrderedDict
 from functools import partial
 from typing import Any, Callable, Dict, List, NamedTuple, Optional
 
-# from focal_loss.focal_loss import FocalLoss
-# from torch import Tensor
-# import torch.cuda.amp as amp
-# import setup
-
-# dependencies
-from processing import create_data_for_vision
-from processing import save_output
-from processing import get_time_title
 import math
 
 
@@ -155,19 +142,14 @@ class Encoder(nn.Module):
         super().__init__()
 
         # position
-
         # we have batch_first=True in nn.MultiAttention() by default
+        # Update the pos_embedding and time_embedding shapes to match the input sequence length
         self.pos_embedding = nn.Parameter(
-            torch.empty(1, ((seq_length - 1) * 10 * 10) + 1, hidden_dim).normal_(
-                std=pos_embedding
-            )
-        )  # from BERT
+            torch.empty(1, 1332, hidden_dim).normal_(std=pos_embedding)
+        )
 
-        # Time embedding
         self.time_embedding = nn.Parameter(
-            torch.empty(1, ((seq_length - 1) * 10 * 10) + 1, hidden_dim).normal_(
-                std=time_embedding
-            )
+            torch.empty(1, 1332, hidden_dim).normal_(std=time_embedding)
         )
         self.dropout = nn.Dropout(dropout)
         layers: OrderedDict[str, nn.Module] = OrderedDict()
@@ -201,7 +183,6 @@ class VisionTransformer(nn.Module):
         stations: int,
         past_timesteps: int,
         future_timesteps: int,
-        num_vars: int,
         pos_embedding: torch.Tensor,
         time_embedding: torch.Tensor,
         num_layers: int,
@@ -210,6 +191,7 @@ class VisionTransformer(nn.Module):
         mlp_dim: int,
         dropout: float,
         attention_dropout: float,
+        num_vars: int = 6,
         num_classes: int = 1,
         representation_size: Optional[int] = None,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
@@ -264,6 +246,7 @@ class VisionTransformer(nn.Module):
             heads_layers["head"] = nn.Linear(representation_size, num_classes)
 
         self.heads = nn.Sequential(heads_layers)
+        self.proj_layer = nn.Linear(hidden_dim, 2208)
 
         if hasattr(self.heads, "pre_logits") and isinstance(
             self.heads.pre_logits, nn.Linear
@@ -298,14 +281,14 @@ class VisionTransformer(nn.Module):
 
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         # n = batch
-        # t = timesteps
         # h = height
-        # w = width
         # c = features
 
-        x = self.average_pooling(x, (10, 10))
-        n, t, h, w, c = x.shape
-        x = x.reshape(n, t * h * w, c)
+        print("x1", x.shape)
+
+        # x = self.average_pooling(x, (10, 10))
+        # n, t, h, w, c = x.shape
+        # x = x.reshape(n, t * h * w, c)
         x = self.mlp(x)
 
         return x
@@ -320,18 +303,23 @@ class VisionTransformer(nn.Module):
         x = torch.cat([batch_class_token, x], dim=1)
 
         x = self.encoder(x)
+        print("x0", x.shape)
 
         # Classifier "token" is the future prediction - we will probably just want to select just some of these variables.
         # x \in (batch, stations * timesteps + 1, num_classes = 1)
         x = x[
             :, -(self.stations * self.future_timesteps) :, :
         ]  # this shape is (batch, stations, num_classes = 1)
-        x = self.heads(x)  # is a linear transformation from hidden_dim to 1
-        x = x.reshape(n, self.future_timesteps, self.stations, self.num_classes)
+        print("x2", x.shape)
+        x = x.permute(1, 0, 2)
+        x = self.proj_layer(x)
+        print("x3", x.shape)
+        # x = self.heads(x)  # is a linear transformation from hidden_dim to 1
+        # print("x3", x.shape)
+        # x = x.reshape(n, self.future_timesteps, self.stations, self.num_classes)
+        # print("x4", x.shape)
 
-        return (
-            x.squeeze()
-        )  # logically we are saying return one value for the each future timestep for each station (interpreted as error)
+        return x
 
 
 class AaronFormer(nn.Module):
@@ -357,7 +345,6 @@ class AaronFormer(nn.Module):
             stations=stations,
             past_timesteps=past_timesteps,
             future_timesteps=future_timesteps,
-            num_vars=variables,
             pos_embedding=pos_embedding,
             time_embedding=time_embedding,
             num_layers=num_layers,

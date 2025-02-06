@@ -14,18 +14,15 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
-
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-
 import pandas as pd
 import numpy as np
 import gc
 from datetime import datetime
-
 from processing import make_dirs
 
 from data import (
@@ -34,17 +31,80 @@ from data import (
     create_data_for_lstm_nam,
 )
 
-from seq2seq import encode_decode_multitask
-from seq2seq import eval_seq2seq
+from profiler_inclusive_model import model_profiler_s2s
 
-print("imports loaded")
+"""
+class ImageSequenceDataset(Dataset):
+    def __init__(self, image_list, dataframe, target, sequence_length, transform=None):
+        self.dataframe = dataframe
+        self.transform = transform
+        self.sequence_length = sequence_length
+        self.target = target
+        self.forecast_hour = fh
+        self.P_ls = dataframe[image_list].values
 
 
-def custom_collate(batch):
-    batch = [item for item in batch if item is not None]
-    if not batch:
-        return None  # Return None if the batch is empty
-    return torch.utils.data.default_collate(batch)
+    def __len__(self):
+        return len(self.image_list)
+
+    def __getitem__(self, i):
+        images = []
+        i_start = max(0, i - self.sequence_length + 1)
+
+        for j in range(i_start, i + 1):
+            if j < len(self.image_list):
+                img_name = self.image_list[j]
+                image = np.load(img_name).astype(np.float32)
+                image = image[:, :, 4:]
+                if self.transform:
+                    image = self.transform(image)
+                images.append(torch.tensor(image))
+            else:
+                pad_image = torch.zeros_like(images[0])
+                images.append(pad_image)
+
+        while len(images) < self.sequence_length:
+            pad_image = torch.zeros_like(images[0])
+            images.insert(0, pad_image)
+
+        images = torch.stack(images)
+        images = images.to(torch.float32)
+
+        # Extract target values
+        y = self.dataframe[self.target].values[i_start : i + 1]
+        if len(y) < self.sequence_length:
+            pad_width = (self.sequence_length - len(y), 0)
+            y = np.pad(y, (pad_width, (0, 0)), "constant", constant_values=0)
+
+        y = torch.tensor(y).to(torch.float32)
+
+        return images
+"""
+
+
+class ZScoreNormalization:
+    """Apply Z-score normalization to images."""
+
+    def __init__(self):
+        self.mean = None
+        self.std = None
+
+    def fit(self, images: torch.Tensor):
+        """Calculate mean and standard deviation for each image channel."""
+        self.mean = images.mean(
+            dim=(0, 1, 2), keepdim=True
+        )  # Mean across batch, height, and width
+        self.std = images.std(
+            dim=(0, 1, 2), keepdim=True
+        )  # Std across batch, height, and width
+
+    def __call__(self, image: np.ndarray) -> torch.Tensor:
+        """Normalize the image using the precomputed mean and std."""
+        image = torch.tensor(image, dtype=torch.float32)
+        # Normalize by Z-score formula: (x - mean) / std
+        if self.mean is not None and self.std is not None:
+            image = (image - self.mean) / self.std
+        return image
 
 
 class SequenceDatasetMultiTask(Dataset):
@@ -60,6 +120,8 @@ class SequenceDatasetMultiTask(Dataset):
         device,
         nwp_model,
         metvar,
+        image_list_cols,
+        transform=ZScoreNormalization(),
     ):
         self.dataframe = dataframe
         self.features = features
@@ -69,8 +131,10 @@ class SequenceDatasetMultiTask(Dataset):
         self.device = device
         self.nwp_model = nwp_model
         self.metvar = metvar
+        self.transform = transform
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.P_ls = dataframe[image_list_cols].values.tolist()
 
     def __len__(self):
         return self.X.shape[0]
@@ -176,7 +240,31 @@ class SequenceDatasetMultiTask(Dataset):
             x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
-        return x, y
+
+        # Select a single image for the sequence
+        img_name = self.P_ls[
+            int(i + self.sequence_length)
+        ]  # Selects one image per sequence
+        images = []
+        # print(f"img_name: {img_name}, type: {type(img_name)}")
+        # print(type(self.P_ls))  # Should be list or np.ndarray
+        # print(type(self.P_ls[0]))  # Should be list or str
+
+        for img in img_name:
+            # Load the image
+
+            image = np.load(img).astype(np.float32)
+
+            # Apply transform if available
+            if self.transform:
+                image = self.transform(image)
+
+            images.append(torch.tensor(image))
+
+        images = torch.stack(images)
+        images = torch.tensor(images).to(torch.float32).to(self.device)
+
+        return x, image, y
 
 
 class EarlyStopper:
@@ -225,12 +313,6 @@ class OutlierFocusedLoss(nn.Module):
         return weighted_loss.mean()
 
 
-def get_model_file_size(file_path):
-    size_bytes = os.path.getsize(file_path)
-    size_mb = size_bytes / (1024 * 1024)
-    print(f"Model file size: {size_mb:.2f} MB")
-
-
 def main(
     batch_size,
     station,
@@ -259,9 +341,9 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
-
+    lstm_decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    lstm_encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
     (
         df_train,
         df_test,
@@ -271,7 +353,8 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm_nam.create_data_for_model(
+        image_list_cols,
+    ) = create_data_for_lstm_gfs.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
@@ -280,7 +363,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_gfs_multitask_good_stations_check",
+        project_name="radiometer_beta",
         workspace="shmaronshmevans",
     )
 
@@ -293,6 +376,7 @@ def main(
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
     df_test = pd.concat([df_val, df_test])
@@ -305,19 +389,18 @@ def main(
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
     train_kwargs = {
         "batch_size": batch_size,
         "pin_memory": False,
         "shuffle": True,
-        "collate_fn": custom_collate,
     }
     test_kwargs = {
         "batch_size": batch_size,
         "pin_memory": False,
         "shuffle": False,
-        "collate_fn": custom_collate,
     }
 
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
@@ -331,40 +414,51 @@ def main(
     hidden_units = int(12 * len(features))
 
     # Initialize multi-task learning model with one encoder and decoders for each station
-    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
+    model = model_profiler_s2s.LSTM_Encoder_Decoder_with_ViT(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
         mlp_units=1500,
         device=device,
-        num_stations=len(stations),
+        num_stations=len(image_list_cols),
+        past_timesteps=1,
+        future_timesteps=1,
+        pos_embedding=0.25,
+        time_embedding=0.25,
+        vit_num_layers=3,
+        num_heads=11,
+        hidden_dim=1331,
+        mlp_dim=1032,
+        output_dim=1,
+        dropout=1e-15,
+        attention_dropout=1e-12,
     ).to(device)
 
-    if os.path.exists(encoder_path):
-        print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path))
-        # Example usage for encoder and decoder
-        get_model_file_size(encoder_path)
-    else:
-        if os.path.exists(model_path):
-            print("Loading Parent Model")
-            model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
-            for i, param in enumerate(model.encoder.parameters()):
-                if i < 1:
-                    param.requires_grad = False  # Freeze first two layers
+    # if os.path.exists(lstm_encoder_path):
+    #     print("Loading Encoder Model")
+    #     model.lstm_encoder.load_state_dict(torch.load(lstm_encoder_path))
+    #     model.ViT_encoder.load_state_dict(torch.load(vit_path))
+    #     # Example usage for encoder and decoder
+    #     get_model_file_size(lstm_encoder_path)
+    #     get_model_file_size(vit_path)
+    # else:
+    #     if os.path.exists(model_path):
+    #         print("Loading Parent Model")
+    #         model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
+    #         for i, param in enumerate(model.encoder.parameters()):
+    #             if i < 1:
+    #                 param.requires_grad = False  # Freeze first two layers
 
-    if os.path.exists(decoder_path):
-        print("Loading Decoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path))
-        get_model_file_size(decoder_path)
+    # if os.path.exists(decoder_path):
+    #     print("Loading Decoder Model")
+    #     model.decoder.load_state_dict(torch.load(decoder_path))
+    #     get_model_file_size(decoder_path)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
 
     loss_function = OutlierFocusedLoss(2.0, device)
-    # loss_function = nn.HuberLoss(delta=2.0)
-    # loss_function = nn.L1Loss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.75, patience=4
@@ -430,7 +524,8 @@ def main(
         states = model.state_dict()
         title = f"{station}_loss_{min(test_loss_ls)}"
         # title = f"{station}_mloutput_eval_fh{fh}"
-        torch.save(model.encoder.state_dict(), f"{encoder_path}")
+        torch.save(model.lstm_encoder.state_dict(), f"{lstm_encoder_path}")
+        torch.save(model.ViT_encoder.state_dict(), f"{vit_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
 
     print("Successful Experiment")
@@ -443,30 +538,20 @@ def main(
     # End of MAIN
 
 
+nwp_model = "GFS"
 c = "Hudson Valley"
-metvar_ls = ["u_total"]
-nwp_model = "NAM"
+metvar = "t2m"
 
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# stations = df["stid"].unique()
-stations = ["VOOR"]
 
-for f in np.arange(1, 2):
-    print(f)
-    for s in stations:
-        for metvar in metvar_ls:
-            print(s)
-            main(
-                batch_size=int(1000),
-                station=s,
-                num_layers=3,
-                epochs=5000,
-                weight_decay=0.0,
-                fh=f,
-                clim_div=c,
-                nwp_model=nwp_model,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
-                metvar=metvar,
-            )
-            gc.collect()
+main(
+    batch_size=10,
+    station="VOOR",
+    num_layers=3,
+    epochs=20,
+    weight_decay=0,
+    fh=6,
+    clim_div=c,
+    nwp_model=nwp_model,
+    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+    metvar=metvar,
+)

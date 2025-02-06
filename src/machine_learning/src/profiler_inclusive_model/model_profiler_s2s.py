@@ -6,23 +6,58 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import gc
-from profiler_inclusive_model.lstm_encoder_decoder import ShallowRegressionLSTM_encode, ShallowRegressionLSTM_decode
+from profiler_inclusive_model.lstm_encoder_decoder import (
+    ShallowRegressionLSTM_encode,
+    ShallowRegressionLSTM_decode,
+)
+
 from profiler_inclusive_model.ViT_encoder import VisionTransformer
+
 torch.autograd.set_detect_anomaly(True)
+
 
 class LSTM_Encoder_Decoder_with_ViT(nn.Module):
     def __init__(
-        self, num_sensors, hidden_units, num_layers, mlp_units, device, num_stations
+        self,
+        num_sensors,
+        hidden_units,
+        num_layers,
+        mlp_units,
+        device,
+        num_stations,
+        past_timesteps,
+        future_timesteps,
+        pos_embedding,
+        time_embedding,
+        vit_num_layers,
+        num_heads,
+        hidden_dim,
+        mlp_dim,
+        output_dim,
+        dropout,
+        attention_dropout,
     ):
         super(LSTM_Encoder_Decoder_with_ViT, self).__init__()
         self.num_sensors = num_sensors
         self.hidden_units = hidden_units
         self.num_layers = num_layers
-        self.device = device
         self.mlp_units = mlp_units
+        self.device = device
+        self.num_stations = num_stations
+        self.past_timesteps = past_timesteps
+        self.future_timesteps = future_timesteps
+        self.pos_embedding = pos_embedding
+        self.time_embedding = time_embedding
+        self.vit_num_layers = vit_num_layers
+        self.num_heads = num_heads
+        self.hidden_dim = hidden_dim
+        self.mlp_dim = mlp_dim
+        self.output_dim = output_dim
+        self.dropout = dropout
+        self.attention_dropout = attention_dropout
 
         # LSTM encoder
-        self.encoder = lstm_encoder_decoder.ShallowRegressionLSTM_encode(
+        self.encoder = ShallowRegressionLSTM_encode(
             num_sensors=num_sensors,
             hidden_units=hidden_units,
             num_layers=num_layers,
@@ -30,15 +65,14 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             device=device,
         )
 
-        #ViT encoder
-        self.ViT = ViT_encoder.VisionTransformer(
-            stations=stations,
+        # ViT encoder
+        self.ViT = VisionTransformer(
+            stations=num_stations,
             past_timesteps=past_timesteps,
             future_timesteps=future_timesteps,
-            num_vars=variables,
             pos_embedding=pos_embedding,
-            time_embedding = time_embedding,
-            num_layers=num_layers,
+            time_embedding=time_embedding,
+            num_layers=vit_num_layers,
             num_heads=num_heads,
             hidden_dim=hidden_dim,
             mlp_dim=mlp_dim,
@@ -49,8 +83,8 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
         # ATTN mechanism
 
-        #LSTM decoder
-        self.decoder = lstm_encoder_decoder.ShallowRegressionLSTM_decode(
+        # LSTM decoder
+        self.decoder = ShallowRegressionLSTM_decode(
             num_sensors=num_sensors,
             hidden_units=hidden_units,
             num_layers=num_layers,
@@ -76,20 +110,23 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         for batch_idx, batch in enumerate(data_loader):
             gc.collect()
 
+            X, P, y = batch
             X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
 
             # Encoder forward pass (shared)
             encoder_hidden = self.encoder(X)
-            encoder_hidden_profiler = self.ViT_encoder(P)
+            encoder_hidden_profiler = self.ViT(P)
 
-            #Combine hidden states somehow 
-            pass_hidden = 
+            # Combine hidden states somehow
+            pass_hidden = torch.cat(
+                (encoder_hidden[0][1:, :, :], encoder_hidden_profiler)
+            )
 
             # Initialize outputs tensor
             outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
 
             decoder_input = X[:, -1, :].unsqueeze(1)
-            decoder_hidden = pass_hidden
+            decoder_hidden = pass_hidden, encoder_hidden[1]
 
             for t in range(y.size(1)):
                 decoder_output, decoder_hidden = self.decoder(
@@ -135,18 +172,19 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
                 gc.collect()
-
+                X, P, y = batch
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
 
                 encoder_hidden = self.encoder(X)
-                encoder_hidden_profiler = self.ViT_encoder(P)
+                encoder_hidden_profiler = self.ViT(P)
 
-                #Combine hidden states somehow 
-                pass_hidden =
+                pass_hidden = torch.cat(
+                    (encoder_hidden[0][1:, :, :], encoder_hidden_profiler)
+                )
 
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)
-                decoder_hidden = pass_hidden
+                decoder_hidden = pass_hidden, encoder_hidden[1]
 
                 for t in range(y.size(1)):
                     decoder_output, decoder_hidden = self.decoder(
@@ -167,19 +205,21 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         self.eval()
 
         with torch.no_grad():
-            for batch_idx, (X, y) in enumerate(data_loader):
+            for batch_idx, (X, P, y) in enumerate(data_loader):
                 gc.collect()
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
 
                 encoder_hidden = self.encoder(X)
-                encoder_hidden_profiler = self.ViT_encoder(P)
+                encoder_hidden_profiler = self.ViT(P)
 
-                #Combine hidden states somehow 
-                pass_hidden =
-                
+                # Combine hidden states somehow
+                pass_hidden = torch.cat(
+                    (encoder_hidden[0][1:, :, :], encoder_hidden_profiler)
+                )
+
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)
-                decoder_hidden = pass_hidden
+                decoder_hidden = pass_hidden, encoder_hidden[1]
 
                 for t in range(y.size(1)):
                     decoder_output, decoder_hidden = self.decoder(
@@ -191,4 +231,3 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 all_outputs.append(outputs)
         all_outputs = torch.cat(all_outputs, dim=0)
         return all_outputs
-        
