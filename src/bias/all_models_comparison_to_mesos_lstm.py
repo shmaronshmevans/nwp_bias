@@ -816,7 +816,7 @@ def main(month, year, model, fh, mask_water=True):
 if __name__ == "__main__":
     # # One at a time
     model = "hrrr"
-    for fh in np.arange(1, 19):
+    for fh in np.arange(11, 19):
         print("FH", fh)
         for year in np.arange(2018, 2025):
             print("YEAR: ", year)

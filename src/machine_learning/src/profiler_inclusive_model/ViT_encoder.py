@@ -284,8 +284,6 @@ class VisionTransformer(nn.Module):
         # h = height
         # c = features
 
-        print("x1", x.shape)
-
         # x = self.average_pooling(x, (10, 10))
         # n, t, h, w, c = x.shape
         # x = x.reshape(n, t * h * w, c)
@@ -303,22 +301,17 @@ class VisionTransformer(nn.Module):
         x = torch.cat([batch_class_token, x], dim=1)
 
         x = self.encoder(x)
-        print("x0", x.shape)
 
         # Classifier "token" is the future prediction - we will probably just want to select just some of these variables.
         # x \in (batch, stations * timesteps + 1, num_classes = 1)
         x = x[
             :, -(self.stations * self.future_timesteps) :, :
         ]  # this shape is (batch, stations, num_classes = 1)
-        print("x2", x.shape)
         x = x.permute(1, 0, 2)
         x = self.proj_layer(x)
-        print("x3", x.shape)
-        # x = self.heads(x)  # is a linear transformation from hidden_dim to 1
-        # print("x3", x.shape)
-        # x = x.reshape(n, self.future_timesteps, self.stations, self.num_classes)
-        # print("x4", x.shape)
 
+        if x.shape[0] > 1:
+            x = x.sum(dim=0, keepdim=True)
         return x
 
 

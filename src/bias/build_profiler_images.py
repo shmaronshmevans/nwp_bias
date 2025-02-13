@@ -82,30 +82,33 @@ def get_raw_profiler_data(year, radiometer_data_path):
 
 def make_images(df):
     """
-    Converts data from a DataFrame into a stacked array format suitable for image generation.
+    Converts data from a DataFrame into a 3D array (height x width x channels) suitable for image generation.
 
     Args:
         df (pd.DataFrame): DataFrame containing the data to be converted into an image array.
 
     Returns:
-        np.ndarray: A 3D array representing the data as an image.
+        np.ndarray: A 3D array (height x width x channels).
     """
     skip_list = ["time", "range"]  # Skip these columns when converting
+    stacked_list = []
+
     for c in df.columns:
         if c in skip_list:
             continue
         else:
+            print(c)
             # Pivot the data to have 'range' as index and 'time' as columns
             var_pivot = df.pivot(index="range", columns="time", values=c)
             var_array = var_pivot.to_numpy()
+            print(var_array.shape)  # Should be (height, width)
 
-            try:
-                # Stack the current variable's array with previous arrays
-                stacked_array = np.vstack((stacked_array, var_array))
-            except:
-                # Initialize stacked array with the first variable's array
-                stacked_array = var_array
+            stacked_list.append(var_array)  # Append to list instead of vstack
 
+    # Stack along the third axis to create (height, width, channels)
+    stacked_array = np.stack(stacked_list, axis=-1)
+
+    print("Final stacked array shape:", stacked_array.shape)  # (h, w, c)
     return stacked_array
 
 
@@ -120,7 +123,7 @@ def main(radiometer_data_path):
     save_path = "/home/aevans/nwp_bias/src/machine_learning/data/profiler_images"
 
     # Loop through the specified years and process data for each
-    for yy in np.arange(2024, 2026):
+    for yy in np.arange(2018, 2026):
         print("YEAR", yy)
         df_nysm, nysm_sites = get_raw_profiler_data(yy, radiometer_data_path)
         gc.collect()
@@ -161,6 +164,9 @@ def main(radiometer_data_path):
                         print(year)
                         formatted_str = hr_df["time"].iloc[0].strftime("%m%d%H")
                         print(formatted_str)
+
+                    if not os.path.exists(f"{save_path}/{year}/{site}/"):
+                        os.makedirs(f"{save_path}/{year}/{site}/")
 
                         # Save the generated image as a numpy file
                         np.save(

@@ -241,14 +241,9 @@ class SequenceDatasetMultiTask(Dataset):
                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
 
-        # Select a single image for the sequence
-        img_name = self.P_ls[
-            int(i + self.sequence_length)
-        ]  # Selects one image per sequence
+        idx = min(i + self.sequence_length, len(self.P_ls) - 1)
+        img_name = self.P_ls[idx]  # This avoids an out-of-range error
         images = []
-        # print(f"img_name: {img_name}, type: {type(img_name)}")
-        # print(type(self.P_ls))  # Should be list or np.ndarray
-        # print(type(self.P_ls[0]))  # Should be list or str
 
         for img in img_name:
             # Load the image
@@ -313,6 +308,12 @@ class OutlierFocusedLoss(nn.Module):
         return weighted_loss.mean()
 
 
+def get_model_file_size(file_path):
+    size_bytes = os.path.getsize(file_path)
+    size_mb = size_bytes / (1024 * 1024)
+    print(f"Model file size: {size_mb:.2f} MB")
+
+
 def main(
     batch_size,
     station,
@@ -326,7 +327,7 @@ def main(
     metvar,
     sequence_length=30,
     target="target_error",
-    learning_rate=9e-7,
+    learning_rate=5e-5,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -341,9 +342,9 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    lstm_decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    lstm_encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
-    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
     (
         df_train,
         df_test,
@@ -423,8 +424,8 @@ def main(
         num_stations=len(image_list_cols),
         past_timesteps=1,
         future_timesteps=1,
-        pos_embedding=0.25,
-        time_embedding=0.25,
+        pos_embedding=0.5,
+        time_embedding=0.5,
         vit_num_layers=3,
         num_heads=11,
         hidden_dim=1331,
@@ -434,25 +435,18 @@ def main(
         attention_dropout=1e-12,
     ).to(device)
 
-    # if os.path.exists(lstm_encoder_path):
-    #     print("Loading Encoder Model")
-    #     model.lstm_encoder.load_state_dict(torch.load(lstm_encoder_path))
-    #     model.ViT_encoder.load_state_dict(torch.load(vit_path))
-    #     # Example usage for encoder and decoder
-    #     get_model_file_size(lstm_encoder_path)
-    #     get_model_file_size(vit_path)
-    # else:
-    #     if os.path.exists(model_path):
-    #         print("Loading Parent Model")
-    #         model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
-    #         for i, param in enumerate(model.encoder.parameters()):
-    #             if i < 1:
-    #                 param.requires_grad = False  # Freeze first two layers
-
-    # if os.path.exists(decoder_path):
-    #     print("Loading Decoder Model")
-    #     model.decoder.load_state_dict(torch.load(decoder_path))
-    #     get_model_file_size(decoder_path)
+    if os.path.exists(encoder_path):
+        print("Loading Encoder Model")
+        model.encoder.load_state_dict(torch.load(encoder_path))
+        model.decoder.load_state_dict(torch.load(decoder_path))
+        model.ViT.load_state_dict(torch.load(vit_path))
+        # Example usage for encoder and decoder
+        print("Encoder size:")
+        get_model_file_size(encoder_path)
+        print("Decoder size:")
+        get_model_file_size(decoder_path)
+        print("ViT size:")
+        get_model_file_size(vit_path)
 
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
@@ -509,9 +503,9 @@ def main(
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         scheduler.step(test_loss)
-        if early_stopper.early_stop(test_loss):
-            print(f"Early stopping at epoch {ix_epoch}")
-            break
+        # if early_stopper.early_stop(test_loss):
+        #     print(f"Early stopping at epoch {ix_epoch}")
+        #     break
 
     init_end_event.record()
 
@@ -524,8 +518,8 @@ def main(
         states = model.state_dict()
         title = f"{station}_loss_{min(test_loss_ls)}"
         # title = f"{station}_mloutput_eval_fh{fh}"
-        torch.save(model.lstm_encoder.state_dict(), f"{lstm_encoder_path}")
-        torch.save(model.ViT_encoder.state_dict(), f"{vit_path}")
+        torch.save(model.encoder.state_dict(), f"{encoder_path}")
+        torch.save(model.ViT.state_dict(), f"{vit_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
 
     print("Successful Experiment")
@@ -540,18 +534,19 @@ def main(
 
 nwp_model = "GFS"
 c = "Hudson Valley"
-metvar = "t2m"
+metvar = "u_total"
 
 
+# for fh in np.arange(3,13,3):
 main(
     batch_size=10,
     station="VOOR",
     num_layers=3,
     epochs=20,
     weight_decay=0,
-    fh=6,
+    fh=3,
     clim_div=c,
     nwp_model=nwp_model,
-    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
     metvar=metvar,
 )
