@@ -33,6 +33,16 @@ from data import (
 
 from profiler_inclusive_model import model_profiler_s2s
 
+import torch.distributed as dist
+
+
+def setup(rank, world_size):
+    dist.init_process_group("nccl", rank=rank, world_size=world_size)
+
+
+def cleanup():
+    dist.destroy_process_group()
+
 
 class ZScoreNormalization:
     """Apply Z-score normalization to images."""
@@ -84,8 +94,16 @@ class SequenceDatasetMultiTask(Dataset):
         self.nwp_model = nwp_model
         self.metvar = metvar
         self.transform = transform
-        self.y = torch.tensor(dataframe[target].values).float().to(device)
-        self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.y = (
+            torch.tensor(dataframe[target].values)
+            .float()
+            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        )
+        self.X = (
+            torch.tensor(dataframe[features].values)
+            .float()
+            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        )
         self.P_ls = dataframe[image_list_cols].values.tolist()
 
     def __len__(self):
@@ -199,16 +217,21 @@ class SequenceDatasetMultiTask(Dataset):
 
         for img in img_name:
             # Load the image
+
             image = np.load(img).astype(np.float32)
 
             # Apply transform if available
             if self.transform:
                 image = self.transform(image)
 
-            images.append(image.clone().detach())
+            images.append(torch.tensor(image))
 
         images = torch.stack(images)
-        images = torch.tensor(images).to(torch.float32).to(self.device)
+        images = (
+            torch.tensor(images)
+            .to(torch.float32)
+            .to(int(os.environ["RANK"]) % torch.cuda.device_count())
+        )
 
         return x, images, y
 
@@ -265,33 +288,31 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
-def main(
-    batch_size,
-    station,
-    num_layers,
-    epochs,
-    weight_decay,
-    fh,
-    clim_div,
-    nwp_model,
-    model_path,
-    metvar,
-    sequence_length=15,
-    target="target_error",
-    learning_rate=9e-7,
-    save_model=True,
-):
+def fsdp_main(rank, world_size, args):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = rank % torch.cuda.device_count()
     torch.cuda.set_device(device)
     print(device)
-    torch.manual_seed(101)
 
     print(" *********")
     print("::: In Main :::")
-    station = station
+    # init variables
+    batch_size = args.batch_size
+    station = args.station
+    num_layers = args.num_layers
+    epochs = args.epochs
+    weight_decay = args.weight_decay
+    fh = args.fh
+    clim_div = args.clim_div
+    nwp_model = args.nwp_model
+    metvar = args.metvar
+    sequence_length = args.sequence_length
+    target = args.target
+    learning_rate = args.learning_rate
+    save_model = args.save_model
+
     today_date, today_date_hr = make_dirs.get_time_title(station)
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
@@ -313,11 +334,14 @@ def main(
     print()
     print("TARGET", target)
 
-    experiment = Experiment(
-        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="radiometer_beta",
-        workspace="shmaronshmevans",
-    )
+    if rank == 0:
+        experiment = Experiment(
+            api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+            project_name="radiometer_beta",
+            workspace="shmaronshmevans",
+        )
+
+    setup(rank, world_size)
 
     train_dataset = SequenceDatasetMultiTask(
         dataframe=df_train,
@@ -344,14 +368,19 @@ def main(
         image_list_cols=image_list_cols,
     )
 
+    sampler1 = DistributedSampler(
+        train_dataset, rank=rank, num_replicas=world_size, shuffle=True
+    )
+    sampler2 = DistributedSampler(test_dataset, rank=rank, num_replicas=world_size)
+
     train_kwargs = {
         "batch_size": batch_size,
-        "pin_memory": False,
+        "sampler": sampler1,
         "shuffle": True,
     }
     test_kwargs = {
         "batch_size": batch_size,
-        "pin_memory": False,
+        "sampler": sampler2,
         "shuffle": False,
     }
 
@@ -364,6 +393,11 @@ def main(
 
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
+
+    auto_wrap_policy = functools.partial(
+        size_based_auto_wrap_policy, min_num_params=50000
+    )
+    torch.cuda.set_device(rank)
 
     # Initialize multi-task learning model with one encoder and decoders for each station
     model = model_profiler_s2s.LSTM_Encoder_Decoder_with_ViT(
@@ -384,23 +418,37 @@ def main(
         output_dim=1,
         dropout=1e-15,
         attention_dropout=1e-12,
-    ).to(device)
+    ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
 
-    if os.path.exists(encoder_path):
-        print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path))
-        model.decoder.load_state_dict(torch.load(decoder_path))
-        model.ViT.load_state_dict(torch.load(vit_path))
-        # Example usage for encoder and decoder
-        print("Encoder size:")
-        get_model_file_size(encoder_path)
-        print("Decoder size:")
-        get_model_file_size(decoder_path)
-        print("ViT size:")
-        get_model_file_size(vit_path)
+    if rank == 0:
+        if os.path.exists(encoder_path):
+            print("Loading Encoder Model")
+            model.encoder.load_state_dict(torch.load(encoder_path))
+            model.decoder.load_state_dict(torch.load(decoder_path))
+            model.ViT.load_state_dict(torch.load(vit_path))
+            # Example usage for encoder and decoder
+            print("Encoder size:")
+            get_model_file_size(encoder_path)
+            print("Decoder size:")
+            get_model_file_size(decoder_path)
+            print("ViT size:")
+            get_model_file_size(vit_path)
+
+    ml = FSDP(
+        model,
+        sync_module_states=True,
+        sharding_strategy=ShardingStrategy.FULL_SHARD,  # More aggressive memory savings
+        auto_wrap_policy=auto_wrap_policy,
+        mixed_precision=torch.distributed.fsdp.MixedPrecision(
+            param_dtype=torch.float16,
+            reduce_dtype=torch.float16,  # Reducing in float16 for efficiency
+            buffer_dtype=torch.float16,  # Keeping buffers in float16 for memory savings
+            cast_forward_inputs=True,
+        ),
+    )
 
     optimizer = torch.optim.AdamW(
-        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        ml.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
 
     loss_function = OutlierFocusedLoss(2.0, device)
@@ -431,73 +479,68 @@ def main(
     test_loss_ls = []
     for ix_epoch in range(1, epochs + 1):
         gc.collect()
-        train_loss = model.train_model(
+        train_loss = ml.train_model(
             data_loader=train_loader,
             loss_func=loss_function,
             optimizer=optimizer,
             epoch=ix_epoch,
+            rank=rank,
             training_prediction="recursive",
             teacher_forcing_ratio=0.5,
         )
-        test_loss = model.test_model(
+        test_loss = ml.test_model(
             data_loader=test_loader,
             loss_function=loss_function,
             epoch=ix_epoch,
+            rank=rank,
         )
         scheduler.step(test_loss)
         print(" ")
-        train_loss_ls.append(train_loss)
-        test_loss_ls.append(test_loss)
-        # log info for comet and loss curves
-        experiment.set_epoch(ix_epoch)
-        experiment.log_metric("val_loss", test_loss)
-        experiment.log_metric("train_loss", train_loss)
-        experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
-        if ix_epoch > 20 and early_stopper.early_stop(test_loss):
-            print(f"Early stopping at epoch {ix_epoch}")
-            break
+        if rank == 0:
+            train_loss_ls.append(train_loss)
+            test_loss_ls.append(test_loss)
+            # log info for comet and loss curves
+            experiment.set_epoch(ix_epoch)
+            experiment.log_metric("val_loss", test_loss)
+            experiment.log_metric("train_loss", train_loss)
+            experiment.log_metrics(hyper_params, epoch=ix_epoch)
+            scheduler.step(test_loss)
+            if ix_epoch > 20 and early_stopper.early_stop(test_loss):
+                print(f"Early stopping at epoch {ix_epoch}")
+                break
 
     init_end_event.record()
+    torch.cuda.synchronize()
+
+    if rank == 0:
+        print(
+            f"CUDA event elapsed time: {init_start_event.elapsed_time(init_end_event) / 1000}sec"
+        )
+        print(f"{ml}")
 
     if save_model == True:
+        dist.barrier()
         # datetime object containing current date and time
-        now = datetime.now()
-        print("now =", now)
-        # dd/mm/YY H:M:S
-        dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-        states = model.state_dict()
-        title = f"{station}_loss_{min(test_loss_ls)}"
-        # title = f"{station}_mloutput_eval_fh{fh}"
-        torch.save(model.encoder.state_dict(), f"{encoder_path}")
-        torch.save(model.ViT.state_dict(), f"{vit_path}")
-        torch.save(model.decoder.state_dict(), decoder_path)
+        if rank == 0:
+            now = datetime.now()
+            print("now =", now)
+            # dd/mm/YY H:M:S
+            dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
+            states = model.state_dict()
+            title = f"{station}_loss_{min(test_loss_ls)}"
+            # title = f"{station}_mloutput_eval_fh{fh}"
+            torch.save(model.encoder.state_dict(), f"{encoder_path}")
+            torch.save(model.ViT.state_dict(), f"{vit_path}")
+            torch.save(model.decoder.state_dict(), decoder_path)
 
-    print("Successful Experiment")
-    # Seamlessly log your Pytorch model
-    # log_model(experiment, model, model_name="v9")
-    experiment.end()
-    print("... completed ...")
-    gc.collect()
-    torch.cuda.empty_cache()
+    if rank == 0:
+        print("Successful Experiment")
+        # Seamlessly log your Pytorch model
+        # log_model(experiment, model, model_name="v9")
+        experiment.end()
+        print("... completed ...")
+        gc.collect()
+        torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    cleanup()
     # End of MAIN
-
-
-nwp_model = "GFS"
-c = "Hudson Valley"
-metvar = "u_total"
-
-
-# for fh in np.arange(3,13,3):
-main(
-    batch_size=10,
-    station="VOOR",
-    num_layers=3,
-    epochs=int(1e3),
-    weight_decay=1e-15,
-    fh=3,
-    clim_div=c,
-    nwp_model=nwp_model,
-    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-    metvar=metvar,
-)

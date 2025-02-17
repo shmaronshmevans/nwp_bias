@@ -101,7 +101,6 @@ def make_images(df):
             # Pivot the data to have 'range' as index and 'time' as columns
             var_pivot = df.pivot(index="range", columns="time", values=c)
             var_array = var_pivot.to_numpy()
-            print(var_array.shape)  # Should be (height, width)
 
             stacked_list.append(var_array)  # Append to list instead of vstack
 
@@ -165,8 +164,8 @@ def main(radiometer_data_path):
                         formatted_str = hr_df["time"].iloc[0].strftime("%m%d%H")
                         print(formatted_str)
 
-                    if not os.path.exists(f"{save_path}/{year}/{site}/"):
-                        os.makedirs(f"{save_path}/{year}/{site}/")
+                        if not os.path.exists(f"{save_path}/{year}/{site}/"):
+                            os.makedirs(f"{save_path}/{year}/{site}/")
 
                         # Save the generated image as a numpy file
                         np.save(

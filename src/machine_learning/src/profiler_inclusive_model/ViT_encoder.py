@@ -145,11 +145,11 @@ class Encoder(nn.Module):
         # we have batch_first=True in nn.MultiAttention() by default
         # Update the pos_embedding and time_embedding shapes to match the input sequence length
         self.pos_embedding = nn.Parameter(
-            torch.empty(1, 1332, hidden_dim).normal_(std=pos_embedding)
+            torch.empty(1, 727, hidden_dim).normal_(std=pos_embedding)
         )
 
         self.time_embedding = nn.Parameter(
-            torch.empty(1, 1332, hidden_dim).normal_(std=time_embedding)
+            torch.empty(1, 727, hidden_dim).normal_(std=time_embedding)
         )
         self.dropout = nn.Dropout(dropout)
         layers: OrderedDict[str, nn.Module] = OrderedDict()
@@ -191,7 +191,7 @@ class VisionTransformer(nn.Module):
         mlp_dim: int,
         dropout: float,
         attention_dropout: float,
-        num_vars: int = 6,
+        num_vars: int = 11,
         num_classes: int = 1,
         representation_size: Optional[int] = None,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
@@ -263,30 +263,16 @@ class VisionTransformer(nn.Module):
                 self.heads.head.bias
             )  # Bias can be initialized to zero or a small constant.
 
-    def average_pooling(self, x: torch.Tensor, target_size: tuple) -> torch.Tensor:
-        n, t, h, w, c = x.shape
-        x = x.permute(
-            0, 4, 1, 2, 3
-        )  # Rearrange to [batch, features, timesteps, height, width]
-        x = x.reshape(n * c, t, h, w)  # Merge batch and features for pooling
-
-        # Downsample the spatial dimensions using average pooling
-        x = F.adaptive_max_pool2d(x, target_size)
-
-        x = x.view(n, c, t, target_size[0], target_size[1])  # Reshape back
-        x = x.permute(
-            0, 2, 3, 4, 1
-        )  # Rearrange to [batch, timesteps, height, width, features]
-        return x
-
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         # n = batch
         # h = height
-        # c = features
+        # t = time
+        # w = width
+        # c = channels
 
-        # x = self.average_pooling(x, (10, 10))
-        # n, t, h, w, c = x.shape
-        # x = x.reshape(n, t * h * w, c)
+        n, t, h, w, c = x.shape
+        x = x.reshape(n, h * t * w, c)
+
         x = self.mlp(x)
 
         return x
@@ -299,7 +285,6 @@ class VisionTransformer(nn.Module):
         # Expand the class token to the full batch
         batch_class_token = self.class_token.expand(n, -1, -1)
         x = torch.cat([batch_class_token, x], dim=1)
-
         x = self.encoder(x)
 
         # Classifier "token" is the future prediction - we will probably just want to select just some of these variables.
