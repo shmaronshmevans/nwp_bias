@@ -265,8 +265,8 @@ class VisionTransformer(nn.Module):
 
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         # n = batch
-        # h = height
         # t = time
+        # h = height
         # w = width
         # c = channels
 

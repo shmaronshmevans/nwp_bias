@@ -3,7 +3,7 @@ import sys
 
 sys.path.append("..")
 import os
-from model_profiler_s2s import fsdp
+from profiler_inclusive_model import profiler_engine_fsdp
 import torch
 import argparse
 import torch.multiprocessing as mp
@@ -15,7 +15,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=int(10),
+        default=int(5),
         help="input batch size for training (default: 64)",
     )
     parser.add_argument(
@@ -49,7 +49,7 @@ if __name__ == "__main__":
         help="input forecast hour for training in the model",
     )
     parser.add_argument(
-        "--climate_div",
+        "--clim_div",
         type=str,
         default=str("Hudson Valley"),
         help="input forecast hour for training in the model",
@@ -72,7 +72,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--target", type=str, default="target_error", help="target column name"
     )
-    parser.add_argument("--station", type=str, default="GROV", help="station name")
     parser.add_argument(
         "--learning_rate", type=float, default=9e-7, help="learning rate"
     )
@@ -95,4 +94,4 @@ if __name__ == "__main__":
     print("rank", RANK)
     print("World_Size", WORLD_SIZE)
 
-    fsdp.fsdp_main(RANK, WORLD_SIZE, args)
+    profiler_engine_fsdp.fsdp_main(RANK, WORLD_SIZE, args)

@@ -7,7 +7,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
 import gc
-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    FullStateDictConfig,
+    ShardingStrategy,
+    StateDictType,
+)
 from torch.distributed.fsdp.wrap import wrap
 from torch.distributed.fsdp.fully_sharded_data_parallel import MixedPrecision
 from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
@@ -65,18 +70,19 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         self.attention_dropout = attention_dropout
 
         # LSTM encoder
-        self.encoder = wrap(
+        self.encoder = FSDP(
             ShallowRegressionLSTM_encode(
                 num_sensors=num_sensors,
                 hidden_units=hidden_units,
                 num_layers=num_layers,
                 mlp_units=mlp_units,
                 device=device,
-            )
+            ),
+            sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
         )
 
         # ViT encoder
-        self.ViT = wrap(
+        self.ViT = FSDP(
             VisionTransformer(
                 stations=num_stations,
                 past_timesteps=past_timesteps,
@@ -90,18 +96,20 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 num_classes=output_dim,
                 dropout=dropout,
                 attention_dropout=attention_dropout,
-            )
+            ),
+            sharding_strategy=ShardingStrategy.FULL_SHARD,
         )
 
         # LSTM decoder
-        self.decoder = wrap(
+        self.decoder = FSDP(
             ShallowRegressionLSTM_decode(
                 num_sensors=num_sensors,
                 hidden_units=hidden_units,
                 num_layers=num_layers,
                 mlp_units=mlp_units,
                 device=device,
-            )
+            ),
+            sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
         )
 
     def train_model(
@@ -113,6 +121,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         training_prediction,
         teacher_forcing_ratio,
         rank,
+        sampler,
         dynamic_tf=True,
         decay_rate=0.02,
     ):
@@ -128,8 +137,14 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             sampler.set_epoch(epoch)
 
         for batch_idx, batch in enumerate(data_loader):
+            if batch is None or (
+                isinstance(batch, torch.Tensor) and batch.numel() == 0
+            ):
+                print(
+                    f"Rank {torch.distributed.get_rank()} received an empty batch, skipping."
+                )
+                continue  # Skip to the next batch
             gc.collect()
-
             X, P, y = batch
             X, P, y = (
                 X.to(int(os.environ["RANK"]) % torch.cuda.device_count()),
@@ -203,7 +218,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
         return avg_loss
 
-    def test_model(self, data_loader, loss_function, epoch, rank):
+    def test_model(self, data_loader, loss_function, epoch, rank, sampler):
         num_batches = len(data_loader)
         total_loss = 0
         self.eval()
@@ -212,8 +227,18 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             int(os.environ["RANK"]) % torch.cuda.device_count()
         )
 
+        if sampler:
+            sampler.set_epoch(epoch)
+
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
+                if batch is None or (
+                    isinstance(batch, torch.Tensor) and batch.numel() == 0
+                ):
+                    print(
+                        f"Rank {torch.distributed.get_rank()} received an empty batch, skipping."
+                    )
+                    continue  # Skip to the next batch
                 gc.collect()
                 X, P, y = batch
                 X, P, y = (

@@ -31,9 +31,29 @@ from data import (
     create_data_for_lstm_nam,
 )
 
-from profiler_inclusive_model import model_profiler_s2s
+from profiler_inclusive_model import fsdp
 
 import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+from torch.distributed.fsdp import (
+    FullyShardedDataParallel as FSDP,
+    FullStateDictConfig,
+    ShardingStrategy,
+    StateDictType,
+)
+from torch.distributed.fsdp.wrap import (
+    size_based_auto_wrap_policy,
+    enable_wrap,
+    wrap,
+)
+from torch.distributed.fsdp.fully_sharded_data_parallel import MixedPrecision
+from torch.distributed.fsdp.sharded_grad_scaler import ShardedGradScaler
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.cuda.amp import GradScaler, autocast
+from profiler_inclusive_model.ViT_encoder import VisionTransformer
+from profiler_inclusive_model.lstm_encoder_decoder import (
+    ShallowRegressionLSTM_encode as Encoder,
+)
 
 
 def setup(rank, world_size):
@@ -41,6 +61,7 @@ def setup(rank, world_size):
 
 
 def cleanup():
+    dist.barrier()
     dist.destroy_process_group()
 
 
@@ -79,7 +100,6 @@ class SequenceDatasetMultiTask(Dataset):
         features,
         sequence_length,
         forecast_steps,
-        device,
         nwp_model,
         metvar,
         image_list_cols,
@@ -90,7 +110,6 @@ class SequenceDatasetMultiTask(Dataset):
         self.target = target
         self.sequence_length = sequence_length
         self.forecast_steps = forecast_steps
-        self.device = device
         self.nwp_model = nwp_model
         self.metvar = metvar
         self.transform = transform
@@ -288,6 +307,44 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
+def custom_auto_wrap_policy(module, recurse, nonwrapped_numel, min_num_params=1e6):
+    """
+    Custom FSDP auto wrap policy that avoids sharding class tokens while wrapping everything else.
+
+    Args:
+        module (nn.Module): The module being considered for wrapping.
+        recurse (bool): Whether to recurse into child modules.
+        nonwrapped_numel (int): Number of non-wrapped parameters in the module.
+        min_num_params (int): Minimum number of parameters required to be wrapped.
+
+    Returns:
+        bool: Whether the module should be wrapped.
+    """
+    # Check if the module contains class tokens and prevent it from being wrapped
+    if hasattr(module, "class_token") or "class_token" in module._parameters:
+        return False
+    # Skip sharding for positional/time embeddings
+    if hasattr(module, "time_embedding") or "time_embedding" in module._parameters:
+        return False
+    # Skip sharding for positional/time embeddings
+    if hasattr(module, "pos_embedding") or "pos_embedding" in module._parameters:
+        return False
+    # Prevent wrapping of LSTM layers (important for state handling)
+    if isinstance(module, nn.LSTM):
+        return False
+    # Check if the module is a Vision Transformer (ViT) and prevent it from being wrapped
+    if isinstance(
+        module, VisionTransformer
+    ):  # Assuming ViT is the class name of your transformer
+        return False
+    if isinstance(module, nn.Linear) and "mlp" in module._get_name().lower():
+        return False  # Exclude MLP layers from sharding
+    # Use size-based wrapping for other modules
+    return size_based_auto_wrap_policy(
+        module, recurse, nonwrapped_numel, min_num_params=min_num_params
+    )
+
+
 def fsdp_main(rank, world_size, args):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -295,7 +352,6 @@ def fsdp_main(rank, world_size, args):
     device = rank % torch.cuda.device_count()
     torch.cuda.set_device(device)
     print(device)
-
     print(" *********")
     print("::: In Main :::")
     # init variables
@@ -317,6 +373,8 @@ def fsdp_main(rank, world_size, args):
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
     vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
+    setup(rank, world_size)
+
     (
         df_train,
         df_test,
@@ -327,9 +385,8 @@ def fsdp_main(rank, world_size, args):
         target,
         vt,
         image_list_cols,
-    ) = create_data_for_lstm_gfs.create_data_for_model(
-        station, fh, today_date, metvar
-    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date, metvar)
+
     print("FEATURES", features)
     print()
     print("TARGET", target)
@@ -341,15 +398,12 @@ def fsdp_main(rank, world_size, args):
             workspace="shmaronshmevans",
         )
 
-    setup(rank, world_size)
-
     train_dataset = SequenceDatasetMultiTask(
         dataframe=df_train,
         target=target,
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
-        device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
@@ -362,26 +416,28 @@ def fsdp_main(rank, world_size, args):
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
-        device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
     )
 
     sampler1 = DistributedSampler(
-        train_dataset, rank=rank, num_replicas=world_size, shuffle=True
+        train_dataset, rank=rank, num_replicas=world_size, shuffle=True, drop_last=True
     )
-    sampler2 = DistributedSampler(test_dataset, rank=rank, num_replicas=world_size)
+    sampler2 = DistributedSampler(
+        test_dataset, rank=rank, num_replicas=world_size, drop_last=True
+    )
 
     train_kwargs = {
         "batch_size": batch_size,
         "sampler": sampler1,
-        "shuffle": True,
+        "pin_memory": False,
     }
+
     test_kwargs = {
         "batch_size": batch_size,
         "sampler": sampler2,
-        "shuffle": False,
+        "pin_memory": False,
     }
 
     train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
@@ -393,14 +449,10 @@ def fsdp_main(rank, world_size, args):
 
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
-
-    auto_wrap_policy = functools.partial(
-        size_based_auto_wrap_policy, min_num_params=50000
-    )
     torch.cuda.set_device(rank)
 
     # Initialize multi-task learning model with one encoder and decoders for each station
-    model = model_profiler_s2s.LSTM_Encoder_Decoder_with_ViT(
+    model = fsdp.LSTM_Encoder_Decoder_with_ViT(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
@@ -418,31 +470,34 @@ def fsdp_main(rank, world_size, args):
         output_dim=1,
         dropout=1e-15,
         attention_dropout=1e-12,
-    ).to(int(os.environ["RANK"]) % torch.cuda.device_count())
+    ).to(device)
 
-    if rank == 0:
-        if os.path.exists(encoder_path):
-            print("Loading Encoder Model")
-            model.encoder.load_state_dict(torch.load(encoder_path))
-            model.decoder.load_state_dict(torch.load(decoder_path))
-            model.ViT.load_state_dict(torch.load(vit_path))
-            # Example usage for encoder and decoder
-            print("Encoder size:")
-            get_model_file_size(encoder_path)
-            print("Decoder size:")
-            get_model_file_size(decoder_path)
-            print("ViT size:")
-            get_model_file_size(vit_path)
+    if os.path.exists(encoder_path):
+        print("Loading Encoder Model")
+        model.encoder.load_state_dict(torch.load(encoder_path))
+        model.decoder.load_state_dict(torch.load(decoder_path))
+        model.ViT.load_state_dict(torch.load(vit_path))
+        # Example usage for encoder and decoder
+        print("Encoder size:")
+        get_model_file_size(encoder_path)
+        print("Decoder size:")
+        get_model_file_size(decoder_path)
+        print("ViT size:")
+        get_model_file_size(vit_path)
+
+    dist.barrier()
+    torch.cuda.synchronize()
 
     ml = FSDP(
         model,
         sync_module_states=True,
-        sharding_strategy=ShardingStrategy.FULL_SHARD,  # More aggressive memory savings
-        auto_wrap_policy=auto_wrap_policy,
+        # sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
+        auto_wrap_policy=None,
+        use_orig_params=True,
         mixed_precision=torch.distributed.fsdp.MixedPrecision(
             param_dtype=torch.float16,
-            reduce_dtype=torch.float16,  # Reducing in float16 for efficiency
-            buffer_dtype=torch.float16,  # Keeping buffers in float16 for memory savings
+            reduce_dtype=torch.float16,
+            buffer_dtype=torch.float16,
             cast_forward_inputs=True,
         ),
     )
@@ -478,6 +533,8 @@ def fsdp_main(rank, world_size, args):
     train_loss_ls = []
     test_loss_ls = []
     for ix_epoch in range(1, epochs + 1):
+        sampler1.set_epoch(ix_epoch)
+        sampler2.set_epoch(ix_epoch)
         gc.collect()
         train_loss = ml.train_model(
             data_loader=train_loader,
@@ -485,6 +542,7 @@ def fsdp_main(rank, world_size, args):
             optimizer=optimizer,
             epoch=ix_epoch,
             rank=rank,
+            sampler=sampler1,
             training_prediction="recursive",
             teacher_forcing_ratio=0.5,
         )
@@ -493,6 +551,7 @@ def fsdp_main(rank, world_size, args):
             loss_function=loss_function,
             epoch=ix_epoch,
             rank=rank,
+            sampler=sampler2,
         )
         scheduler.step(test_loss)
         print(" ")
@@ -505,9 +564,25 @@ def fsdp_main(rank, world_size, args):
             experiment.log_metric("train_loss", train_loss)
             experiment.log_metrics(hyper_params, epoch=ix_epoch)
             scheduler.step(test_loss)
-            if ix_epoch > 20 and early_stopper.early_stop(test_loss):
-                print(f"Early stopping at epoch {ix_epoch}")
-                break
+            if ix_epoch > 20:
+                # Check for early stopping on rank 0
+                should_stop = early_stopper.early_stop(test_loss)
+                if should_stop:
+                    print(f"Early stopping at epoch {ix_epoch}")
+                else:
+                    should_stop = None
+
+        # Create and move the stopping signal to the correct device (CUDA)
+        should_stop = torch.tensor(
+            should_stop if rank == 0 else 0, dtype=torch.bool
+        ).to(device)
+
+        # Broadcast the early stopping signal to all processes
+        torch.distributed.broadcast(should_stop, src=0)
+
+        # Stop all processes if early stopping is triggered
+        if should_stop.item():
+            break
 
     init_end_event.record()
     torch.cuda.synchronize()
@@ -526,12 +601,12 @@ def fsdp_main(rank, world_size, args):
             print("now =", now)
             # dd/mm/YY H:M:S
             dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-            states = model.state_dict()
+            states = ml.state_dict()
             title = f"{station}_loss_{min(test_loss_ls)}"
             # title = f"{station}_mloutput_eval_fh{fh}"
-            torch.save(model.encoder.state_dict(), f"{encoder_path}")
-            torch.save(model.ViT.state_dict(), f"{vit_path}")
-            torch.save(model.decoder.state_dict(), decoder_path)
+            torch.save(ml.module.encoder.state_dict(), f"{encoder_path}")
+            torch.save(ml.moduel.ViT.state_dict(), f"{vit_path}")
+            torch.save(ml.module.decoder.state_dict(), decoder_path)
 
     if rank == 0:
         print("Successful Experiment")
@@ -543,4 +618,5 @@ def fsdp_main(rank, world_size, args):
         torch.cuda.empty_cache()
     torch.cuda.synchronize()
     cleanup()
+    exit
     # End of MAIN
