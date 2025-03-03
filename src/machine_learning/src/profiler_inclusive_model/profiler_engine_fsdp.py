@@ -103,6 +103,7 @@ class SequenceDatasetMultiTask(Dataset):
         nwp_model,
         metvar,
         image_list_cols,
+        device,
         transform=ZScoreNormalization(),
     ):
         self.dataframe = dataframe
@@ -112,6 +113,7 @@ class SequenceDatasetMultiTask(Dataset):
         self.forecast_steps = forecast_steps
         self.nwp_model = nwp_model
         self.metvar = metvar
+        self.device = device
         self.transform = transform
         self.y = (
             torch.tensor(dataframe[target].values)
@@ -153,7 +155,8 @@ class SequenceDatasetMultiTask(Dataset):
 
             if y.shape[0] < self.forecast_steps:
                 _y = torch.zeros(
-                    (self.forecast_steps - y.shape[0], 1), device=self.device
+                    (self.forecast_steps - y.shape[0], 1),
+                    device=self.device,
                 )
                 y = torch.cat((y, _y), 0)
 
@@ -186,7 +189,8 @@ class SequenceDatasetMultiTask(Dataset):
 
             if y.shape[0] < int(self.forecast_steps / 3):
                 _y = torch.zeros(
-                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
+                    (int(self.forecast_steps / 3) - y.shape[0], 1),
+                    device=self.device,
                 )
                 y = torch.cat((y, _y), 0)
 
@@ -307,42 +311,23 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
-def custom_auto_wrap_policy(module, recurse, nonwrapped_numel, min_num_params=1e6):
-    """
-    Custom FSDP auto wrap policy that avoids sharding class tokens while wrapping everything else.
+def save_model_weights(ml, rank):
+    dist.barrier()
+    torch.cuda.synchronize()
+    # Configure FSDP for full state dict extraction
+    full_state_dict_config = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
+    with FSDP.state_dict_type(
+        ml, StateDictType.FULL_STATE_DICT, full_state_dict_config
+    ):
+        encoder_dict = ml.encoder.state_dict()
+        decoder_dict = ml.decoder.state_dict()
+        vit_dict = ml.ViT.state_dict()
 
-    Args:
-        module (nn.Module): The module being considered for wrapping.
-        recurse (bool): Whether to recurse into child modules.
-        nonwrapped_numel (int): Number of non-wrapped parameters in the module.
-        min_num_params (int): Minimum number of parameters required to be wrapped.
-
-    Returns:
-        bool: Whether the module should be wrapped.
-    """
-    # Check if the module contains class tokens and prevent it from being wrapped
-    if hasattr(module, "class_token") or "class_token" in module._parameters:
-        return False
-    # Skip sharding for positional/time embeddings
-    if hasattr(module, "time_embedding") or "time_embedding" in module._parameters:
-        return False
-    # Skip sharding for positional/time embeddings
-    if hasattr(module, "pos_embedding") or "pos_embedding" in module._parameters:
-        return False
-    # Prevent wrapping of LSTM layers (important for state handling)
-    if isinstance(module, nn.LSTM):
-        return False
-    # Check if the module is a Vision Transformer (ViT) and prevent it from being wrapped
-    if isinstance(
-        module, VisionTransformer
-    ):  # Assuming ViT is the class name of your transformer
-        return False
-    if isinstance(module, nn.Linear) and "mlp" in module._get_name().lower():
-        return False  # Exclude MLP layers from sharding
-    # Use size-based wrapping for other modules
-    return size_based_auto_wrap_policy(
-        module, recurse, nonwrapped_numel, min_num_params=min_num_params
-    )
+    if rank == 0:
+        # Save submodules separately
+        torch.save(encoder_dict, encoder_path)
+        torch.save(vit_dict, vit_path)
+        torch.save(decoder_dict, decoder_path)
 
 
 def fsdp_main(rank, world_size, args):
@@ -407,6 +392,7 @@ def fsdp_main(rank, world_size, args):
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
+        device=device,
     )
 
     df_test = pd.concat([df_val, df_test])
@@ -419,6 +405,7 @@ def fsdp_main(rank, world_size, args):
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
+        device=device,
     )
 
     sampler1 = DistributedSampler(
@@ -452,7 +439,7 @@ def fsdp_main(rank, world_size, args):
     torch.cuda.set_device(rank)
 
     # Initialize multi-task learning model with one encoder and decoders for each station
-    model = fsdp.LSTM_Encoder_Decoder_with_ViT(
+    ml = fsdp.LSTM_Encoder_Decoder_with_ViT(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
@@ -474,9 +461,9 @@ def fsdp_main(rank, world_size, args):
 
     if os.path.exists(encoder_path):
         print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path))
-        model.decoder.load_state_dict(torch.load(decoder_path))
-        model.ViT.load_state_dict(torch.load(vit_path))
+        ml.encoder.load_state_dict(torch.load(encoder_path))
+        ml.decoder.load_state_dict(torch.load(decoder_path))
+        ml.ViT.load_state_dict(torch.load(vit_path))
         # Example usage for encoder and decoder
         print("Encoder size:")
         get_model_file_size(encoder_path)
@@ -487,20 +474,6 @@ def fsdp_main(rank, world_size, args):
 
     dist.barrier()
     torch.cuda.synchronize()
-
-    ml = FSDP(
-        model,
-        sync_module_states=True,
-        # sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
-        auto_wrap_policy=None,
-        use_orig_params=True,
-        mixed_precision=torch.distributed.fsdp.MixedPrecision(
-            param_dtype=torch.float16,
-            reduce_dtype=torch.float16,
-            buffer_dtype=torch.float16,
-            cast_forward_inputs=True,
-        ),
-    )
 
     optimizer = torch.optim.AdamW(
         ml.parameters(), lr=learning_rate, weight_decay=weight_decay
@@ -563,19 +536,16 @@ def fsdp_main(rank, world_size, args):
             experiment.log_metric("val_loss", test_loss)
             experiment.log_metric("train_loss", train_loss)
             experiment.log_metrics(hyper_params, epoch=ix_epoch)
-            scheduler.step(test_loss)
+            if ix_epoch >= 5 and min(test_loss_ls) <= test_loss:
+                save_model_weights(ml, rank)
+
+            should_stop = torch.tensor(False, dtype=torch.bool).to(device)
             if ix_epoch > 20:
                 # Check for early stopping on rank 0
                 should_stop = early_stopper.early_stop(test_loss)
                 if should_stop:
                     print(f"Early stopping at epoch {ix_epoch}")
-                else:
-                    should_stop = None
-
-        # Create and move the stopping signal to the correct device (CUDA)
-        should_stop = torch.tensor(
-            should_stop if rank == 0 else 0, dtype=torch.bool
-        ).to(device)
+                    should_stop = torch.tensor(True, dtype=torch.bool).to(device)
 
         # Broadcast the early stopping signal to all processes
         torch.distributed.broadcast(should_stop, src=0)
@@ -595,18 +565,23 @@ def fsdp_main(rank, world_size, args):
 
     if save_model == True:
         dist.barrier()
-        # datetime object containing current date and time
+        torch.cuda.synchronize()
+        # Configure FSDP for full state dict extraction
+        full_state_dict_config = FullStateDictConfig(
+            offload_to_cpu=True, rank0_only=True
+        )
+        with FSDP.state_dict_type(
+            ml, StateDictType.FULL_STATE_DICT, full_state_dict_config
+        ):
+            encoder_dict = ml.encoder.state_dict()
+            decoder_dict = ml.decoder.state_dict()
+            vit_dict = ml.ViT.state_dict()
+
         if rank == 0:
-            now = datetime.now()
-            print("now =", now)
-            # dd/mm/YY H:M:S
-            dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
-            states = ml.state_dict()
-            title = f"{station}_loss_{min(test_loss_ls)}"
-            # title = f"{station}_mloutput_eval_fh{fh}"
-            torch.save(ml.module.encoder.state_dict(), f"{encoder_path}")
-            torch.save(ml.moduel.ViT.state_dict(), f"{vit_path}")
-            torch.save(ml.module.decoder.state_dict(), decoder_path)
+            # Save submodules separately
+            torch.save(encoder_dict, encoder_path)
+            torch.save(vit_dict, vit_path)
+            torch.save(decoder_dict, decoder_path)
 
     if rank == 0:
         print("Successful Experiment")

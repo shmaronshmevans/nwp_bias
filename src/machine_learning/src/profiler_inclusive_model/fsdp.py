@@ -79,6 +79,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 device=device,
             ),
             sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
+            use_orig_params=True,
         )
 
         # ViT encoder
@@ -98,6 +99,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 attention_dropout=attention_dropout,
             ),
             sharding_strategy=ShardingStrategy.FULL_SHARD,
+            use_orig_params=True,
         )
 
         # LSTM decoder
@@ -110,6 +112,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 device=device,
             ),
             sharding_strategy=ShardingStrategy.SHARD_GRAD_OP,
+            use_orig_params=True,
         )
 
     def train_model(

@@ -16,7 +16,7 @@ if __name__ == "__main__":
         "--batch_size",
         type=int,
         default=int(5),
-        help="input batch size for training (default: 64)",
+        help="input batch size for training",
     )
     parser.add_argument(
         "--station",

@@ -14,7 +14,7 @@ def read_data(init):
         tuple of pandas.DataFrame: A tuple containing three dataframes, one for each weather model, with random
         forecasts that have a forecast hour of 0 removed.
     """
-    years = ["2018", "2019", "2020", "2021"]
+    years = ["2018", "2019", "2020", "2021", "2022", "2023", "2024"]
     savedir = "/home/aevans/ai2es/processed_data/frcst_err/"
 
     # create empty lists to hold dataframes for each model

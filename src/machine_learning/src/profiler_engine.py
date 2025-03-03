@@ -265,6 +265,12 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
+def save_model(model, encoder_path, vit_path, decoder_path):
+    torch.save(model.encoder.state_dict(), f"{encoder_path}")
+    torch.save(model.ViT.state_dict(), f"{vit_path}")
+    torch.save(model.decoder.state_dict(), decoder_path)
+
+
 def main(
     batch_size,
     station,
@@ -453,10 +459,12 @@ def main(
         experiment.log_metric("val_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
-        if ix_epoch > 20 and early_stopper.early_stop(test_loss):
-            print(f"Early stopping at epoch {ix_epoch}")
-            break
+        if ix_epoch > 20:
+            if test_loss <= min(test_loss_ls):
+                save_model(model, encoder_path, vit_path, decoder_path)
+            if early_stopper.early_stop(test_loss):
+                print(f"Early stopping at epoch {ix_epoch}")
+                break
 
     init_end_event.record()
 
@@ -485,17 +493,17 @@ def main(
 
 nwp_model = "GFS"
 c = "Hudson Valley"
-metvar = "u_total"
+metvar = "tp"
 
 
 # for fh in np.arange(3,13,3):
 main(
-    batch_size=10,
+    batch_size=60,
     station="VOOR",
     num_layers=3,
     epochs=int(1e3),
     weight_decay=1e-15,
-    fh=3,
+    fh=6,
     clim_div=c,
     nwp_model=nwp_model,
     model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",

@@ -135,7 +135,7 @@ class ShallowRegressionLSTM_decode(nn.Module):
             nn.Linear(self.mlp_units, self.num_sensors),
         )
 
-        self.attention = Attention(hidden_units, num_sensors)  # Add Attention mechanism
+        # self.attention = Attention(hidden_units, num_sensors)  # Add Attention mechanism
 
     def forward(self, x, hidden):
         x = x.to(self.device)
