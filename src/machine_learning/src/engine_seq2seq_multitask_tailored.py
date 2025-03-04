@@ -244,7 +244,7 @@ def main(
     metvar,
     sequence_length=30,
     target="target_error",
-    learning_rate=9e-7,
+    learning_rate=5e-5,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -271,7 +271,7 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm_nam.create_data_for_model(
+    ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     print("FEATURES", features)
@@ -280,7 +280,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_gfs_multitask_good_stations_check",
+        project_name="seq2seq_hrrr_prospectus",
         workspace="shmaronshmevans",
     )
 
@@ -342,7 +342,7 @@ def main(
 
     if os.path.exists(encoder_path):
         print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path))
+        model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
         # Example usage for encoder and decoder
         get_model_file_size(encoder_path)
     else:
@@ -355,7 +355,7 @@ def main(
 
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path))
+        model.decoder.load_state_dict(torch.load(decoder_path), strict=False)
         get_model_file_size(decoder_path)
 
     optimizer = torch.optim.AdamW(
@@ -363,11 +363,9 @@ def main(
     )
 
     loss_function = OutlierFocusedLoss(2.0, device)
-    # loss_function = nn.HuberLoss(delta=2.0)
-    # loss_function = nn.L1Loss()
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.75, patience=4
+        optimizer, factor=0.1, patience=4
     )
 
     hyper_params = {
@@ -414,7 +412,6 @@ def main(
         experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        scheduler.step(test_loss)
         if early_stopper.early_stop(test_loss):
             print(f"Early stopping at epoch {ix_epoch}")
             break
@@ -422,14 +419,10 @@ def main(
     init_end_event.record()
 
     if save_model == True:
-        # datetime object containing current date and time
-        now = datetime.now()
-        print("now =", now)
-        # dd/mm/YY H:M:S
-        dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
+        if not os.path.exists(f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"):
+            os.makedirs(f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/")
+
         states = model.state_dict()
-        title = f"{station}_loss_{min(test_loss_ls)}"
-        # title = f"{station}_mloutput_eval_fh{fh}"
         torch.save(model.encoder.state_dict(), f"{encoder_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
 
@@ -443,16 +436,15 @@ def main(
     # End of MAIN
 
 
-c = "Hudson Valley"
-metvar_ls = ["u_total"]
-nwp_model = "NAM"
+c = "Mohawk Valley"
+metvar_ls = ["t2m", "u_total", "tp"]
+nwp_model = "HRRR"
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# stations = df["stid"].unique()
-stations = ["VOOR"]
+stations = df["stid"].unique()
 
-for f in np.arange(1, 2):
+for f in np.arange(2, 19):
     print(f)
     for s in stations:
         for metvar in metvar_ls:

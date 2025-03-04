@@ -311,7 +311,7 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
-def save_model_weights(ml, rank):
+def save_model_weights(ml, rank, encoder_path, decoder_path, vit_path):
     dist.barrier()
     torch.cuda.synchronize()
     # Configure FSDP for full state dict extraction
@@ -501,6 +501,7 @@ def fsdp_main(rank, world_size, args):
     print("--- Training LSTM ---")
 
     early_stopper = EarlyStopper(10)
+    should_stop = torch.tensor(False, dtype=torch.bool).to(device)
 
     init_start_event.record()
     train_loss_ls = []
@@ -528,6 +529,7 @@ def fsdp_main(rank, world_size, args):
         )
         scheduler.step(test_loss)
         print(" ")
+        save_signal = torch.tensor(False, dtype=torch.bool, device=device)  # Use a tensor
         if rank == 0:
             train_loss_ls.append(train_loss)
             test_loss_ls.append(test_loss)
@@ -537,9 +539,7 @@ def fsdp_main(rank, world_size, args):
             experiment.log_metric("train_loss", train_loss)
             experiment.log_metrics(hyper_params, epoch=ix_epoch)
             if ix_epoch >= 5 and min(test_loss_ls) <= test_loss:
-                save_model_weights(ml, rank)
-
-            should_stop = torch.tensor(False, dtype=torch.bool).to(device)
+                save_signal = torch.tensor(True, dtype=torch.bool, device=device)
             if ix_epoch > 20:
                 # Check for early stopping on rank 0
                 should_stop = early_stopper.early_stop(test_loss)
@@ -547,9 +547,13 @@ def fsdp_main(rank, world_size, args):
                     print(f"Early stopping at epoch {ix_epoch}")
                     should_stop = torch.tensor(True, dtype=torch.bool).to(device)
 
+        # Broadcast the save signal to all processes
+        torch.distributed.broadcast(save_signal, src=0)
+        if save_signal.item():  # Convert tensor to bool
+            save_model_weights(ml, rank, encoder_path, decoder_path, vit_path)
+
         # Broadcast the early stopping signal to all processes
         torch.distributed.broadcast(should_stop, src=0)
-
         # Stop all processes if early stopping is triggered
         if should_stop.item():
             break

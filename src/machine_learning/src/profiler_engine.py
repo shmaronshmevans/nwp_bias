@@ -430,7 +430,7 @@ def main(
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(10)
+    early_stopper = EarlyStopper(8)
 
     init_start_event.record()
     train_loss_ls = []

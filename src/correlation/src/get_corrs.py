@@ -64,10 +64,10 @@ def get_corrs(df: pd.DataFrame, lulc: pd.DataFrame, keys: list, error_var) -> tu
         p_score_tau_ls = []
 
         # Subset the dataframe to the current month
-        months_df = df[df["time"] == i]
+        months_df = df[df["valid_time"] == i]
 
         # Iterate over each column in the land use/land cover dataframe
-        for col, val in lulc.iteritems():
+        for col, val in lulc.items():
             # Calculate Pearson correlation coefficient and p-value
             p_score_pers = scipy.stats.pearsonr(lulc[col], months_df[error_var])[1]
             if p_score_pers > 0.05:

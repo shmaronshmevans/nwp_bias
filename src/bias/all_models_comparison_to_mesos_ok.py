@@ -374,7 +374,7 @@ def redefine_precip_intervals(data, prev_fh, model):
 
     # Merge `tp` from `prev_fh` into `data` based on `valid_time`
     data = pd.merge(
-        data, prev_fh, on="valid_time", how="left", suffixes=("", "_prev_fh")
+        data, prev_fh, on=["valid_time", "station"], how="left", suffixes=("", "_prev_fh")
     )
 
     # Compute hourly precipitation by subtracting `tp_prev_fh` from `tp`
@@ -385,7 +385,8 @@ def redefine_precip_intervals(data, prev_fh, model):
 
     # Drop unnecessary columns from the merged dataset
     data = data.loc[:, ~data.columns.str.contains("prev_fh")]
-
+    # Set `station` and `valid_time` as the index for the final DataFrame
+    data = data.set_index(["station", "valid_time"])
     return data
 
 
@@ -492,29 +493,52 @@ def main(month, year, model, fh, mask_water=True):
             )
             gc.collect()
 
-        # drop some info that got carried over from xarray data array
-        keep_vars = [
-            "valid_time",
-            "time",
-            "latitude",
-            "longitude",
-            "t2m",
-            "sh2",
-            "d2m",
-            "r2",
-            "u10",
-            "v10",
-            "tp",
-            pres,
-            "orog",
-            "tcc",
-            "asnow",
-            "cape",
-            # "cin",
-            "dswrf",
-            "dlwrf",
-            "gh",
-        ]
+        if model == 'HRRR':
+            # drop some info that got carried over from xarray data array
+            keep_vars = [
+                "valid_time",
+                "time",
+                "latitude",
+                "longitude",
+                "t2m",
+                "sh2",
+                "d2m",
+                "r2",
+                "u10",
+                "v10",
+                "tp",
+                pres,
+                "orog",
+                "tcc",
+                "asnow",
+                "cape",
+                "dswrf",
+                "dlwrf",
+                "gh",
+            ]
+        else:
+            # drop some info that got carried over from xarray data array
+            keep_vars = [
+                "valid_time",
+                "time",
+                "latitude",
+                "longitude",
+                "t2m",
+                "sh2",
+                "d2m",
+                "r2",
+                "u10",
+                "v10",
+                "tp",
+                pres,
+                "orog",
+                "tcc",
+                "cape",
+                "cin",
+                "dswrf",
+                "dlwrf",
+                "gh",
+            ]
 
         if "x" in df_model_ok.keys():
             df_model_ok = df_model_ok.drop(
