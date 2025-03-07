@@ -1,5 +1,5 @@
-import pandas as pd 
-import os 
+import pandas as pd
+import os
 import numpy as np
 import gc
 from datetime import datetime, time
@@ -36,11 +36,11 @@ def load_nysm_data(gfs):
     nysm_1H = []
 
     # Loop through the years from 2018 to 2022 and read the corresponding parquet files.
-    if gfs==True:
+    if gfs == True:
         for year in np.arange(2018, 2024):
             df = pd.read_parquet(f"{nysm_path}nysm_3H_obs_{year}.parquet")
             df.reset_index(inplace=True)
-            df = df.rename(columns={'time_3H':'valid_time'})
+            df = df.rename(columns={"time_3H": "valid_time"})
             nysm_1H.append(df)
     else:
         for year in np.arange(2018, 2025):
@@ -52,8 +52,8 @@ def load_nysm_data(gfs):
     nysm_1H_obs = pd.concat(nysm_1H)
 
     # Fill missing values in the 'snow_depth' column with -999.
-    nysm_1H_obs['snow_depth'].fillna(-999, inplace=True)
-    nysm_1H_obs['ta9m'].fillna(-999, inplace=True)
+    nysm_1H_obs["snow_depth"].fillna(-999, inplace=True)
+    nysm_1H_obs["ta9m"].fillna(-999, inplace=True)
     nysm_1H_obs.dropna(inplace=True)
 
     return nysm_1H_obs
@@ -97,6 +97,7 @@ def nwp_error(target, df):
 
     return df
 
+
 def read_hrrr_data(fh):
     """
     Reads and concatenates parquet files containing forecast and error data for HRRR weather models
@@ -135,8 +136,8 @@ def read_hrrr_data(fh):
     hrrr_fcast_and_error_df = pd.concat(hrrr_fcast_and_error)
     hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.reset_index().fillna(-999)
 
-    if 'new_tp' in hrrr_fcast_and_error_df.columns:
-        hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.drop(columns='new_tp')
+    if "new_tp" in hrrr_fcast_and_error_df.columns:
+        hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.drop(columns="new_tp")
 
     # return dataframes for each model
     return hrrr_fcast_and_error_df
@@ -163,13 +164,13 @@ def hrrr_error(fh, station, target):
     hrrr_df1 = hrrr_df[hrrr_df["station"] == station]
     nysm_df1 = nysm_df[nysm_df["station"] == station]
 
-    #merge dataframes
-    master_df = nysm_df1.merge(hrrr_df1, on='valid_time',suffixes=(None, "_hrrr"))
-    #get nwp_error
+    # merge dataframes
+    master_df = nysm_df1.merge(hrrr_df1, on="valid_time", suffixes=(None, "_hrrr"))
+    # get nwp_error
     master_df = nwp_error(target, master_df)
 
-    #return df
-    master_df = master_df[['target_error', 'station', 'valid_time']]
+    # return df
+    master_df = master_df[["target_error", "station", "valid_time"]]
     return master_df
 
 
@@ -197,7 +198,7 @@ def read_nam_data(fh):
                     f"{savedir}NAM_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
                 )
                 == True
-            ):  
+            ):
                 nam_fcast_and_error.append(
                     pd.read_parquet(
                         f"{savedir}NAM_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
@@ -236,15 +237,16 @@ def nam_error(fh, station, target):
     nam_df1 = nam_df[nam_df["station"] == station]
     nysm_df1 = nysm_df[nysm_df["station"] == station]
 
-    #merge dataframes
-    master_df = nysm_df1.merge(nam_df1, on='valid_time',suffixes=(None, "_nam"))
-    #get nwp_error
+    # merge dataframes
+    master_df = nysm_df1.merge(nam_df1, on="valid_time", suffixes=(None, "_nam"))
+    # get nwp_error
     master_df = nwp_error(target, master_df)
 
-    #return df
-    master_df = master_df[['target_error', 'station', 'valid_time']]
+    # return df
+    master_df = master_df[["target_error", "station", "valid_time"]]
     return master_df
-    
+
+
 def read_gfs_data(fh):
     """
     Reads and concatenates parquet files containing forecast and error data for HRRR weather models
@@ -288,6 +290,7 @@ def read_gfs_data(fh):
     # return dataframes for each model
     return gfs_fcast_and_error_df
 
+
 def gfs_error(fh, station, target):
     # Print a message indicating the current station being processed.
     print(f"Targeting Error for {station}")
@@ -309,11 +312,11 @@ def gfs_error(fh, station, target):
     gfs_df1 = gfs_df[gfs_df["station"] == station]
     nysm_df1 = nysm_df[nysm_df["station"] == station]
 
-    #merge dataframes
-    master_df = nysm_df1.merge(gfs_df1, on='valid_time',suffixes=(None, "_gfs"))
-    #get nwp_error
+    # merge dataframes
+    master_df = nysm_df1.merge(gfs_df1, on="valid_time", suffixes=(None, "_gfs"))
+    # get nwp_error
     master_df = nwp_error(target, master_df)
 
-    #return df
-    master_df = master_df[['target_error', 'station', 'valid_time']]
+    # return df
+    master_df = master_df[["target_error", "station", "valid_time"]]
     return master_df

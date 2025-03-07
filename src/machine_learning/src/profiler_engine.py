@@ -25,11 +25,13 @@ import gc
 from datetime import datetime
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_gfs,
-    create_data_for_lstm_nam,
-)
+from new_sequencer import create_data_for_gfs_sequencer, sequencer
+
+# from data import (
+#     create_data_for_lstm,
+#     create_data_for_lstm_gfs,
+#     create_data_for_lstm_nam,
+# )
 
 from profiler_inclusive_model import model_profiler_s2s
 
@@ -205,8 +207,19 @@ class SequenceDatasetMultiTask(Dataset):
             if self.transform:
                 image = self.transform(image)
 
-            images.append(image.clone().detach())
+            target_shape = (121, 6, 11)
+            if image.shape != target_shape:
+                pad_size = [
+                    0,
+                    target_shape[-1] - image.shape[-1],
+                    0,
+                    target_shape[-2] - image.shape[-2],  # Pad height
+                    0,
+                    target_shape[-3] - image.shape[-3],
+                ]  # Pad depth/channels
+                image = F.pad(image, pad_size, mode="constant", value=0)
 
+            images.append(image.clone().detach())
         images = torch.stack(images)
         images = torch.tensor(images).to(torch.float32).to(self.device)
 
@@ -265,7 +278,7 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
-def save_model(model, encoder_path, vit_path, decoder_path):
+def save_model_weights(model, encoder_path, vit_path, decoder_path):
     torch.save(model.encoder.state_dict(), f"{encoder_path}")
     torch.save(model.ViT.state_dict(), f"{vit_path}")
     torch.save(model.decoder.state_dict(), decoder_path)
@@ -302,20 +315,36 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
     vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
+    # (
+    #     df_train,
+    #     df_test,
+    #     df_val,
+    #     features,
+    #     forecast_lead,
+    #     stations,
+    #     target,
+    #     vt,
+    #     image_list_cols,
+    # ) = create_data_for_lstm_gfs.create_data_for_model(
+    #     station, fh, today_date, metvar
+    # )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+
     (
-        df_train,
-        df_test,
-        df_val,
+        df_train_nysm,
+        df_val_nysm,
+        nwp_train_df_ls,
+        nwp_val_df_ls,
         features,
-        forecast_lead,
+        nwp_features,
         stations,
         target,
-        vt,
         image_list_cols,
-    ) = create_data_for_lstm_gfs.create_data_for_model(
+    ) = create_data_for_gfs_sequencer.create_data_for_model(
         station, fh, today_date, metvar
-    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    )
+
     print("FEATURES", features)
+    print("NWP_FEATURES", nwp_features)
     print()
     print("TARGET", target)
 
@@ -325,30 +354,58 @@ def main(
         workspace="shmaronshmevans",
     )
 
-    train_dataset = SequenceDatasetMultiTask(
-        dataframe=df_train,
+    train_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_train_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
+        dataframe_ls=nwp_train_df_ls,
     )
 
-    df_test = pd.concat([df_val, df_test])
-    test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_test,
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_val_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
+        dataframe_ls=nwp_val_df_ls,
     )
+
+    # train_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_train,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    # )
+
+    # df_test = pd.concat([df_val, df_test])
+    # test_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_test,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    # )
 
     train_kwargs = {
         "batch_size": batch_size,
@@ -420,7 +477,7 @@ def main(
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
-        "forecast_lead": forecast_lead,
+        "forecast_lead": fh,
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
@@ -461,7 +518,8 @@ def main(
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         if ix_epoch > 20:
             if test_loss <= min(test_loss_ls):
-                save_model(model, encoder_path, vit_path, decoder_path)
+                print(f"Saving Model Weights... EPOCH {ix_epoch}")
+                save_model_weights(model, encoder_path, vit_path, decoder_path)
             if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
@@ -493,12 +551,12 @@ def main(
 
 nwp_model = "GFS"
 c = "Hudson Valley"
-metvar = "tp"
+metvar = "u_total"
 
 
-# for fh in np.arange(3,13,3):
+# for fh in np.arange(3,16,3):
 main(
-    batch_size=60,
+    batch_size=70,
     station="VOOR",
     num_layers=3,
     epochs=int(1e3),

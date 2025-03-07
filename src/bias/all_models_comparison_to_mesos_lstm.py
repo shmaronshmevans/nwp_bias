@@ -478,7 +478,11 @@ def redefine_precip_intervals(data, prev_fh, model):
 
     # Merge `tp` from `prev_fh` into `data` based on `valid_time`
     data = pd.merge(
-        data, prev_fh, on=["valid_time", "station"], how="left", suffixes=("", "_prev_fh")
+        data,
+        prev_fh,
+        on=["valid_time", "station"],
+        how="left",
+        suffixes=("", "_prev_fh"),
     )
 
     # Compute hourly precipitation by subtracting `tp_prev_fh` from `tp`
@@ -591,7 +595,7 @@ def main(month, year, model, fh, mask_water=True):
                 model, month, year, str(int(fh) - 3).zfill(3)
             )
             gc.collect()
-        if model == 'HRRR':
+        if model == "HRRR":
             # drop some info that got carried over from xarray data array
             keep_vars = [
                 "valid_time",
@@ -637,7 +641,6 @@ def main(month, year, model, fh, mask_water=True):
                 "dlwrf",
                 "gh",
             ]
-
 
         if "x" in df_model_ny.keys():
             df_model_ny = df_model_ny.drop(
@@ -834,22 +837,23 @@ def main(month, year, model, fh, mask_water=True):
         )
         print("... exiting ...")
         exit
+
+
 ####   END OF MAIN
 
 if __name__ == "__main__":
     # # One at a time
-    model = "nam"
-    for fh in np.arange(1, 37):
+    model = "hrrr"
+    for fh in np.arange(1, 19):
         print("FH", fh)
         for year in np.arange(2018, 2025):
             print("YEAR: ", year)
             for month in np.arange(1, 13):
                 try:
                     print("Month: ", month)
-                    main(str(month).zfill(2), year, model, str(fh).zfill(3))
+                    main(str(month).zfill(2), year, model, str(fh).zfill(2))
                 except:
                     continue
-
 
     # # multiprocessing
     """

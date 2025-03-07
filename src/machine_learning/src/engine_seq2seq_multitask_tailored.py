@@ -419,8 +419,12 @@ def main(
     init_end_event.record()
 
     if save_model == True:
-        if not os.path.exists(f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"):
-            os.makedirs(f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/")
+        if not os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"
+        ):
+            os.makedirs(
+                f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"
+            )
 
         states = model.state_dict()
         torch.save(model.encoder.state_dict(), f"{encoder_path}")

@@ -246,7 +246,7 @@ class VisionTransformer(nn.Module):
             heads_layers["head"] = nn.Linear(representation_size, num_classes)
 
         self.heads = nn.Sequential(heads_layers)
-        self.proj_layer = nn.Linear(hidden_dim, 2208)
+        self.proj_layer = nn.Linear(hidden_dim, 1188)
 
         if hasattr(self.heads, "pre_logits") and isinstance(
             self.heads.pre_logits, nn.Linear

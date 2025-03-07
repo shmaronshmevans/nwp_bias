@@ -374,7 +374,11 @@ def redefine_precip_intervals(data, prev_fh, model):
 
     # Merge `tp` from `prev_fh` into `data` based on `valid_time`
     data = pd.merge(
-        data, prev_fh, on=["valid_time", "station"], how="left", suffixes=("", "_prev_fh")
+        data,
+        prev_fh,
+        on=["valid_time", "station"],
+        how="left",
+        suffixes=("", "_prev_fh"),
     )
 
     # Compute hourly precipitation by subtracting `tp_prev_fh` from `tp`
@@ -493,7 +497,7 @@ def main(month, year, model, fh, mask_water=True):
             )
             gc.collect()
 
-        if model == 'HRRR':
+        if model == "HRRR":
             # drop some info that got carried over from xarray data array
             keep_vars = [
                 "valid_time",

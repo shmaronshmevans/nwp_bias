@@ -45,17 +45,18 @@ def main():
         "Emergent Herbaceous Wetlands",
         "OOA",
     ]
-    stations = lulc['station'].unique()
+    stations = lulc["station"].unique()
     lulc = lulc.drop(columns=["site", "station"])
 
     final_df_list = []  # Store DataFrames here
 
     for s in stations:
-        df = forecast_error.hrrr_error('01', s, 't2m')
+        df = forecast_error.hrrr_error("01", s, "t2m")
 
         # Aggregate monthly mean target error
         months_df = (
-            df.groupby([df.valid_time.dt.month, "station"])['target_error'].mean()
+            df.groupby([df.valid_time.dt.month, "station"])["target_error"]
+            .mean()
             .reset_index()
             .rename(columns={"valid_time": "month"})  # Rename for clarity
         )
@@ -67,27 +68,23 @@ def main():
 
     # Re-group after concatenation to ensure correct aggregation
     final_df = (
-        final_df.groupby(["month", "station"])['target_error'].mean()
-        .reset_index()
+        final_df.groupby(["month", "station"])["target_error"].mean().reset_index()
     )
 
     print(final_df)
 
     (
-    df_pers,
-    df_rho,
-    df_tau,
-    df_p_score,
-    df_p_score_rho,
-    df_p_score_tau,
+        df_pers,
+        df_rho,
+        df_tau,
+        df_p_score,
+        df_p_score_rho,
+        df_p_score_tau,
     ) = get_corrs.get_corrs(months_df, lulc, keys, "target_error")
 
     plot_heatmaps.plot_heatmap_corrs(df_pers, "PERS", "NLCD", "GFS")
     plot_heatmaps.plot_heatmap_corrs(df_rho, "RHO", "NLCD", "GFS")
     plot_heatmaps.plot_heatmap_corrs(df_tau, "TAU", "NLCD", "GFS")
-
-
-
 
 
 if __name__ == "__main__":

@@ -529,7 +529,9 @@ def fsdp_main(rank, world_size, args):
         )
         scheduler.step(test_loss)
         print(" ")
-        save_signal = torch.tensor(False, dtype=torch.bool, device=device)  # Use a tensor
+        save_signal = torch.tensor(
+            False, dtype=torch.bool, device=device
+        )  # Use a tensor
         if rank == 0:
             train_loss_ls.append(train_loss)
             test_loss_ls.append(test_loss)
