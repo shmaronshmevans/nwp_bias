@@ -28,14 +28,16 @@ from datetime import datetime
 
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_gfs,
-    create_data_for_lstm_nam,
-)
+# from data import (
+#     create_data_for_lstm,
+#     create_data_for_lstm_gfs,
+#     create_data_for_lstm_nam,
+# )
 
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
+
+from new_sequencer import create_data_for_gfs_sequencer, sequencer
 
 print("imports loaded")
 
@@ -262,18 +264,31 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
+    # (
+    #     df_train,
+    #     df_test,
+    #     df_val,
+    #     features,
+    #     forecast_lead,
+    #     stations,
+    #     target,
+    #     vt,
+    # ) = create_data_for_lstm.create_data_for_model(
+    #     station, fh, today_date, metvar
+    # )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     (
-        df_train,
-        df_test,
-        df_val,
+        df_train_nysm,
+        df_val_nysm,
+        nwp_train_df_ls,
+        nwp_val_df_ls,
         features,
-        forecast_lead,
+        nwp_features,
         stations,
         target,
-        vt,
-    ) = create_data_for_lstm.create_data_for_model(
+        image_list_cols,
+    ) = create_data_for_gfs_sequencer.create_data_for_model(
         station, fh, today_date, metvar
-    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    )
     print("FEATURES", features)
     print()
     print("TARGET", target)
@@ -284,27 +299,55 @@ def main(
         workspace="shmaronshmevans",
     )
 
-    train_dataset = SequenceDatasetMultiTask(
-        dataframe=df_train,
+    # train_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_train,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    # )
+
+    # df_test = pd.concat([df_val, df_test])
+    # test_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_test,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    # )
+
+    train_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_train_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
+        dataframe_ls=nwp_train_df_ls,
     )
 
-    df_test = pd.concat([df_val, df_test])
-    test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_test,
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_val_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
+        dataframe_ls=nwp_val_df_ls,
     )
 
     train_kwargs = {
@@ -373,7 +416,7 @@ def main(
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
-        "forecast_lead": forecast_lead,
+        "forecast_lead": fh,
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
@@ -440,21 +483,22 @@ def main(
     # End of MAIN
 
 
-c = "Mohawk Valley"
-metvar_ls = ["t2m", "u_total", "tp"]
-nwp_model = "HRRR"
+c = "Hudson Valley"
+metvar_ls = ["tp"]
+nwp_model = "GFS"
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
+# df = nysm_clim[nysm_clim["climate_division_name"] == c]
+# stations = df["stid"].unique()
+stations = ["VOOR"]
 
-for f in np.arange(2, 19):
+for f in np.arange(3, 19, 3):
     print(f)
     for s in stations:
         for metvar in metvar_ls:
             print(s)
             main(
-                batch_size=int(1000),
+                batch_size=int(100),
                 station=s,
                 num_layers=3,
                 epochs=5000,

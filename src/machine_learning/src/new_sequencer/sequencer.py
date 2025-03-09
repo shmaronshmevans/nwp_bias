@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 from torch.utils.data import Dataset
+import torch.nn.functional as F
 
 
 class ZScoreNormalization:
@@ -136,38 +137,43 @@ class SequenceDatasetMultiTask(Dataset):
                 )
                 y = torch.cat((y, _y), dim=0)
 
+        # Check if the selected NWP model is GFS
         if self.nwp_model == "GFS":
+            # Define start and end indices for input sequence `x`
             x_start = i
             x_end = i + self.sequence_length
-            x = self.X[x_start:x_end, :]
-            y_start = i + self.sequence_length
+            x = self.X[x_start:x_end, :]  # Extract sequence from `self.X`
+
+            # Define start and end indices for target sequence `y`
+            y_start = (i + self.sequence_length) + 1
             y_end = y_start + int(self.forecast_steps / 3)
 
-            # Ensure `y_start + forecast_steps` does not exceed length
+            # Extract corresponding timestamps for `y` values
             times_y = self.nysm_df["valid_time"].iloc[y_start:y_end]
 
-            # Initialize y tensor
+            # Initialize `y` tensor with zeros to store target values
             y = torch.zeros(
                 (int(self.forecast_steps / 3), x.shape[1]),
                 dtype=torch.float32,
                 device=self.device,
             )
 
+            # Iterate over target time indices
             for n, t in enumerate(times_y):
+                # Find corresponding row in NWP dataframe for time `t`
                 match = self.nwp_dataframe_ls[n].loc[
                     self.nwp_dataframe_ls[n]["valid_time"] == t
                 ]
+
+                # If no match is found, use a zero-filled placeholder tensor
                 if match.empty:
-                    # PAD ROW
-                    print(f"Empty time_{t}")
-                    print("...")
-                    nwp_values = pd.DataFrame(
-                        np.zeros((1, len(self.nwp_features))), columns=self.nwp_features
+                    nwp_values = torch.zeros(
+                        (1, self.X.shape[1]),  # Shape matches feature dimensions
+                        device=self.device,
                     )
-                    target_values = pd.DataFrame(np.zeros((1, 1)))
-                    break
                 else:
                     try:
+                        # Extract NWP values for the given target time and convert to tensor
                         nwp_values = (
                             torch.tensor(
                                 self.nwp_dataframe_ls[n]
@@ -176,18 +182,15 @@ class SequenceDatasetMultiTask(Dataset):
                                 dtype=torch.float32,
                             )
                             .to(self.device)
-                            .unsqueeze(0)
+                            .unsqueeze(0)  # Add batch dimension
                         )
-                        print(f"Good time_{t}")
-                        print("!!!")
                     except:
-                        nwp_values = torch.zeros(
-                            (1, self.X.shape[1],),device=self.device,
-                        )
-                        print(f"incomplete nwp fh_{n}, time_{t}")
-                        print(" xxx")
+                        break  # If an error occurs, exit the loop
+
+                    # Append the extracted NWP values to `x`
                     x = torch.vstack([x, nwp_values])
-                    # y values
+
+                    # Extract and process target values
                     try:
                         target_values = torch.tensor(
                             self.nwp_dataframe_ls[n].iloc[int(y_start + n)][
@@ -195,12 +198,16 @@ class SequenceDatasetMultiTask(Dataset):
                             ],
                             dtype=torch.float32,
                         ).to(self.device)
-                        target_values = target_values.unsqueeze(0)
+                        target_values = target_values.unsqueeze(
+                            0
+                        )  # Add batch dimension
                     except:
-                        continue
-                    # Fix indexing issue for y assignment
+                        continue  # Skip to the next iteration if target extraction fails
+
+                    # Store target values in `y` at the corresponding index
                     y[n - 1, :] = target_values
 
+            # Ensure `x` has the required length by padding with zeros if necessary
             if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
                 _x = torch.zeros(
                     (
@@ -212,6 +219,7 @@ class SequenceDatasetMultiTask(Dataset):
                 )
                 x = torch.cat((x, _x), 0)
 
+            # Ensure `y` has the required length by padding with zeros if necessary
             if y.shape[0] < int(self.forecast_steps / 3):
                 _y = torch.zeros(
                     (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
@@ -292,9 +300,27 @@ class SequenceDatasetMultiTask(Dataset):
                 image = self.transform(image)
 
             # Convert to tensor and move to device
-            images.append(torch.tensor(image, dtype=torch.float32).to(self.device))
+            images.append(image.clone().detach().to(torch.float32).to(self.device))
 
         # Stack images into a single tensor
-        images = torch.stack(images).clone().detach()
+        images = torch.stack(images)
+
+        # Expected shape
+        expected_shape = (1, 121, 6, 11)
+
+        # Compute padding values (ensure non-negative values)
+        padding = [
+            max(0, expected_shape[3] - images.shape[3]),  # Pad width (last dimension)
+            max(0, expected_shape[2] - images.shape[2]),  # Pad height (third dimension)
+            max(0, expected_shape[1] - images.shape[1]),  # Pad depth
+            max(0, expected_shape[0] - images.shape[0]),
+        ]  # Pad batch/channel
+
+        # Apply padding if necessary
+        if any(p > 0 for p in padding):
+            images = F.pad(
+                images, (0, padding[0], 0, padding[1], 0, padding[2], 0, padding[3])
+            )
 
         return x, images, y
+        # return x, y

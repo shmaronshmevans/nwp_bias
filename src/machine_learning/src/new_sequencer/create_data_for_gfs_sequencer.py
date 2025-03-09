@@ -315,10 +315,11 @@ def create_data_for_model(station, fh, today_date, var):
         if i == 3:
             nysm_df_final = master_df2
         else:
-            nysm_df_final = pd.concat(
-                [nysm_df_final, master_df2], ignore_index=True
-            ).sort_values(by="valid_time").drop_duplicates(subset=["valid_time"], keep="first")
-
+            nysm_df_final = (
+                pd.concat([nysm_df_final, master_df2], ignore_index=True)
+                .sort_values(by="valid_time")
+                .drop_duplicates(subset=["valid_time"], keep="first")
+            )
 
     features = [
         c

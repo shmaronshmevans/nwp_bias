@@ -25,11 +25,12 @@ import gc
 from datetime import datetime
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_gfs,
-    create_data_for_lstm_nam,
-)
+# from data import (
+#     create_data_for_lstm,
+#     create_data_for_lstm_gfs,
+#     create_data_for_lstm_nam,
+# )
+from new_sequencer import create_data_for_gfs_sequencer, sequencer
 
 from profiler_inclusive_model import fsdp
 
@@ -324,6 +325,7 @@ def save_model_weights(ml, rank, encoder_path, decoder_path, vit_path):
         vit_dict = ml.ViT.state_dict()
 
     if rank == 0:
+        print("Saving model weights...")
         # Save submodules separately
         torch.save(encoder_dict, encoder_path)
         torch.save(vit_dict, vit_path)
@@ -360,17 +362,31 @@ def fsdp_main(rank, world_size, args):
     vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
     setup(rank, world_size)
 
+    # (
+    #     df_train,
+    #     df_test,
+    #     df_val,
+    #     features,
+    #     forecast_lead,
+    #     stations,
+    #     target,
+    #     vt,
+    #     image_list_cols,
+    # ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date, metvar)
+
     (
-        df_train,
-        df_test,
-        df_val,
+        df_train_nysm,
+        df_val_nysm,
+        nwp_train_df_ls,
+        nwp_val_df_ls,
         features,
-        forecast_lead,
+        nwp_features,
         stations,
         target,
-        vt,
         image_list_cols,
-    ) = create_data_for_lstm_gfs.create_data_for_model(station, fh, today_date, metvar)
+    ) = create_data_for_gfs_sequencer.create_data_for_model(
+        station, fh, today_date, metvar
+    )
 
     print("FEATURES", features)
     print()
@@ -383,29 +399,57 @@ def fsdp_main(rank, world_size, args):
             workspace="shmaronshmevans",
         )
 
-    train_dataset = SequenceDatasetMultiTask(
-        dataframe=df_train,
+    # train_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_train,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    #     device=device,
+    # )
+
+    # df_test = pd.concat([df_val, df_test])
+    # test_dataset = SequenceDatasetMultiTask(
+    #     dataframe=df_test,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    #     device=device,
+    # )
+
+    train_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_train_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
+        device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
-        device=device,
+        dataframe_ls=nwp_train_df_ls,
     )
 
-    df_test = pd.concat([df_val, df_test])
-    test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_test,
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_val_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
+        device=device,
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
-        device=device,
+        dataframe_ls=nwp_val_df_ls,
     )
 
     sampler1 = DistributedSampler(
@@ -490,7 +534,7 @@ def fsdp_main(rank, world_size, args):
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
-        "forecast_lead": forecast_lead,
+        "forecast_lead": fh,
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
@@ -501,7 +545,8 @@ def fsdp_main(rank, world_size, args):
     print("--- Training LSTM ---")
 
     early_stopper = EarlyStopper(10)
-    should_stop = torch.tensor(False, dtype=torch.bool).to(device)
+    should_stop = torch.tensor(False, dtype=torch.bool, device=device)
+    save_signal = torch.tensor(False, dtype=torch.bool, device=device)
 
     init_start_event.record()
     train_loss_ls = []
@@ -529,9 +574,6 @@ def fsdp_main(rank, world_size, args):
         )
         scheduler.step(test_loss)
         print(" ")
-        save_signal = torch.tensor(
-            False, dtype=torch.bool, device=device
-        )  # Use a tensor
         if rank == 0:
             train_loss_ls.append(train_loss)
             test_loss_ls.append(test_loss)
@@ -540,19 +582,23 @@ def fsdp_main(rank, world_size, args):
             experiment.log_metric("val_loss", test_loss)
             experiment.log_metric("train_loss", train_loss)
             experiment.log_metrics(hyper_params, epoch=ix_epoch)
-            if ix_epoch >= 5 and min(test_loss_ls) <= test_loss:
+            if ix_epoch >= 5 and test_loss <= min(test_loss_ls):
                 save_signal = torch.tensor(True, dtype=torch.bool, device=device)
             if ix_epoch > 20:
                 # Check for early stopping on rank 0
-                should_stop = early_stopper.early_stop(test_loss)
-                if should_stop:
+                should_stop_ = early_stopper.early_stop(test_loss)
+                if should_stop_:
                     print(f"Early stopping at epoch {ix_epoch}")
-                    should_stop = torch.tensor(True, dtype=torch.bool).to(device)
+                    should_stop = torch.tensor(True, dtype=torch.bool, device=device)
 
         # Broadcast the save signal to all processes
         torch.distributed.broadcast(save_signal, src=0)
         if save_signal.item():  # Convert tensor to bool
+            # save model
             save_model_weights(ml, rank, encoder_path, decoder_path, vit_path)
+            # reset flag to flase
+            save_signal = torch.tensor(False, dtype=torch.bool, device=device)
+            save_model=False
 
         # Broadcast the early stopping signal to all processes
         torch.distributed.broadcast(should_stop, src=0)

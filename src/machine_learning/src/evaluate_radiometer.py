@@ -23,11 +23,11 @@ import statistics as st
 
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_nam,
-    create_data_for_lstm_gfs,
-)
+# from data import (
+#     create_data_for_lstm,
+#     create_data_for_lstm_nam,
+#     create_data_for_lstm_gfs,
+# )
 
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
@@ -37,127 +37,10 @@ from torch.utils.data import Dataset
 
 import random
 
+from new_sequencer import create_data_for_gfs_sequencer, sequencer
+from profiler_inclusive_model import model_profiler_s2s
+
 print("imports downloaded")
-
-
-class SequenceDataset(Dataset):
-    """Dataset class for multi-task learning with station-specific data."""
-
-    def __init__(
-        self,
-        dataframe,
-        target,
-        features,
-        sequence_length,
-        forecast_steps,
-        device,
-        nwp_model,
-        metvar,
-    ):
-        self.dataframe = dataframe
-        self.features = features
-        self.target = target
-        self.sequence_length = sequence_length
-        self.forecast_steps = forecast_steps
-        self.device = device
-        self.nwp_model = nwp_model
-        self.metvar = metvar
-        self.y = torch.tensor(dataframe[target].values).float().to(device)
-        self.X = torch.tensor(dataframe[features].values).float().to(device)
-
-    def __len__(self):
-        return self.X.shape[0]
-
-    def __getitem__(self, i):
-        if self.nwp_model == "HRRR":
-            x_start = i
-            x_end = i + (self.sequence_length + self.forecast_steps)
-            y_start = i + self.sequence_length
-            y_end = y_start + self.forecast_steps
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            if x.shape[0] < (self.sequence_length + self.forecast_steps):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + self.forecast_steps) - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < self.forecast_steps:
-                _y = torch.zeros(
-                    (self.forecast_steps - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-self.forecast_steps :, -int(4 * 16) :] = x[
-                -int(self.forecast_steps + 1), -int(4 * 16) :
-            ].clone()
-
-        if self.nwp_model == "GFS":
-            x_start = i
-            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int(self.forecast_steps / 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int(self.forecast_steps / 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < int(self.forecast_steps / 3):
-                _y = torch.zeros(
-                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
-                -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
-            ].clone()
-
-        if self.nwp_model == "NAM":
-            x_start = i
-            x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int((self.forecast_steps + 2) // 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            if x.shape[0] < (
-                self.sequence_length + int((self.forecast_steps + 2) // 3)
-            ):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int((self.forecast_steps + 2) // 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < int((self.forecast_steps + 2) // 3):
-                _y = torch.zeros(
-                    (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
-                    device=self.device,
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
-                -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
-            ].clone()
-        return x, y
 
 
 def find_shift(ldf):
@@ -393,7 +276,7 @@ def main(
     nwp_model,
     metvar,
     model_path,
-    sequence_length=30,
+    sequence_length=15,
     target="target_error",
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -411,30 +294,35 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
-    (
-        df_train,
-        df_test,
-        df_val,
+        (
+        df_train_nysm,
+        df_val_nysm,
+        nwp_train_df_ls,
+        nwp_val_df_ls,
         features,
-        forecast_lead,
+        nwp_features,
         stations,
         target,
-        valid_time,
-    ) = create_data_for_lstm_gfs.create_data_for_model(
+        image_list_cols,
+    ) = create_data_for_gfs_sequencer.create_data_for_model(
         station, fh, today_date, metvar
-    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    )
 
-    df_eval = pd.concat([df_train, df_val, df_test])
+    df_eval = pd.concat([df_train_nysm, df_val_nysm])
+    nwp_eval_df_ls = pd.concat([nwp_train_df_ls, nwp_val_df_ls])
 
-    test_dataset = SequenceDataset(
-        df_eval,
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_eval,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
+        dataframe_ls=nwp_eval_df_ls,
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
@@ -445,22 +333,40 @@ def main(
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
 
-    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
+    # Initialize multi-task learning model with one encoder and decoders for each station
+    model = model_profiler_s2s.LSTM_Encoder_Decoder_with_ViT(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
         mlp_units=1500,
         device=device,
-        num_stations=len(stations),
+        num_stations=len(image_list_cols),
+        past_timesteps=1,
+        future_timesteps=1,
+        pos_embedding=0.5,
+        time_embedding=0.5,
+        vit_num_layers=3,
+        num_heads=11,
+        hidden_dim=7260,
+        mlp_dim=1032,
+        output_dim=1,
+        dropout=1e-15,
+        attention_dropout=1e-12,
     ).to(device)
 
     if os.path.exists(encoder_path):
         print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(f"{encoder_path}"), strict=False)
-    if os.path.exists(decoder_path):
-        print("Loading Decoder Model")
+        model.encoder.load_state_dict(torch.load(encoder_path))
         model.decoder.load_state_dict(torch.load(decoder_path))
-    # make sure main is commented when you run or the first run will do whatever station is listed in main
+        model.ViT.load_state_dict(torch.load(vit_path))
+        # Example usage for encoder and decoder
+        print("Encoder size:")
+        get_model_file_size(encoder_path)
+        print("Decoder size:")
+        get_model_file_size(decoder_path)
+        print("ViT size:")
+        get_model_file_size(vit_path)
+
     df_out = model_out(
         df_eval, test_dataset, model, batch_size, target, features, device, station
     )
@@ -583,3 +489,17 @@ for m in metvar_ls:
                 model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
             )
             gc.collect()
+
+
+'''    main(
+        batch_size=70,
+        station="VOOR",
+        num_layers=3,
+        epochs=int(1e3),
+        weight_decay=1e-15,
+        fh=fh,
+        clim_div=c,
+        nwp_model=nwp_model,
+        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+        metvar=metvar,
+    )'''

@@ -520,6 +520,7 @@ def main(
             if test_loss <= min(test_loss_ls):
                 print(f"Saving Model Weights... EPOCH {ix_epoch}")
                 save_model_weights(model, encoder_path, vit_path, decoder_path)
+                save_model=False
             if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
@@ -554,16 +555,16 @@ c = "Hudson Valley"
 metvar = "u_total"
 
 
-# for fh in np.arange(3,16,3):
-main(
-    batch_size=70,
-    station="VOOR",
-    num_layers=3,
-    epochs=int(1e3),
-    weight_decay=1e-15,
-    fh=6,
-    clim_div=c,
-    nwp_model=nwp_model,
-    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-    metvar=metvar,
-)
+for fh in np.arange(12, 19, 3):
+    main(
+        batch_size=70,
+        station="VOOR",
+        num_layers=3,
+        epochs=int(1e3),
+        weight_decay=1e-15,
+        fh=fh,
+        clim_div=c,
+        nwp_model=nwp_model,
+        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+        metvar=metvar,
+    )

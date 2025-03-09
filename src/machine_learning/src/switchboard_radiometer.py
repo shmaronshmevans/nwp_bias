@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fh",
         type=int,
-        default=int(6),
+        default=int(12),
         help="input forecast hour for training in the model",
     )
     parser.add_argument(
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--metvar",
         type=str,
-        default=str("u_total"),
+        default=str("t2m"),
         help="input target variable for training in the model",
     )
     parser.add_argument(
