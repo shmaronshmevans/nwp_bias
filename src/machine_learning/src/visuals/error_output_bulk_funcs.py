@@ -28,6 +28,11 @@ def unique(list1):
     return unique_list
 
 
+def make_directory(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
+
+
 def round_small(full_df, met_col, rounded_base):
     """
     Groups errors into temperature buckets by rounding the met_col values based on conditions and calculates the mean
@@ -158,7 +163,7 @@ def err_bucket(full_df, met_col, rounded_base):
     return temp_df, instances
 
 
-def plot_buckets(temp_df, instances, var_name, cmap, width, title):
+def plot_buckets(temp_df, instances, var_name, cmap, width, title, station, clim_div):
     my_cmap = plt.get_cmap(cmap)
     averages = temp_df / instances
     averages = averages.dropna()
@@ -188,11 +193,11 @@ def plot_buckets(temp_df, instances, var_name, cmap, width, title):
             rotation=90,
         )
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/met_error_{title}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_met_error_{title}.png"
     )
 
 
-def groupby_month_total(df):
+def groupby_month_total(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -252,11 +257,11 @@ def groupby_month_total(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_month_error.png"
     )
 
 
-def groupby_month_std(df):
+def groupby_month_std(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -315,11 +320,11 @@ def groupby_month_std(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_std_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_month_std_error.png"
     )
 
 
-def groupby_abs_month_total(df):
+def groupby_abs_month_total(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -380,13 +385,13 @@ def groupby_abs_month_total(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_abs_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_month_abs_error.png"
     )
 
     return aggregated_results
 
 
-def boxplot_monthly_error(df):
+def boxplot_monthly_error(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -431,11 +436,11 @@ def boxplot_monthly_error(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_month_error_boxplot.png"
     )
 
 
-def groupby_time_abs(df):
+def groupby_time_abs(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -499,13 +504,13 @@ def groupby_time_abs(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_abs_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_time_of_day_abs_error_colored.png"
     )
 
     return aggregated_results
 
 
-def groupby_time(df):
+def groupby_time(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -569,13 +574,13 @@ def groupby_time(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_mean_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_time_of_day_mean_error_colored.png"
     )
 
     return aggregated_results
 
 
-def boxplot_time_of_day_error(df):
+def boxplot_time_of_day_error(df, station, clim_div):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -621,11 +626,11 @@ def boxplot_time_of_day_error(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_time_of_day_error_boxplot.png"
     )
 
 
-def groupby_time_std(df):
+def groupby_time_std(df, station, clim_div):
     # Filter columns that contain 'target' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -687,7 +692,7 @@ def groupby_time_std(df):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_std_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_time_of_day_std_error_colored.png"
     )
 
     return aggregated_results
@@ -699,7 +704,7 @@ def date_filter(ldf, time1, time2):
     return ldf
 
 
-def create_scatterplot(x_column, y_column, fh):
+def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Calculate point density
     xy = np.vstack([x_column, y_column])
     z = gaussian_kde(xy)(xy)
@@ -726,19 +731,20 @@ def create_scatterplot(x_column, y_column, fh):
     plt.xlim(-6, 6)
     plt.ylim(-6, 6)
     plt.ylabel("LSTM", fontsize=24)
-    plt.title("Target Wind Error v LSTM Predictions", fontsize=32)
+    plt.title(f"Target {metvar} Error v LSTM Predictions", fontsize=32)
     # Customize tick mark font size
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
+    plt.grid(True, linestyle="--", alpha=0.6)
 
     # Show the plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/scatter_{fh}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_scatter_{fh}.png"
     )
 
 
-def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
+def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh, metvar):
     fig, ax = plt.subplots(figsize=(24, 6))
     x = df["valid_time"]
 
@@ -777,13 +783,13 @@ def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
         x_numeric, -4, 4.1, where=~day_mask, color="grey", alpha=0.2, label="Nighttime"
     )
 
-    ax.set_title(f"Wind Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
+    ax.set_title(f"{metvar} Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
     # plt.ylim(-5, 5.)
     ax.legend()
     plt.show()
 
 
-def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
+def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar):
     """
     Plots three lists (mae_ls, sq_ls, and r2_ls) as a function of forecast hour (fh).
     Each series will have a scatter-line plot with unique markers and colors,
@@ -798,7 +804,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     plt.figure(figsize=(15, 9))
 
     # Plot mae_ls
-    plt.plot(fh, mae_ls, label="MAE", marker="o", linestyle="-", color="blue")
+    plt.plot(fh, mae_ls, label="MAE", marker="o", s=75, linestyle="-", color="blue")
     plt.scatter(fh, mae_ls, marker="o", color="blue")
     # Annotate mae_ls points
     for i, txt in enumerate(mae_ls):
@@ -813,7 +819,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
         )
 
     # Plot sq_ls
-    plt.plot(fh, sq_ls, label="MSE", marker="x", linestyle="-", color="green")
+    plt.plot(fh, sq_ls, label="MSE", marker="x", s=75, linestyle="-", color="green")
     plt.scatter(fh, sq_ls, marker="x", color="green")
     # Annotate sq_ls points
     for i, txt in enumerate(sq_ls):
@@ -828,8 +834,8 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
         )
 
     # Plot r2_ls
-    plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
-    plt.scatter(fh, r2_ls, marker="s", color="red")
+    # plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
+    # plt.scatter(fh, r2_ls, marker="s", color="red")
     # Annotate r2_ls points
     for i, txt in enumerate(r2_ls):
         plt.annotate(
@@ -846,7 +852,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     plt.xlabel("Forecast Hour (FH)", fontsize=20)
     plt.ylabel("Error and R² Values", fontsize=20)
     plt.title(
-        "Error Metrics as a Function of Forecast Hour \n NAM, Wind-Error, Voorheesville",
+        f"Error Metrics as a Function of Forecast Hour \n {nwp_model}, {metvar}-Error",
         fontsize=24,
     )
     plt.legend(fontsize=14)
@@ -861,7 +867,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/fh_drift.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_fh_drift.png"
     )
 
 
@@ -882,7 +888,7 @@ def calculate_r2(df):
     r2 = r2_score(targets, lstms)
     r2_ls.append(r2)
 
-    for i in np.arange(2, 37):
+    for i in np.arange(2, 19):
         lstms_ = []
         targets_ = []
 

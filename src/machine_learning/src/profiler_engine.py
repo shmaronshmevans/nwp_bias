@@ -25,15 +25,18 @@ import gc
 from datetime import datetime
 from processing import make_dirs
 
-from new_sequencer import create_data_for_gfs_sequencer, sequencer
+from new_sequencer import (
+    create_data_for_gfs_sequencer,
+    create_data_for_hrrr_sequencer,
+    sequencer,
+)
+from profiler_inclusive_model import model_profiler_s2s
 
 # from data import (
 #     create_data_for_lstm,
 #     create_data_for_lstm_gfs,
 #     create_data_for_lstm_nam,
 # )
-
-from profiler_inclusive_model import model_profiler_s2s
 
 
 class ZScoreNormalization:
@@ -339,7 +342,7 @@ def main(
         stations,
         target,
         image_list_cols,
-    ) = create_data_for_gfs_sequencer.create_data_for_model(
+    ) = create_data_for_hrrr_sequencer.create_data_for_model(
         station, fh, today_date, metvar
     )
 
@@ -519,8 +522,9 @@ def main(
         if ix_epoch > 20:
             if test_loss <= min(test_loss_ls):
                 print(f"Saving Model Weights... EPOCH {ix_epoch}")
+                print()
                 save_model_weights(model, encoder_path, vit_path, decoder_path)
-                save_model=False
+                save_model = False
             if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
                 break
@@ -531,11 +535,7 @@ def main(
         # datetime object containing current date and time
         now = datetime.now()
         print("now =", now)
-        # dd/mm/YY H:M:S
-        dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
-        title = f"{station}_loss_{min(test_loss_ls)}"
-        # title = f"{station}_mloutput_eval_fh{fh}"
         torch.save(model.encoder.state_dict(), f"{encoder_path}")
         torch.save(model.ViT.state_dict(), f"{vit_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
@@ -550,12 +550,12 @@ def main(
     # End of MAIN
 
 
-nwp_model = "GFS"
+nwp_model = "HRRR"
 c = "Hudson Valley"
-metvar = "u_total"
+metvar = "tp"
 
 
-for fh in np.arange(12, 19, 3):
+for fh in np.arange(1, 19):
     main(
         batch_size=70,
         station="VOOR",

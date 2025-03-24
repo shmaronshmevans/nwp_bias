@@ -28,16 +28,16 @@ from datetime import datetime
 
 from processing import make_dirs
 
-# from data import (
-#     create_data_for_lstm,
-#     create_data_for_lstm_gfs,
-#     create_data_for_lstm_nam,
-# )
+from data import (
+    create_data_for_lstm,
+    create_data_for_lstm_gfs,
+    create_data_for_lstm_nam,
+)
 
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
 
-from new_sequencer import create_data_for_gfs_sequencer, sequencer
+# from new_sequencer import create_data_for_gfs_sequencer, create_data_for_nam_sequencer, create_data_for_hrrr_sequencer, sequencer
 
 print("imports loaded")
 
@@ -233,6 +233,11 @@ def get_model_file_size(file_path):
     print(f"Model file size: {size_mb:.2f} MB")
 
 
+def save_model_weights(model, encoder_path, decoder_path):
+    torch.save(model.encoder.state_dict(), f"{encoder_path}")
+    torch.save(model.decoder.state_dict(), decoder_path)
+
+
 def main(
     batch_size,
     station,
@@ -264,32 +269,34 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
-    # (
-    #     df_train,
-    #     df_test,
-    #     df_val,
-    #     features,
-    #     forecast_lead,
-    #     stations,
-    #     target,
-    #     vt,
-    # ) = create_data_for_lstm.create_data_for_model(
-    #     station, fh, today_date, metvar
-    # )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
     (
-        df_train_nysm,
-        df_val_nysm,
-        nwp_train_df_ls,
-        nwp_val_df_ls,
+        df_train,
+        df_test,
+        df_val,
         features,
-        nwp_features,
+        forecast_lead,
         stations,
         target,
-        image_list_cols,
-    ) = create_data_for_gfs_sequencer.create_data_for_model(
+        vt,
+    ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date, metvar
-    )
+    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    # (
+    #     df_train_nysm,
+    #     df_val_nysm,
+    #     nwp_train_df_ls,
+    #     nwp_val_df_ls,
+    #     features,
+    #     nwp_features,
+    #     stations,
+    #     target,
+    #     image_list_cols,
+    # ) = create_data_for_hrrr_sequencer.create_data_for_model(
+    #     station, fh, today_date, metvar
+    # )
     print("FEATURES", features)
+    print()
+    # print(f"{nwp_model} FEATURES", nwp_features)
     print()
     print("TARGET", target)
 
@@ -299,56 +306,56 @@ def main(
         workspace="shmaronshmevans",
     )
 
-    # train_dataset = SequenceDatasetMultiTask(
-    #     dataframe=df_train,
-    #     target=target,
-    #     features=features,
-    #     sequence_length=sequence_length,
-    #     forecast_steps=fh,
-    #     device=device,
-    #     nwp_model=nwp_model,
-    #     metvar=metvar,
-    # )
-
-    # df_test = pd.concat([df_val, df_test])
-    # test_dataset = SequenceDatasetMultiTask(
-    #     dataframe=df_test,
-    #     target=target,
-    #     features=features,
-    #     sequence_length=sequence_length,
-    #     forecast_steps=fh,
-    #     device=device,
-    #     nwp_model=nwp_model,
-    #     metvar=metvar,
-    # )
-
-    train_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_train_nysm,
+    train_dataset = SequenceDatasetMultiTask(
+        dataframe=df_train,
         target=target,
         features=features,
-        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
-        image_list_cols=image_list_cols,
-        dataframe_ls=nwp_train_df_ls,
     )
 
-    test_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_val_nysm,
+    df_test = pd.concat([df_val, df_test])
+    test_dataset = SequenceDatasetMultiTask(
+        dataframe=df_test,
         target=target,
         features=features,
-        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
-        image_list_cols=image_list_cols,
-        dataframe_ls=nwp_val_df_ls,
     )
+
+    # train_dataset = sequencer.SequenceDatasetMultiTask(
+    #     dataframe=df_train_nysm,
+    #     target=target,
+    #     features=features,
+    #     nwp_features=nwp_features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    #     dataframe_ls=nwp_train_df_ls,
+    # )
+
+    # test_dataset = sequencer.SequenceDatasetMultiTask(
+    #     dataframe=df_val_nysm,
+    #     target=target,
+    #     features=features,
+    #     nwp_features=nwp_features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    #     dataframe_ls=nwp_val_df_ls,
+    # )
 
     train_kwargs = {
         "batch_size": batch_size,
@@ -372,6 +379,7 @@ def main(
 
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
+    # hidden_units = 1800
 
     # Initialize multi-task learning model with one encoder and decoders for each station
     model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
@@ -426,7 +434,7 @@ def main(
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(10)
+    early_stopper = EarlyStopper(8)
 
     init_start_event.record()
     train_loss_ls = []
@@ -452,12 +460,16 @@ def main(
         test_loss_ls.append(test_loss)
         # log info for comet and loss curves
         experiment.set_epoch(ix_epoch)
-        experiment.log_metric("test_loss", test_loss)
+        experiment.log_metric("val_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         if early_stopper.early_stop(test_loss):
             print(f"Early stopping at epoch {ix_epoch}")
             break
+        if test_loss <= min(test_loss_ls) and ix_epoch > 5:
+            print(f"Saving Model Weights... EPOCH {ix_epoch}")
+            save_model_weights(model, encoder_path, decoder_path)
+            save_model = False
 
     init_end_event.record()
 
@@ -483,22 +495,21 @@ def main(
     # End of MAIN
 
 
-c = "Hudson Valley"
-metvar_ls = ["tp"]
-nwp_model = "GFS"
+c = "Western Plateau"
+metvar_ls = ["u_total", "t2m", "tp"]
+nwp_model = "HRRR"
 
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# stations = df["stid"].unique()
-stations = ["VOOR"]
+df = nysm_clim[nysm_clim["climate_division_name"] == c]
+stations = df["stid"].unique()
 
-for f in np.arange(3, 19, 3):
+for f in np.arange(7, 19):
     print(f)
     for s in stations:
         for metvar in metvar_ls:
             print(s)
             main(
-                batch_size=int(100),
+                batch_size=int(1000),
                 station=s,
                 num_layers=3,
                 epochs=5000,

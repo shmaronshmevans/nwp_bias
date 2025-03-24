@@ -846,7 +846,7 @@ if __name__ == "__main__":
     model = "hrrr"
     for fh in np.arange(1, 19):
         print("FH", fh)
-        for year in np.arange(2018, 2025):
+        for year in np.arange(2024, 2025):
             print("YEAR: ", year)
             for month in np.arange(1, 13):
                 try:

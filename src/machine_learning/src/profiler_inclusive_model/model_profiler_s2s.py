@@ -90,6 +90,8 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             device=device,
         )
 
+        self.hidden_proj = self.hidden_proj = nn.Linear(1920, 960)
+
     def train_model(
         self,
         data_loader,
@@ -115,10 +117,27 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             encoder_hidden = self.encoder(X)
             encoder_hidden_profiler = self.ViT(P)
 
-            # Combine hidden states somehow
-            pass_hidden = torch.cat(
-                [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-            ).contiguous()
+            # Expand to match LSTM layers (repeat across 3 layers)
+            encoder_hidden_profiler = encoder_hidden_profiler.repeat(
+                encoder_hidden[0].shape[0], 1, 1
+            )
+            # (num_layers=3, batch, hidden_size)
+
+            # Concatenate along hidden dimension
+            decoder_hidden = torch.cat(
+                [encoder_hidden[0], encoder_hidden_profiler], dim=-1
+            )
+            # (num_layers=3, batch, 2 * hidden_size)
+
+            # Project back to hidden_size using Linear layer
+            pass_hidden = self.hidden_proj(
+                decoder_hidden
+            )  # (num_layers=3, batch, hidden_size)
+
+            # # Combine hidden states somehow
+            # pass_hidden = torch.cat(
+            #     [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
+            # ).contiguous()
 
             # Initialize outputs tensor
             outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
@@ -176,9 +195,26 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 encoder_hidden = self.encoder(X)
                 encoder_hidden_profiler = self.ViT(P)
 
-                pass_hidden = torch.cat(
-                    [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-                ).contiguous()
+                # Expand to match LSTM layers (repeat across 3 layers)
+                encoder_hidden_profiler = encoder_hidden_profiler.repeat(
+                    encoder_hidden[0].shape[0], 1, 1
+                )
+                # (num_layers=3, batch, hidden_size)
+
+                # Concatenate along hidden dimension
+                decoder_hidden = torch.cat(
+                    [encoder_hidden[0], encoder_hidden_profiler], dim=-1
+                )
+                # (num_layers=3, batch, 2 * hidden_size)
+
+                # Project back to hidden_size using Linear layer
+                pass_hidden = self.hidden_proj(
+                    decoder_hidden
+                )  # (num_layers=3, batch, hidden_size)
+
+                # pass_hidden = torch.cat(
+                #     [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
+                # ).contiguous()
 
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)
@@ -209,11 +245,27 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
                 encoder_hidden = self.encoder(X)
                 encoder_hidden_profiler = self.ViT(P)
+                # Expand to match LSTM layers (repeat across 3 layers)
+                encoder_hidden_profiler = encoder_hidden_profiler.repeat(
+                    encoder_hidden[0].shape[0], 1, 1
+                )
+                # (num_layers=3, batch, hidden_size)
 
-                # Combine hidden states somehow
-                pass_hidden = torch.cat(
-                    [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-                ).contiguous()
+                # Concatenate along hidden dimension
+                decoder_hidden = torch.cat(
+                    [encoder_hidden[0], encoder_hidden_profiler], dim=-1
+                )
+                # (num_layers=3, batch, 2 * hidden_size)
+
+                # Project back to hidden_size using Linear layer
+                pass_hidden = self.hidden_proj(
+                    decoder_hidden
+                )  # (num_layers=3, batch, hidden_size)
+
+                # # Combine hidden states somehow
+                # pass_hidden = torch.cat(
+                #     [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
+                # ).contiguous()
 
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)

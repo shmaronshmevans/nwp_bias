@@ -18,18 +18,20 @@ from processing import get_error
 from processing import get_closest_nysm_stations
 from processing import get_closest_radiometer
 
-from data import gfs_data
+from data import hrrr_data
 from data import nysm_data
 import ast
 
 
 def columns_drop(df):
+    for c in df.columns:
+        print(c)
     df = df.drop(
         columns=[
             # "level_0",
             "index",
             "lead time",
-            "landn",
+            "lsm",
             "latitude",
             "longitude",
             "time",
@@ -72,8 +74,8 @@ def which_fold(df):
     df["valid_time"] = pd.to_datetime(df["valid_time"])
 
     # Define the date ranges
-    train_start, train_end = "2018-01-01", "2022-12-31"
-    val_start, val_end = "2023-01-01", "2023-12-31"
+    train_start, train_end = "2021-10-01", "2023-12-31"
+    val_start, val_end = "2024-01-01", "2024-12-31"
 
     # Create the two folds
     train_fold = df[(df["valid_time"] >= train_start) & (df["valid_time"] <= train_end)]
@@ -171,22 +173,22 @@ def create_data_for_model(station, fh, today_date, var, train=True):
     """
     nwp_df_ls = []
 
-    for i in np.arange(3, int(fh + 1), 3):
+    for i in np.arange(1, int(fh + 1)):
         # Print a message indicating the current station being processed.
         print(f"Targeting Error for {station}")
 
-        # Load data from NYSM and gfs sources.
+        # Load data from NYSM and nam sources.
         print("-- loading data from NYSM --")
-        nysm_df = nysm_data.load_nysm_data(gfs=True)
+        nysm_df = nysm_data.load_nysm_data(gfs=False)
         nysm_df.reset_index(inplace=True)
         gc.collect()
         # Rename columns for consistency.
         nysm_df = nysm_df.rename(columns={"time_1H": "valid_time"})
-        print("-- loading data from gfs --")
-        gfs_df = gfs_data.read_gfs_data(str(i).zfill(3))
+        print("-- loading data from NAM --")
+        hrrr_df = hrrr_data.read_hrrr_data(str(fh).zfill(2))
         gc.collect()
-        # Filter NYSM data to match valid times from gfs data
-        mytimes = gfs_df["valid_time"].tolist()
+        # Filter NYSM data to match valid times from nam data
+        mytimes = hrrr_df["valid_time"].tolist()
         nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
 
         # load geo cats
@@ -194,7 +196,7 @@ def create_data_for_model(station, fh, today_date, var, train=True):
             "/home/aevans/nwp_bias/src/landtype/data/lstm_clusters.csv"
         )
         stations_df = pd.read_csv(
-            "/home/aevans/nwp_bias/src/machine_learning/data/gfs_data/gfs_stations_grouped.csv"
+            "/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/hrrr_stations_grouped.csv"
         )
         radiometer_df = pd.read_csv(
             "/home/aevans/nwp_bias/src/machine_learning/data/profiler_images/profiler_stations_grouped.csv"
@@ -223,18 +225,18 @@ def create_data_for_model(station, fh, today_date, var, train=True):
         print(stations)
         print(radiometer_ls)
 
-        gfs_df1 = gfs_df[gfs_df["station"].isin(stations)]
+        hrrr_df1 = hrrr_df[hrrr_df["station"].isin(stations)]
         nysm_df1 = nysm_df[nysm_df["station"].isin(stations)]
         geo_df1 = geo_df[geo_df["station"].isin(stations)]
 
-        gfs_df1["lulc_cat"] = geo_df1["lulc_cat"]
-        gfs_df1["elev_cat"] = geo_df1["elev_cat"]
-        gfs_df1["slope_cat"] = geo_df1["slope_cat"]
+        hrrr_df1["lulc_cat"] = geo_df1["lulc_cat"]
+        hrrr_df1["elev_cat"] = geo_df1["elev_cat"]
+        hrrr_df1["slope_cat"] = geo_df1["slope_cat"]
 
         # add geo columns
-        gfs_df1 = create_geo_dict(geo_df, "lulc_cat", gfs_df1)
-        gfs_df1 = create_geo_dict(geo_df, "elev_cat", gfs_df1)
-        gfs_df1 = create_geo_dict(geo_df, "slope_cat", gfs_df1)
+        hrrr_df1 = create_geo_dict(geo_df, "lulc_cat", hrrr_df1)
+        hrrr_df1 = create_geo_dict(geo_df, "elev_cat", hrrr_df1)
+        hrrr_df1 = create_geo_dict(geo_df, "slope_cat", hrrr_df1)
 
         nysm_df1["lulc_cat"] = geo_df1["lulc_cat"]
         nysm_df1["elev_cat"] = geo_df1["elev_cat"]
@@ -248,9 +250,9 @@ def create_data_for_model(station, fh, today_date, var, train=True):
 
         print("formatting df")
         # format for LSTM
-        gfs_df1 = columns_drop(gfs_df1)
+        hrrr_df1 = columns_drop(hrrr_df1)
 
-        master_df = dataframe_wrapper(stations, gfs_df1)
+        master_df = dataframe_wrapper(stations, hrrr_df1)
         nysm_df1 = nysm_df1.drop(
             columns=[
                 "index",
@@ -311,8 +313,13 @@ def create_data_for_model(station, fh, today_date, var, train=True):
                 stdevs = st.pstdev(master_df[k])
                 master_df[k] = (master_df[k] - means) / stdevs
 
+        master_df.fillna(-999, inplace=True)
+        master_df2.fillna(-999, inplace=True)
         nwp_df_ls.append(master_df)
-        if i == 3:
+        for c in master_df.columns:
+            print(master_df[c].dtypes)
+
+        if i == 1:
             nysm_df_final = master_df2
         else:
             nysm_df_final = (
@@ -377,8 +384,3 @@ def create_data_for_model(station, fh, today_date, var, train=True):
             target,
             image_list_cols,
         )
-
-
-"""
-I need to pass back the original alpha or diff between error and normalized data, easiest way to ensure there won't be an error. 
-"""

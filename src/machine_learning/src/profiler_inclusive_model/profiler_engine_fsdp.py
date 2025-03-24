@@ -598,7 +598,7 @@ def fsdp_main(rank, world_size, args):
             save_model_weights(ml, rank, encoder_path, decoder_path, vit_path)
             # reset flag to flase
             save_signal = torch.tensor(False, dtype=torch.bool, device=device)
-            save_model=False
+            save_model = False
 
         # Broadcast the early stopping signal to all processes
         torch.distributed.broadcast(should_stop, src=0)

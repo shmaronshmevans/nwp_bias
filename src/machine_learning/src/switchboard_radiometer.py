@@ -45,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fh",
         type=int,
-        default=int(12),
+        default=int(15),
         help="input forecast hour for training in the model",
     )
     parser.add_argument(

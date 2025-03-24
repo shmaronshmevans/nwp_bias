@@ -259,7 +259,6 @@ class ShallowLSTM_seq2seq_multi_task(nn.Module):
                 if batch is None:
                     continue
                 X, y = batch
-
                 X, y = X.to(self.device), y.to(self.device)
 
                 encoder_hidden = self.encoder(X)

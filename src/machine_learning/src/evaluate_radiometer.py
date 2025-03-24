@@ -63,6 +63,7 @@ def find_shift(ldf):
     # Get the row with the smallest mean squared error
     best_fit = results_df.nsmallest(1, "mean_s_ls")
     shifter = best_fit["fh_s"].values[0]
+    print("Shifting ", shifter)
 
     ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).fillna(-999)
     return ldf
@@ -92,6 +93,15 @@ def model_out(
     if len(df_test.iloc[:, 0]) > len(test_predictions):
         print("Trimming Dataframe")
         df_test = df_test.iloc[-len(test_predictions) :]
+    # Check if df_test is shorter than test_predictions
+    if len(df_test) < len(test_predictions):
+        padding_length = len(test_predictions) - len(df_test)
+        # Create a DataFrame of zeros with the same columns
+        padding_df = pd.DataFrame(
+            0, index=range(padding_length), columns=df_test.columns
+        )
+        # Concatenate the original DataFrame with the padding
+        df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
     df_test[ystar_col] = test_predictions[:, -1, 0]
 
@@ -165,10 +175,10 @@ def linear_fit(df, df_out, diff):
     df_out = df_out.copy()
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
-    length = len(df["target_error_lead_0"].values)
+    length = len(df["target_error"].values)
     tener = int(length * 0.05)
     print(tener)
-    top_200_max_values = df["target_error_lead_0"].nlargest(250)
+    top_200_max_values = df["target_error"].nlargest(250)
     top_200_indexes = top_200_max_values.index
 
     alphas = []
@@ -194,11 +204,11 @@ def refit_output(df, diff):
     df["Model forecast"] = df["Model forecast"] - diff
 
     # Calculate the median of 'target_error_lead_0' and 'Model forecast'
-    mean3 = st.median(df["target_error_lead_0"])
+    mean3 = st.median(df["target_error"])
     mean4 = st.median(df["Model forecast"])
 
     # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their medians
-    df["target_error_lead_0"] = df["target_error_lead_0"] - mean3
+    df["target_error"] = df["target_error"] - mean3
     df["Model forecast"] = df["Model forecast"] - mean4
 
     return df
@@ -271,13 +281,16 @@ def main(
     batch_size,
     station,
     num_layers,
+    weight_decay,
     fh,
     clim_div,
     nwp_model,
-    metvar,
     model_path,
+    metvar,
     sequence_length=15,
     target="target_error",
+    learning_rate=9e-7,
+    save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -291,28 +304,24 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
 
-        (
-        df_train_nysm,
-        df_val_nysm,
-        nwp_train_df_ls,
-        nwp_val_df_ls,
+    (
+        df_nysm,
+        nwp_df_ls,
         features,
         nwp_features,
         stations,
         target,
         image_list_cols,
     ) = create_data_for_gfs_sequencer.create_data_for_model(
-        station, fh, today_date, metvar
+        station, fh, today_date, metvar, train=False
     )
 
-    df_eval = pd.concat([df_train_nysm, df_val_nysm])
-    nwp_eval_df_ls = pd.concat([nwp_train_df_ls, nwp_val_df_ls])
-
     test_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_eval,
+        dataframe=df_nysm,
         target=target,
         features=features,
         nwp_features=nwp_features,
@@ -322,7 +331,7 @@ def main(
         nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
-        dataframe_ls=nwp_eval_df_ls,
+        dataframe_ls=nwp_df_ls,
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
@@ -355,27 +364,27 @@ def main(
     ).to(device)
 
     if os.path.exists(encoder_path):
-        print("Loading Encoder Model")
+        print("Loading Model...")
         model.encoder.load_state_dict(torch.load(encoder_path))
         model.decoder.load_state_dict(torch.load(decoder_path))
         model.ViT.load_state_dict(torch.load(vit_path))
-        # Example usage for encoder and decoder
-        print("Encoder size:")
-        get_model_file_size(encoder_path)
-        print("Decoder size:")
-        get_model_file_size(decoder_path)
-        print("ViT size:")
-        get_model_file_size(vit_path)
 
     df_out = model_out(
-        df_eval, test_dataset, model, batch_size, target, features, device, station
+        nwp_df_ls[int((fh / 3) - 1)],
+        test_dataset,
+        model,
+        batch_size,
+        target,
+        features,
+        device,
+        station,
     )
 
     # Trim valid_time to match the length of df_out
-    valid_time = valid_time[: len(df_out)]
+    valid_time = nwp_df_ls[int((fh / 3) - 1)]["valid_time"]
     df_out["valid_time"] = valid_time
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
     # calculate post processing on validation set
@@ -453,23 +462,24 @@ def main(
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     df_out_new_quad.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
 
 
-c = "Northern Plateau"
-nwp = "GFS"
-metvar_ls = ["t2m"]
+c = "Hudson Valley"
+nwp_model = "GFS"
+metvar_ls = ["tp"]
+
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 # stations = df["stid"].unique()
-stations = ["CROG"]
+stations = ["VOOR"]
 
 
 for m in metvar_ls:
@@ -479,27 +489,14 @@ for m in metvar_ls:
         for s in stations:
             print(s)
             main(
-                batch_size=int(500),
+                batch_size=int(30),
                 station=s,
                 num_layers=3,
+                weight_decay=1e-15,
                 fh=f,
                 clim_div=c,
-                nwp_model=nwp,
+                nwp_model=nwp_model,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{m}.pth",
                 metvar=m,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
             )
             gc.collect()
-
-
-'''    main(
-        batch_size=70,
-        station="VOOR",
-        num_layers=3,
-        epochs=int(1e3),
-        weight_decay=1e-15,
-        fh=fh,
-        clim_div=c,
-        nwp_model=nwp_model,
-        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-        metvar=metvar,
-    )'''

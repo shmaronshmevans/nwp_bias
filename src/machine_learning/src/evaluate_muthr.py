@@ -38,6 +38,8 @@ from torch.utils.data import Dataset
 
 import random
 
+# from new_sequencer import create_data_for_gfs_sequencer, create_data_for_nam_sequencer, sequencer
+
 print("imports downloaded")
 
 
@@ -162,28 +164,59 @@ class SequenceDataset(Dataset):
 
 
 def find_shift(ldf):
-    fh_s = []
-    mean_s_ls = []
-    mean_abs_ls = []
-    for i in np.arange(1, 60):
-        df = ldf.copy()
+    """
+    Determines the optimal shift for the "Model forecast" column in a DataFrame
+    by minimizing the mean squared error (MSE) between the observed values
+    and the shifted forecast values.
+
+    Args:
+        ldf (pd.DataFrame): A DataFrame containing at least two columns,
+                            where the first column is the observed data
+                            and the second column is "Model forecast".
+
+    Returns:
+        pd.DataFrame: The input DataFrame with the "Model forecast" column
+                    shifted by the optimal lag value.
+    """
+    fh_s = []  # List to store shift values
+    mean_s_ls = []  # List to store mean squared errors (MSE)
+    mean_abs_ls = []  # List to store mean absolute errors (MAE)
+
+    for i in np.arange(1, 60):  # Try shifts from 1 to 59
+        df = ldf.copy()  # Create a copy to avoid modifying the original DataFrame
+
+        # Shift the "Model forecast" column by i time steps, filling NaN values with 0
         df["Model forecast"] = df["Model forecast"].shift(i).fillna(0)
+
+        # Compute the difference between the observed values and shifted forecast
         df["diff"] = df.iloc[:, 0] - df.iloc[:, 1]
+
+        # Compute mean absolute error (MAE)
         mean = st.mean(abs(df["diff"]))
+
+        # Compute mean squared error (MSE)
         mean_s = st.mean(df["diff"] ** 2)
+
+        # Store results for each shift value
         fh_s.append(i)
         mean_s_ls.append(mean_s)
         mean_abs_ls.append(mean)
 
+    # Create a DataFrame to store results
     results_df = pd.DataFrame(
         {"fh_s": fh_s, "mean_s_ls": mean_s_ls, "mean_abs_ls": mean_abs_ls}
     )
-    # Get the row with the smallest mean squared error
+
+    # Get the shift value that results in the lowest mean squared error (MSE)
     best_fit = results_df.nsmallest(1, "mean_s_ls")
     shifter = best_fit["fh_s"].values[0]
 
+    print("Shifting: ", shifter)  # Print the best shift value
+
+    # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
     ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).fillna(-999)
-    return ldf
+
+    return ldf  # Return the modified DataFrame
 
 
 def model_out(
@@ -206,10 +239,19 @@ def model_out(
     print(f"Length of test DataLoader: {len(test_predictions)}")
     print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
 
-    # Trim the DataFrames to match the DataLoader lengths if necessary
+    # Trim/pad the DataFrames to match the DataLoader lengths if necessary
     if len(df_test.iloc[:, 0]) > len(test_predictions):
         print("Trimming Dataframe")
         df_test = df_test.iloc[-len(test_predictions) :]
+    # Check if df_test is shorter than test_predictions
+    if len(df_test) < len(test_predictions):
+        padding_length = len(test_predictions) - len(df_test)
+        # Create a DataFrame of zeros with the same columns
+        padding_df = pd.DataFrame(
+            0, index=range(padding_length), columns=df_test.columns
+        )
+        # Concatenate the original DataFrame with the padding
+        df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
     df_test[ystar_col] = test_predictions[:, -1, 0]
 
@@ -421,7 +463,7 @@ def main(
         stations,
         target,
         valid_time,
-    ) = create_data_for_lstm_gfs.create_data_for_model(
+    ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
 
@@ -437,6 +479,32 @@ def main(
         nwp_model=nwp_model,
         metvar=metvar,
     )
+
+    # (
+    #     df_test_nysm,
+    #     nwp_test_df_ls,
+    #     features,
+    #     nwp_features,
+    #     stations,
+    #     target,
+    #     image_list_cols,
+    # ) = create_data_for_nam_sequencer.create_data_for_model(
+    #     station, fh, today_date, metvar, train = False
+    # )
+
+    # test_dataset = sequencer.SequenceDatasetMultiTask(
+    #     dataframe=df_test_nysm,
+    #     target=target,
+    #     features=features,
+    #     nwp_features=nwp_features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    #     image_list_cols=image_list_cols,
+    #     dataframe_ls=nwp_test_df_ls,
+    # )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
 
@@ -461,21 +529,27 @@ def main(
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
         model.decoder.load_state_dict(torch.load(decoder_path))
-    # make sure main is commented when you run or the first run will do whatever station is listed in main
+
+    # df_out = model_out(
+    #     nwp_test_df_ls[int((fh)-1)], test_dataset, model, batch_size, target, features, device, station
+    # )
+    # # Trim valid_time to match the length of df_out
+    # valid_time = nwp_test_df_ls[int((fh)-1)]['valid_time']
+
     df_out = model_out(
         df_eval, test_dataset, model, batch_size, target, features, device, station
     )
-
     # Trim valid_time to match the length of df_out
     valid_time = valid_time[: len(df_out)]
+
     df_out["valid_time"] = valid_time
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
     # calculate post processing on validation set
-    time1 = datetime(2022, 1, 1, 0, 0, 0)
-    time2 = datetime(2022, 12, 31, 23, 59, 0)
+    time1 = datetime(2023, 1, 1, 0, 0, 0)
+    time2 = datetime(2023, 12, 31, 23, 59, 0)
     df_calc = date_filter(df_out, time1, time2)
     df_calc, diff = refit(df_calc)
 
@@ -486,8 +560,8 @@ def main(
     df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
-    time3 = datetime(2023, 1, 1, 0, 0, 0)
-    time4 = datetime(2023, 12, 31, 23, 59, 0)
+    time3 = datetime(2024, 1, 1, 0, 0, 0)
+    time4 = datetime(2024, 12, 31, 23, 59, 0)
     df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
@@ -548,33 +622,31 @@ def main(
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     df_out_new_quad.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
 
 
-c = "Northern Plateau"
-nwp = "GFS"
-metvar_ls = ["t2m"]
+c = "Hudson Valley"
+nwp = "HRRR"
+metvar_ls = ["u_total", "tp", "t2m"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# stations = df["stid"].unique()
-stations = ["CROG"]
-
+stations = df["stid"].unique()
 
 for m in metvar_ls:
     print(m)
-    for f in np.arange(3, 37, 3):
+    for f in np.arange(1, 19):
         print(f)
         for s in stations:
             print(s)
             main(
-                batch_size=int(500),
+                batch_size=int(1000),
                 station=s,
                 num_layers=3,
                 fh=f,
