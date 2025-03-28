@@ -495,7 +495,7 @@ def main(
     # End of MAIN
 
 
-c = "Western Plateau"
+c = "Eastern Plateau"
 metvar_ls = ["u_total", "t2m", "tp"]
 nwp_model = "HRRR"
 
@@ -503,7 +503,7 @@ nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
 
-for f in np.arange(7, 19):
+for f in np.arange(10, 19):
     print(f)
     for s in stations:
         for metvar in metvar_ls:

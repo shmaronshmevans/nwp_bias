@@ -279,6 +279,7 @@ def date_filter(ldf, time1, time2):
 def random_sampler(df, n):
     # Get the list of indices from the DataFrame
     i = df.index.tolist()
+    print(len(i))
 
     # Randomly sample 20 values from the index list
     sampled_indices = random.sample(i, n)
@@ -632,9 +633,9 @@ def main(
     # END OF MAIN
 
 
-c = "Hudson Valley"
+c = "Mohawk Valley"
 nwp = "HRRR"
-metvar_ls = ["u_total", "tp", "t2m"]
+metvar_ls = ["t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
@@ -645,14 +646,18 @@ for m in metvar_ls:
         print(f)
         for s in stations:
             print(s)
-            main(
-                batch_size=int(1000),
-                station=s,
-                num_layers=3,
-                fh=f,
-                clim_div=c,
-                nwp_model=nwp,
-                metvar=m,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-            )
-            gc.collect()
+            try:
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    fh=f,
+                    clim_div=c,
+                    nwp_model=nwp,
+                    metvar=m,
+                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+                )
+                gc.collect()
+            except:
+                print("Couldn't evaluate...")
+                print(f"station: {s}, variable: {m}, fh: {f}")

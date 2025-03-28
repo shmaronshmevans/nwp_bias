@@ -94,10 +94,7 @@ def create_data_for_model(station, fh, var):
     nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
 
     hrrr_df1 = hrrr_df[hrrr_df["station"] == station]
-    nysm_df1 = nysm_df[nysm_df["station"] == stations]
-
-    # format for LSTM
-    hrrr_df1 = columns_drop_hrrr(hrrr_df1)
+    nysm_df1 = nysm_df[nysm_df["station"] == station]
 
     nysm_df1 = nysm_df1.drop(
         columns=[
@@ -112,7 +109,7 @@ def create_data_for_model(station, fh, var):
     # options are {
     # t2m, mslma, tp, u_total
     # }
-    the_df = nwp_error(metvar, station, master_df)
+    the_df = nwp_error(var, station, master_df)
 
     return the_df
 
@@ -145,25 +142,40 @@ def un_normalize(station, metvar, df):
             og_data_df_filtered = og_data_df[
                 og_data_df["valid_time"] == t
             ]  # Filter original data
-            og_value = og_data_df_filtered.values  # Extract values from original data
 
             if not filtered_df.empty:  # Check if matching data exists
                 if fh == 1:
+                    og_value = og_data_df_filtered[
+                        "target_error"
+                    ].values  # Extract values from original data
                     lstm_value = filtered_df[
                         f"target_error_lead_0"
                     ].values  # Extract LSTM-predicted error
                 else:
                     lstm_value = filtered_df[
-                        f"target_error_lead_0"
+                        f"target_error_lead_0_{fh}"
                     ].values  # Extract LSTM-predicted error
+                    og_value = og_data_df_filtered[
+                        f"target_error"
+                    ].values  # Extract values from original data
 
                 # Prevent division by zero
-                if lstm_value == 0 or og_value == 0:
+                print(og_value, lstm_value)
+                if (lstm_value == 0).any() or (og_value == 0).any():
                     continue
 
                 # Compute the scaling factor to revert normalization
-                diff = lstm_value / og_value
-                print("Data Loss from normalization, coefficient... ", diff)
+                diff = og_value[0] / lstm_value[0]
+                # make sure the multiplier is positive
+                if diff < 0:
+                    continue
+
+                print(
+                    "Data Loss from normalization, coefficient... ",
+                    lstm_value[0] / og_value[0],
+                )
+                print()
+                print("multiply ", diff)
 
                 # Apply the scaling factor to revert normalization
                 if fh == 1:
@@ -178,9 +190,38 @@ def un_normalize(station, metvar, df):
                     df[f"diff_{fh}"] = (
                         df[f"target_error_lead_0_{fh}"] - df[f"Model forecast_{fh}"]
                     )
-
                 break  # Stop iterating over times once a match is found
             else:
                 continue  # Continue looping if no match is found
 
     return df  # Return the DataFrame with un-normalized values
+
+
+def un_normalize_mean(station, metvar, df):
+    for fh in np.arange(1, 19):  # Iterate over forecast hours from 1 to 18
+        og_data_df = create_data_for_model(
+            station, fh, metvar
+        )  # Get original model data
+
+        if fh == 1:
+            og_mu = st.mean(df["target_error"])
+            lstm_mu = st.mean(df["target_error_lead_0"])
+        else:
+            og_mu = st.mean(df[f"target_error_{fh}"])
+            lstm_mu = st.mean(df[f"target_error_lead_0_{fh}"])
+
+        diff = og_mu / lstm_mu
+        print("The multiplier is...", diff)
+        # Apply the scaling factor to revert normalization
+        if fh == 1:
+            df["target_error_lead_0"] = df["target_error_lead_0"] * diff
+            df["Model forecast"] = df["Model forecast"] * diff
+            df["diff"] = df["target_error_lead_0"] - df["Model forecast"]
+        else:
+            df[f"target_error_lead_0_{fh}"] = df[f"target_error_lead_0_{fh}"] * diff
+            df[f"Model forecast_{fh}"] = df[f"Model forecast_{fh}"] * diff
+            df[f"diff_{fh}"] = (
+                df[f"target_error_lead_0_{fh}"] - df[f"Model forecast_{fh}"]
+            )
+
+    return df
