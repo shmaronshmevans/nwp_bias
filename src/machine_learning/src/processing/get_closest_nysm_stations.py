@@ -8,6 +8,7 @@ from sklearn import utils
 def get_closest_stations(nysm_df, neighbors, target_station, nwp_model):
     # Earth's radius in kilometers
     EARTH_RADIUS_KM = 6378
+    nysm_df = nysm_df[nysm_df["station"] != "LKPL"]
 
     lats = nysm_df["lat"].unique()
     lons = nysm_df["lon"].unique()

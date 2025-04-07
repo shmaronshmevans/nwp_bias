@@ -252,7 +252,7 @@ class SequenceDatasetMultiTask(Dataset):
                 (int(self.forecast_steps), x.shape[1]),
                 dtype=torch.float32,
                 device=self.device,
-            ).unsqueeze(1)
+            )
 
             for n, t in enumerate(times_y):
                 match = self.nwp_dataframe_ls[n].loc[

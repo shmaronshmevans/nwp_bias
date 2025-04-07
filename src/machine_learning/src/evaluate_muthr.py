@@ -301,7 +301,9 @@ def z_score(new_df):
 
 
 def refit(df):
-    indexes = random_sampler(df, 200)
+    ruler = len(df)
+    tithe = ruler * 0.1
+    indexes = random_sampler(df, int(tithe))
     df = df.loc[indexes]
 
     targets = []
@@ -337,6 +339,7 @@ def linear_fit(df, df_out, diff):
     for i in top_200_indexes:
         target, lstm_val, _, _ = df.loc[i].values
         alpha = abs(target / lstm_val)
+        print(alpha)
         if alpha > 12:
             continue
         else:
@@ -633,9 +636,9 @@ def main(
     # END OF MAIN
 
 
-c = "Mohawk Valley"
+c = "Northern Plateau"
 nwp = "HRRR"
-metvar_ls = ["t2m", "tp"]
+metvar_ls = ["u_total", "t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == c]
 stations = df["stid"].unique()
@@ -646,18 +649,18 @@ for m in metvar_ls:
         print(f)
         for s in stations:
             print(s)
-            try:
-                main(
-                    batch_size=int(1000),
-                    station=s,
-                    num_layers=3,
-                    fh=f,
-                    clim_div=c,
-                    nwp_model=nwp,
-                    metvar=m,
-                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-                )
-                gc.collect()
-            except:
-                print("Couldn't evaluate...")
-                print(f"station: {s}, variable: {m}, fh: {f}")
+            # try:
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp,
+                metvar=m,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+            )
+            gc.collect()
+            # except:
+            #     print("Couldn't evaluate...")
+            #     print(f"station: {s}, variable: {m}, fh: {f}")

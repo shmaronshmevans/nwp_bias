@@ -48,7 +48,7 @@ def get_errors(lookup_path, station, metvar):
 
 
 def func_main(path, stations, metvar, clim_div, nwp_model):
-    master_df_ls = ["station", "mae", "mse", "fh"]
+    master_df_ls = []
     for s in stations:
         lookup_path = f"{path}/{s}"
         error_output_bulk_funcs.make_directory(
@@ -56,7 +56,7 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         )
 
         df, met_df = get_errors(lookup_path, s, metvar)
-        df = un_normalize_out.un_normalize_mean(s, metvar, df)
+        df = un_normalize_out.un_normalize(s, metvar, df)
 
         ## plot fh_drift
         mae_ls = []
@@ -216,7 +216,7 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         #     clim_div,
         #     metvar
         # )
-    master_df = pd.concat(master_df_ls, ignore_index=True)
+    master_df = pd.DataFrame(master_df_ls, columns=["station", "mae", "mse", "fh"])
     master_df.set_index(["station", "fh"], inplace=True)
     master_df.to_parquet(
         f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_error_metrics_master.parquet"
@@ -227,15 +227,14 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 ## END OF MAIN
 
 
-clim_div = "St. Lawrence Valley"
+clim_div = "Northern Plateau"
 lookup_path = (
     f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus"
 )
-metvar_ls = ["t2m", "u_total", "tp"]
+metvar_ls = ["tp", "t2m", "u_total"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 stations = df["stid"].unique()
-stations = stations[stations != "NHUD"]
 print(stations)
 
 if __name__ == "__main__":

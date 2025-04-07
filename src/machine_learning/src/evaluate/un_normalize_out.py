@@ -159,15 +159,15 @@ def un_normalize(station, metvar, df):
                         f"target_error"
                     ].values  # Extract values from original data
 
-                # Prevent division by zero
-                print(og_value, lstm_value)
                 if (lstm_value == 0).any() or (og_value == 0).any():
                     continue
 
                 # Compute the scaling factor to revert normalization
                 diff = og_value[0] / lstm_value[0]
-                # make sure the multiplier is positive
-                if diff < 0:
+                # make sure the multiplier is positive or a rational number
+                if abs(diff) < 1:
+                    diff = 1
+                if diff < 0 or diff > 3:
                     continue
 
                 print(
@@ -204,10 +204,10 @@ def un_normalize_mean(station, metvar, df):
         )  # Get original model data
 
         if fh == 1:
-            og_mu = st.mean(df["target_error"])
+            og_mu = st.mean(og_data_df["target_error"])
             lstm_mu = st.mean(df["target_error_lead_0"])
         else:
-            og_mu = st.mean(df[f"target_error_{fh}"])
+            og_mu = st.mean(og_data_df[f"target_error"])
             lstm_mu = st.mean(df[f"target_error_lead_0_{fh}"])
 
         diff = og_mu / lstm_mu

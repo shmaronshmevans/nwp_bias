@@ -708,11 +708,16 @@ def date_filter(ldf, time1, time2):
 
 
 def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
-    # Ensure x_column and y_column remain aligned
     if metvar == "tp":
-        mask = (x_column != 0) & (y_column != 0)
-        x_column = x_column[mask]
-        y_column = y_column[mask]
+        filtered_data = [
+            (x, y)
+            for x, y in zip(x_column, y_column)
+            if abs(x) > 0.15 and abs(y) > 0.15
+        ]
+        if filtered_data:
+            x_column, y_column = zip(*filtered_data)  # Unzip filtered pairs
+        else:
+            x_column, y_column = x_column, y_column  # Keep original data
 
     xy = np.vstack([x_column, y_column])
     z = gaussian_kde(xy)(xy)
@@ -817,14 +822,14 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Plot mae_ls
     plt.plot(fh, mae_ls, label="MAE", marker="o", linestyle="-", color="blue")
-    plt.scatter(fh, mae_ls, marker="o", s=75, color="blue")
+    plt.scatter(fh, mae_ls, marker="o", s=100, color="blue")
     # Annotate mae_ls points
     for i, txt in enumerate(mae_ls):
         plt.annotate(
             f"{txt:.2f}",
             (fh[i], mae_ls[i]),
             textcoords="offset points",
-            xytext=(0, 10),
+            xytext=(0, 12),
             ha="center",
             fontsize=10,
             color="blue",
@@ -832,33 +837,33 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Plot sq_ls
     plt.plot(fh, sq_ls, label="MSE", marker="x", linestyle="-", color="green")
-    plt.scatter(fh, sq_ls, marker="x", s=75, color="green")
+    plt.scatter(fh, sq_ls, marker="x", s=100, color="green")
     # Annotate sq_ls points
     for i, txt in enumerate(sq_ls):
         plt.annotate(
             f"{txt:.2f}",
             (fh[i], sq_ls[i]),
             textcoords="offset points",
-            xytext=(0, 10),
+            xytext=(0, 12),
             ha="center",
             fontsize=10,
             color="green",
         )
 
     # Plot r2_ls
-    # plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
-    # plt.scatter(fh, r2_ls, marker="s", color="red")
+    plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
+    plt.scatter(fh, r2_ls, marker="s", s=100, color="red")
     # Annotate r2_ls points
-    # for i, txt in enumerate(r2_ls):
-    #     plt.annotate(
-    #         f"{txt:.2f}",
-    #         (fh[i], r2_ls[i]),
-    #         textcoords="offset points",
-    #         xytext=(0, -15),
-    #         ha="center",
-    #         fontsize=10,
-    #         color="red",
-    #     )
+    for i, txt in enumerate(r2_ls):
+        plt.annotate(
+            f"{txt:.2f}",
+            (fh[i], r2_ls[i]),
+            textcoords="offset points",
+            xytext=(0, -15),
+            ha="center",
+            fontsize=10,
+            color="red",
+        )
 
     # Add labels, legend, and title
     plt.xlabel("Forecast Hour (FH)", fontsize=20)
@@ -911,4 +916,5 @@ def calculate_r2(df):
         r2_ = r2_score(targets_, lstms_)
         r2_ls.append(r2_)
 
+    r2_ls = [max(0, r) for r in r2_ls]
     return r2_ls
