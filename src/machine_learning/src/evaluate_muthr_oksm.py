@@ -30,10 +30,12 @@ from data import (
     create_data_for_lstm_gfs,
 )
 
-from evaluate import un_normalize_out
-
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
+
+import torch
+from torch.utils.data import Dataset
+
 import random
 
 # from new_sequencer import (
@@ -41,6 +43,10 @@ import random
 #     create_data_for_nam_sequencer,
 #     sequencer,
 # )
+
+from data import (
+    create_data_for_lstm_oksm,
+)
 
 print("imports downloaded")
 
@@ -211,6 +217,8 @@ def linear_fit(df, df_out, diff):
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
     length = len(df["target_error"].values)
+    tener = int(length * 0.05)
+    print(tener)
     top_200_max_values = df["target_error"].nlargest(250)
     top_200_indexes = top_200_max_values.index
 
@@ -228,9 +236,9 @@ def linear_fit(df, df_out, diff):
     multiply = st.mean(alphas)
 
     df_out["Model forecast"] = df_out["Model forecast"] * multiply
-    df_out, diff = refit_output(df_out, diff)
+    df_out = refit_output(df_out, diff)
 
-    return df_out, multiply, diff
+    return df_out, multiply
 
 
 def refit_output(df, diff):
@@ -241,12 +249,11 @@ def refit_output(df, diff):
     mean3 = st.median(df["target_error"])
     mean4 = st.median(df["Model forecast"])
 
-    # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their median
+    # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their medians
     df["target_error"] = df["target_error"] - mean3
     df["Model forecast"] = df["Model forecast"] - mean4
-    diff += mean4
 
-    return df, diff
+    return df
 
 
 def get_performance_metrics(df):
@@ -255,6 +262,25 @@ def get_performance_metrics(df):
     mse = st.mean(df["diff"] ** 2)
 
     return mae, mse
+
+
+def quadratic_fit(df_calc, df_out, diff):
+    df_calc = df_calc.copy()
+    df_out = df_out.copy()
+    # Fit a quadratic polynomial (degree 2) to the residuals
+    # polyfit returns the coefficients for a quadratic fit: ax^2 + bx + c
+    coefficients = np.polyfit(df_calc["Model forecast"], df_calc["diff"], 2)
+    # Create a polynomial function using the coefficients
+    quadratic_fit = np.poly1d(coefficients)
+
+    # adjust total model output
+    adjusted_lstm_output = df_out["Model forecast"] + quadratic_fit(
+        df_out["Model forecast"]
+    )
+    df_out["Model forecast"] = adjusted_lstm_output
+    df_out = refit_output(df_out, diff)
+
+    return df_out, quadratic_fit
 
 
 def align_predictions_with_targets(
@@ -317,8 +343,34 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+
+    # (
+    #     df_train,
+    #     df_test,
+    #     df_val,
+    #     features,
+    #     forecast_lead,
+    #     stations,
+    #     target,
+    #     valid_time,
+    # ) = create_data_for_lstm.create_data_for_model(
+    #     station, fh, today_date, metvar
+    # )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+
+    # df_eval = pd.concat([df_train, df_val, df_test])
+
+    # test_dataset = SequenceDataset(
+    #     df_eval,
+    #     target=target,
+    #     features=features,
+    #     sequence_length=sequence_length,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model=nwp_model,
+    #     metvar=metvar,
+    # )
 
     (
         df_train,
@@ -328,12 +380,13 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm.create_data_for_model(
+    ) = create_data_for_lstm_oksm.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
 
     df_eval = pd.concat([df_train, df_val, df_test])
-
+    df_eval.to_parquet('/home/aevans/nwp_bias/src/machine_learning/src/check.parquet')
+    exit()
     test_dataset = SequenceDatasetMultiTask(
         dataframe=df_eval,
         target=target,
@@ -346,6 +399,7 @@ def main(
 
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
+
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
 
@@ -386,10 +440,9 @@ def main(
     )
     valid_time = vt[: len(df_out)]
     df_out["valid_time"] = valid_time
-    #un_normalize data
-    df_out= un_normalize_out.un_normalize(station, metvar, df_out)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
+
         f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
@@ -399,15 +452,34 @@ def main(
     df_calc = date_filter(df_out, time1, time2)
     df_calc, diff = refit(df_calc)
 
+    # quadratic fit
+    df_out_new_quad, quad_fit = quadratic_fit(df_calc, df_out, diff)
+
     # # linear fit
-    df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
+    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
     time4 = datetime(2024, 12, 31, 23, 59, 0)
+    df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
+    # Get performance metrics
+    mae1, mse1 = get_performance_metrics(df_evaluate_quad)
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+
+    # quadratic save
+    df_save_quad = pd.DataFrame(
+        {
+            "station": [station],
+            "forecast_hour": [fh],
+            "alpha": [quad_fit[0]],
+            "beta": [quad_fit[1]],
+            "charli": [quad_fit[2]],
+            "mae": [mae1],
+            "mse": [mse1],
+        }
+    )
 
     # linear save
     df_save_linear = pd.DataFrame(
@@ -419,6 +491,19 @@ def main(
             "mae": [mae2],
             "mse": [mse2],
         }
+    )
+
+    if os.path.exists(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv"
+    ):
+        df_og_quad = pd.read_csv(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv"
+        )
+        df_save_quad = pd.concat([df_og_quad, df_save_quad])
+
+    df_save_quad.to_csv(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_quad.csv",
+        index=False,
     )
 
     if os.path.exists(
@@ -438,37 +523,39 @@ def main(
     df_out_new_linear.to_parquet(
         f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
+    df_out_new_quad.to_parquet(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_quad.parquet"
+    )
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
 
 
+c = "Central"
 nwp = "HRRR"
 metvar_ls = ["u_total", "t2m", "tp"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+df = oksm_clim[oksm_clim["Climate_division"] == c]
+stations = df["stid"].unique()
 
-for c in nysm_clim['climate_division_name'].unique():
-    df = nysm_clim[nysm_clim["Climate_division"] == c]
-    stations = df["stid"].unique()
-
-    for m in metvar_ls:
-        print(m)
-        for f in np.arange(1, 19):
-            print(f)
-            for s in stations:
-                print(s)
-                try:
-                    main(
-                        batch_size=int(1000),
-                        station=s,
-                        num_layers=3,
-                        fh=f,
-                        clim_div=c,
-                        nwp_model=nwp,
-                        metvar=m,
-                        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-                    )
-                    gc.collect()
-                except:
-                    print("Couldn't evaluate...")
-                    print(f"station: {s}, variable: {m}, fh: {f}")
+for m in metvar_ls:
+    print(m)
+    for f in np.arange(1, 19):
+        print(f)
+        for s in stations:
+            print(s)
+            try:
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    fh=f,
+                    clim_div=c,
+                    nwp_model=nwp,
+                    metvar=m,
+                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+                )
+                gc.collect()
+            except:
+                print("Couldn't evaluate...")
+                print(f"station: {s}, variable: {m}, fh: {f}")

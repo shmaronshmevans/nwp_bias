@@ -916,5 +916,6 @@ def calculate_r2(df):
         r2_ = r2_score(targets_, lstms_)
         r2_ls.append(r2_)
 
+    # make sure r squared values are positive
     r2_ls = [max(0, r) for r in r2_ls]
     return r2_ls

@@ -32,11 +32,11 @@ from new_sequencer import (
 )
 from profiler_inclusive_model import model_profiler_s2s
 
-# from data import (
-#     create_data_for_lstm,
-#     create_data_for_lstm_gfs,
-#     create_data_for_lstm_nam,
-# )
+from data import (
+    create_data_for_lstm,
+    create_data_for_lstm_gfs,
+    create_data_for_lstm_nam,
+)
 
 
 class ZScoreNormalization:
@@ -64,169 +64,169 @@ class ZScoreNormalization:
         return image
 
 
-class SequenceDatasetMultiTask(Dataset):
-    """Dataset class for multi-task learning with station-specific data."""
+# class SequenceDatasetMultiTask(Dataset):
+#     """Dataset class for multi-task learning with station-specific data."""
 
-    def __init__(
-        self,
-        dataframe,
-        target,
-        features,
-        sequence_length,
-        forecast_steps,
-        device,
-        nwp_model,
-        metvar,
-        image_list_cols,
-        transform=ZScoreNormalization(),
-    ):
-        self.dataframe = dataframe
-        self.features = features
-        self.target = target
-        self.sequence_length = sequence_length
-        self.forecast_steps = forecast_steps
-        self.device = device
-        self.nwp_model = nwp_model
-        self.metvar = metvar
-        self.transform = transform
-        self.y = torch.tensor(dataframe[target].values).float().to(device)
-        self.X = torch.tensor(dataframe[features].values).float().to(device)
-        self.P_ls = dataframe[image_list_cols].values.tolist()
+#     def __init__(
+#         self,
+#         dataframe,
+#         target,
+#         features,
+#         sequence_length,
+#         forecast_steps,
+#         device,
+#         nwp_model,
+#         metvar,
+#         image_list_cols,
+#         transform=ZScoreNormalization(),
+#     ):
+#         self.dataframe = dataframe
+#         self.features = features
+#         self.target = target
+#         self.sequence_length = sequence_length
+#         self.forecast_steps = forecast_steps
+#         self.device = device
+#         self.nwp_model = nwp_model
+#         self.metvar = metvar
+#         self.transform = transform
+#         self.y = torch.tensor(dataframe[target].values).float().to(device)
+#         self.X = torch.tensor(dataframe[features].values).float().to(device)
+#         self.P_ls = dataframe[image_list_cols].values.tolist()
 
-    def __len__(self):
-        return self.X.shape[0]
+#     def __len__(self):
+#         return self.X.shape[0]
 
-    def __getitem__(self, i):
-        if self.nwp_model == "HRRR":
-            x_start = i
-            x_end = i + (self.sequence_length + self.forecast_steps)
-            y_start = i + self.sequence_length
-            y_end = y_start + self.forecast_steps
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
+#     def __getitem__(self, i):
+#         if self.nwp_model == "HRRR":
+#             x_start = i
+#             x_end = i + (self.sequence_length + self.forecast_steps)
+#             y_start = i + self.sequence_length
+#             y_end = y_start + self.forecast_steps
+#             x = self.X[x_start:x_end, :]
+#             y = self.y[y_start:y_end].unsqueeze(1)
 
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
+#             # # Check if all elements in the target 'y' are zero
+#             # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+#             #     return None  # Skip the sequence if all target values are zero
 
-            if x.shape[0] < (self.sequence_length + self.forecast_steps):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + self.forecast_steps) - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
+#             if x.shape[0] < (self.sequence_length + self.forecast_steps):
+#                 _x = torch.zeros(
+#                     (
+#                         (self.sequence_length + self.forecast_steps) - x.shape[0],
+#                         self.X.shape[1],
+#                     ),
+#                     device=self.device,
+#                 )
+#                 x = torch.cat((x, _x), 0)
 
-            if y.shape[0] < self.forecast_steps:
-                _y = torch.zeros(
-                    (self.forecast_steps - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
+#             if y.shape[0] < self.forecast_steps:
+#                 _y = torch.zeros(
+#                     (self.forecast_steps - y.shape[0], 1), device=self.device
+#                 )
+#                 y = torch.cat((y, _y), 0)
 
-            x[-self.forecast_steps :, -int(4 * 16) :] = x[
-                -int(self.forecast_steps + 1), -int(4 * 16) :
-            ].clone()
+#             x[-self.forecast_steps :, -int(4 * 16) :] = x[
+#                 -int(self.forecast_steps + 1), -int(4 * 16) :
+#             ].clone()
 
-        if self.nwp_model == "GFS":
-            x_start = i
-            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int(self.forecast_steps / 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
+#         if self.nwp_model == "GFS":
+#             x_start = i
+#             x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
+#             y_start = i + self.sequence_length
+#             y_end = y_start + int(self.forecast_steps / 3)
+#             x = self.X[x_start:x_end, :]
+#             y = self.y[y_start:y_end].unsqueeze(1)
 
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
+#             # # Check if all elements in the target 'y' are zero
+#             # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+#             #     return None  # Skip the sequence if all target values are zero
 
-            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int(self.forecast_steps / 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
+#             if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
+#                 _x = torch.zeros(
+#                     (
+#                         (self.sequence_length + int(self.forecast_steps / 3))
+#                         - x.shape[0],
+#                         self.X.shape[1],
+#                     ),
+#                     device=self.device,
+#                 )
+#                 x = torch.cat((x, _x), 0)
 
-            if y.shape[0] < int(self.forecast_steps / 3):
-                _y = torch.zeros(
-                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
+#             if y.shape[0] < int(self.forecast_steps / 3):
+#                 _y = torch.zeros(
+#                     (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
+#                 )
+#                 y = torch.cat((y, _y), 0)
 
-            x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
-                -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
-            ].clone()
+#             x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
+#                 -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
+#             ].clone()
 
-        if self.nwp_model == "NAM":
-            x_start = i
-            x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int((self.forecast_steps + 2) // 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
+#         if self.nwp_model == "NAM":
+#             x_start = i
+#             x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
+#             y_start = i + self.sequence_length
+#             y_end = y_start + int((self.forecast_steps + 2) // 3)
+#             x = self.X[x_start:x_end, :]
+#             y = self.y[y_start:y_end].unsqueeze(1)
 
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
+#             # # Check if all elements in the target 'y' are zero
+#             # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
+#             #     return None  # Skip the sequence if all target values are zero
 
-            if x.shape[0] < (
-                self.sequence_length + int((self.forecast_steps + 2) // 3)
-            ):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int((self.forecast_steps + 2) // 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
+#             if x.shape[0] < (
+#                 self.sequence_length + int((self.forecast_steps + 2) // 3)
+#             ):
+#                 _x = torch.zeros(
+#                     (
+#                         (self.sequence_length + int((self.forecast_steps + 2) // 3))
+#                         - x.shape[0],
+#                         self.X.shape[1],
+#                     ),
+#                     device=self.device,
+#                 )
+#                 x = torch.cat((x, _x), 0)
 
-            if y.shape[0] < int((self.forecast_steps + 2) // 3):
-                _y = torch.zeros(
-                    (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
-                    device=self.device,
-                )
-                y = torch.cat((y, _y), 0)
+#             if y.shape[0] < int((self.forecast_steps + 2) // 3):
+#                 _y = torch.zeros(
+#                     (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
+#                     device=self.device,
+#                 )
+#                 y = torch.cat((y, _y), 0)
 
-            x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
-                -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
-            ].clone()
+#             x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
+#                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
+#             ].clone()
 
-        idx = min(i + self.sequence_length, len(self.P_ls) - 1)
-        img_name = self.P_ls[idx]  # This avoids an out-of-range error
-        images = []
+#         idx = min(i + self.sequence_length, len(self.P_ls) - 1)
+#         img_name = self.P_ls[idx]  # This avoids an out-of-range error
+#         images = []
 
-        for img in img_name:
-            # Load the image
-            image = np.load(img).astype(np.float32)
+#         for img in img_name:
+#             # Load the image
+#             image = np.load(img).astype(np.float32)
 
-            # Apply transform if available
-            if self.transform:
-                image = self.transform(image)
+#             # Apply transform if available
+#             if self.transform:
+#                 image = self.transform(image)
 
-            target_shape = (121, 6, 11)
-            if image.shape != target_shape:
-                pad_size = [
-                    0,
-                    target_shape[-1] - image.shape[-1],
-                    0,
-                    target_shape[-2] - image.shape[-2],  # Pad height
-                    0,
-                    target_shape[-3] - image.shape[-3],
-                ]  # Pad depth/channels
-                image = F.pad(image, pad_size, mode="constant", value=0)
+#             target_shape = (121, 6, 11)
+#             if image.shape != target_shape:
+#                 pad_size = [
+#                     0,
+#                     target_shape[-1] - image.shape[-1],
+#                     0,
+#                     target_shape[-2] - image.shape[-2],  # Pad height
+#                     0,
+#                     target_shape[-3] - image.shape[-3],
+#                 ]  # Pad depth/channels
+#                 image = F.pad(image, pad_size, mode="constant", value=0)
 
-            images.append(image.clone().detach())
-        images = torch.stack(images)
-        images = torch.tensor(images).to(torch.float32).to(self.device)
+#             images.append(image.clone().detach())
+#         images = torch.stack(images)
+#         images = torch.tensor(images).to(torch.float32).to(self.device)
 
-        return x, images, y
+#         return x, images, y
 
 
 class EarlyStopper:
@@ -300,7 +300,7 @@ def main(
     metvar,
     sequence_length=15,
     target="target_error",
-    learning_rate=9e-7,
+    learning_rate=9e-6,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -315,9 +315,9 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
-    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder_radio.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder_radio.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit_radio.pth"
     # (
     #     df_train,
     #     df_test,
@@ -333,21 +333,20 @@ def main(
     # )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
 
     (
-        df_train_nysm,
-        df_val_nysm,
-        nwp_train_df_ls,
-        nwp_val_df_ls,
+        df_train,
+        df_test,
+        df_val,
         features,
-        nwp_features,
+        forecast_lead,
         stations,
         target,
+        vt,
         image_list_cols,
-    ) = create_data_for_hrrr_sequencer.create_data_for_model(
+    ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date, metvar
-    )
+    )  # to change which model you are matching for you need to chage which
 
     print("FEATURES", features)
-    print("NWP_FEATURES", nwp_features)
     print()
     print("TARGET", target)
 
@@ -358,31 +357,26 @@ def main(
     )
 
     train_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_train_nysm,
+        dataframe=df_train,
         target=target,
         features=features,
-        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
-        dataframe_ls=nwp_train_df_ls,
     )
 
+    df_test = pd.concat([df_val, df_test])
     test_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_val_nysm,
+        dataframe=df_test,
         target=target,
         features=features,
-        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
         image_list_cols=image_list_cols,
-        dataframe_ls=nwp_val_df_ls,
     )
 
     # train_dataset = SequenceDatasetMultiTask(

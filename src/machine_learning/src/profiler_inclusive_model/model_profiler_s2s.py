@@ -90,7 +90,7 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             device=device,
         )
 
-        self.hidden_proj = self.hidden_proj = nn.Linear(1920, 960)
+        self.hidden_proj = self.hidden_proj = nn.Linear(4416, 1728)
 
     def train_model(
         self,

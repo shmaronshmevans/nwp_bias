@@ -15,7 +15,8 @@ def get_raw_nysm_data(year):
     avail_months = [int(x.split("/")[-1]) for x in file_dirs]
 
     df_nysm_list = []
-    for x in range(avail_months[0], avail_months[-1] + 1):
+    # for x in range(avail_months[0], avail_months[-1] + 1):
+    for x in ['01', '02', '03', '04']:
         print("month index: ", x)
         ds_nysm_month = xr.open_mfdataset(f"{nysm_path}{str(x).zfill(2)}/*.nc")
         df_nysm_list.append(ds_nysm_month.to_dataframe())
@@ -72,20 +73,10 @@ def get_resampled_precip_data(df, interval, method):
     interval: the frequency at which the data should be resampled
     method: min, max, mean, etc. [str]
     """
-    print(df)
     precip_diff = df.groupby("station").diff().reset_index()
     # remove unrealistic precipitation values (e.g., > 500 mm / 5 min)
     precip_diff.loc[precip_diff["precip_total"] > 500.0, "precip_total"] = np.nan
-    print(precip_diff)
-    print(
-        precip_diff.groupby(["station", pd.Grouper(freq=interval, key="time_5M")])[
-            "precip_total"
-        ]
-        .apply(method)
-        .rename_axis(index={"time_5M": f"time_{interval}"})
-        .reset_index()
-        .set_index(["station", f"time_{interval}"])
-    )
+    precip_diff.loc[precip_diff["precip_total"] < 0.0, "precip_total"] = 0.0
     return (
         precip_diff.groupby(["station", pd.Grouper(freq=interval, key="time_5M")])[
             "precip_total"
@@ -156,16 +147,9 @@ def get_nysm_dataframe_for_resampled(df_nysm, freq):
 
     precip_combined = pd.concat(precip_dfs, axis=1)
     wind_combined = pd.concat(wind_dfs, axis=1)
-    print(precip_combined)
-    print(wind_combined)
 
     # Concatenate precip and wind data frames
     nysm_obs = pd.concat([wind_combined, precip_combined], axis=1)
-
-    # Apply condition to precip_total column
-    nysm_obs["precip_total"] = nysm_obs["precip_total"].apply(
-        lambda x: np.where(x < 0.0, np.nan, x)
-    )
 
     return nysm_obs
 
@@ -187,8 +171,8 @@ def main(year):
     nysm_3H_obs.to_parquet(f"{save_path}nysm_3H_obs_{year}.parquet")
 
 
-# main(2023)
-years = [str(x) for x in np.arange(2024, 2025)]
+years = [str(x) for x in np.arange(2025, 2026)]
 
 for year in years:
+    print(year)
     main(year)

@@ -305,9 +305,9 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    lstm_encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
-    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder_radio.pth"
+    lstm_encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder_radio.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder_radio.pth"
 
     (
         df_train,
@@ -315,13 +315,14 @@ def main(
         df_val,
         features,
         forecast_lead,
+        nwp_features,
         stations,
         target,
         vt,
-        radiometer_stations,
+        image_list_cols,
     ) = create_data_for_lstm.create_data_for_model(
         station, fh, today_date, metvar
-    )  # to change which model you are matching for you need to chage which change_data_for_lstm you are pulling from
+    )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()
     print("RADIOMETER STATIONS", radiometer_stations)
@@ -334,27 +335,27 @@ def main(
         workspace="shmaronshmevans",
     )
 
-    train_dataset = SequenceDatasetMultiTask(
+    train_dataset = sequencer.SequenceDatasetMultiTask(
         dataframe=df_train,
         target=target,
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
     df_test = pd.concat([df_val, df_test])
-    test_dataset = SequenceDatasetMultiTask(
+    test_dataset = sequencer.SequenceDatasetMultiTask(
         dataframe=df_test,
         target=target,
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
     train_kwargs = {

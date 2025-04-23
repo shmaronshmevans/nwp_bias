@@ -4,26 +4,35 @@ import glob
 import numpy as np
 import metpy.calc as mpcalc
 from metpy.units import units
-import datetime
+from datetime import datetime
 import functools as ft
 
 
+def date_filter(ldf, year):
+    time1 = datetime(year, 1, 1, 0, 0, 0)
+    time2 = datetime((year + 1), 1, 1, 0, 0, 0)
+    ldf = ldf[ldf["time"] > time1]
+    ldf = ldf[ldf["time"] < time2]
+    return ldf
+
+
 def get_raw_oksm_data(year):
-    oksm_path = f"/home/aevans/nwp_bias/src/landtype/NY_cartopy/oksm_v2"
+    oksm_path = f"/home/aevans/nwp_bias/src/landtype/NY_cartopy/oksm_v3"
     file_dirs = glob.glob(f"{oksm_path}/*")
     file_dirs.sort()
 
     df_oksm_list = []
     print(f"importing files...")
     for x, _ in enumerate(file_dirs):
-        ds_oksm = pd.read_csv(file_dirs[x])
+        ds_oksm = pd.read_parquet(file_dirs[x])
+        ds_oksm.sort_index(inplace=True)
+        ds_oksm.reset_index(inplace=True)
 
-        find_year = ds_oksm.where(ds_oksm["TIME"] < str(year + 1))
-        find_year_r2 = find_year.where(find_year["TIME"] > str(year))
-        df_oksm_list.append(find_year_r2)
+        ds_year = date_filter(ds_oksm, year)
+        df_oksm_list.append(ds_year)
 
-    df_oksm = pd.concat(df_oksm_list).dropna()
-    df_oksm = format_ok(df_oksm).dropna()
+    df_oksm = pd.concat(df_oksm_list)
+    df_oksm = format_ok(df_oksm)
 
     # import elevations to dataframe
     df_lon = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/geoinfo.csv")
@@ -62,7 +71,6 @@ def get_raw_oksm_data(year):
     )
 
     oksm_sites = df_oksm.reset_index()["station"].unique()
-
     return df_oksm_, oksm_sites
 
 
@@ -79,31 +87,56 @@ def get_valid_time_data(df, hours_list, interval):
     return df_return
 
 
+
 def get_resampled_precip_data(df, interval, method):
     """
     df: main dataframe [pandas dataframe]
     interval: the frequency at which the data should be resampled
     method: min, max, mean, etc. [str]
     """
-    precip_diff = df.groupby("station").diff().reset_index().set_index("valid_time")
+    precip_diff = df.groupby("station").diff().reset_index()
     # remove unrealistic precipitation values (e.g., > 500 mm / 5 min)
     precip_diff.loc[precip_diff["precip_total"] > 500.0, "precip_total"] = np.nan
-    a = (
-        precip_diff.groupby("station")
-        .resample(interval, label="right")
+    precip_diff.loc[precip_diff["precip_total"] < 0.0, "precip_total"] = 0.0
+    precip_final = (
+        precip_diff.groupby(["station", pd.Grouper(freq=interval, key="valid_time")])[
+            "precip_total"
+        ]
         .apply(method)
         .rename_axis(index={"valid_time": f"time_{interval}"})
+        .reset_index()
+        .set_index(["station", f"time_{interval}"])
     )
+    print()
+    print('PRECIP', precip_final)
+    return precip_final
 
-    a.drop(columns=["station"], inplace=True)
-    return a
+
+def get_resampled_wind_data(df, interval, method):
+    """
+    df: main dataframe [pandas dataframe]
+    interval: the frequency at which the data should be resampled
+    method: min, max, mean, etc. [str]
+    """
+    df = df.reset_index()
+    wind_resampled = (
+        df.groupby(["station", pd.Grouper(freq=interval, key="valid_time")])["wspd_sonic"]
+        .apply(method)
+        .rename(f"wspd_sonic_{method}")
+        .rename_axis(index={"valid_time": f"time_{interval}"})
+        .reset_index()
+        .set_index(["station", f"time_{interval}"])
+    )
+    print()
+    print('WIND', wind_resampled)
+    return wind_resampled
 
 
 def format_ok(df):
     df = df.rename(
         columns={
             "STID": "station",
-            "TIME": "valid_time",
+            "time": "valid_time",
             "PRES": "pres",
             "TAIR": "tair",
             "TDEW": "td",
@@ -112,8 +145,29 @@ def format_ok(df):
             "WMAX": "wmax_sonic",
             "WDIR": "wdir_sonic",
             "RAIN": "precip_total",
+            "SRAD": "srad",
+            "TA9M": "ta9m",
         }
     )
+
+    # Columns you want to convert to float
+    float_columns = [
+        "pres",
+        "tair",
+        "td",
+        "relh",
+        "wspd_sonic",
+        "wmax_sonic",
+        "wdir_sonic",
+        "precip_total",
+        "srad",
+        "ta9m",
+    ]
+
+    # Convert to float
+    for col in float_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
 
@@ -123,9 +177,10 @@ def get_oksm_dataframe_for_resampled(df_oksm, freq):
         "lon",
         "elev",
         "tair",
+        "ta9m",
         "td",
         "relh",
-        "SRAD",
+        "srad",
         "pres",
         "mslp",
         "wspd_sonic",
@@ -137,23 +192,25 @@ def get_oksm_dataframe_for_resampled(df_oksm, freq):
         hours_list = np.arange(0, 24)  # every hour
     elif freq == "3H":
         hours_list = np.arange(0, 24, 3)  # every 3 hours
-    dfs = []
-    print(df_oksm)
+    wind_dfs = []
+    precip_dfs = []
     for var in oksm_vars:
-        if var in ["precip_total"]:
+        if var == "precip_total":
             print(var)
-            dfs += [get_resampled_precip_data(df_oksm[var], freq, "sum")]
+            precip_dfs.append(get_resampled_precip_data(df_oksm[var], freq, "sum"))
+        elif var == "wspd_sonic":
+            wind_dfs.append(get_resampled_wind_data(df_oksm[var], freq, "mean"))
+            wind_dfs.append(get_valid_time_data(df_oksm[var], hours_list, freq))
         else:
             print(var)
-            dfs += [get_valid_time_data(df_oksm[var], hours_list, freq)]
+            wind_dfs.append(get_valid_time_data(df_oksm[var], hours_list, freq))
 
-    dfs = [df.loc[~df.index.duplicated(keep="first")] for df in dfs]
-    oksm_obs = pd.concat(dfs, axis=1)
-    oksm_obs["precip_total"] = oksm_obs["precip_total"].apply(
-        lambda x: np.where(x < 0.0, np.nan, x)
-    )
-    oksm_obs["tair"] = (oksm_obs["tair"] - 32) * (5 / 9)
-
+    precip_combined = pd.concat(precip_dfs, axis=1)
+    print(precip_combined)
+    wind_combined = pd.concat(wind_dfs, axis=1)
+    print(wind_combined)
+    # dfs = [df.loc[~df.index.duplicated(keep="first")] for df in dfs]
+    oksm_obs = pd.concat([wind_combined, precip_combined], axis=1)
     return oksm_obs
 
 
@@ -175,4 +232,5 @@ def main(year):
 
 
 if __name__ == "__main__":
-    main(2023)
+    for year in np.arange(2019, 2025):
+        main(year)

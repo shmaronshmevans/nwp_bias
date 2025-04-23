@@ -30,7 +30,7 @@ class ZScoreNormalization:
         return image
 
 
-class SequenceDatasetMultiTask(Dataset):
+class SequenceDatasetMultiTask_v2(Dataset):
     """Dataset class for multi-task learning with station-specific data."""
 
     def __init__(
@@ -353,3 +353,96 @@ class SequenceDatasetMultiTask(Dataset):
 
         # return x, images, y
         return x, y
+
+
+class SequenceDatasetMultiTask(Dataset):
+    """Dataset class for multi-task learning with station-specific data."""
+
+    def __init__(
+        self,
+        dataframe,
+        target,
+        features,
+        sequence_length,
+        forecast_steps,
+        device,
+        metvar,
+        image_list_cols,
+        transform=ZScoreNormalization(),
+    ):
+        self.dataframe = dataframe
+        self.features = features
+        self.target = target
+        self.sequence_length = sequence_length
+        self.forecast_steps = forecast_steps
+        self.device = device
+        self.metvar = metvar
+        self.transform = transform
+        self.y = torch.tensor(dataframe[target].values).float().to(device)
+        self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.P_ls = dataframe[image_list_cols].values.tolist()
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, i):
+        x_start = i
+        x_end = i + (self.sequence_length + self.forecast_steps)
+        y_start = i + self.sequence_length
+        y_end = y_start + self.forecast_steps
+        x = self.X[x_start:x_end, :]
+        y = self.y[y_start:y_end].unsqueeze(1)
+
+        if x.shape[0] < (self.sequence_length + self.forecast_steps):
+            _x = torch.zeros(
+                (
+                    (self.sequence_length + self.forecast_steps) - x.shape[0],
+                    self.X.shape[1],
+                ),
+                device=self.device,
+            )
+            x = torch.cat((x, _x), 0)
+
+        if y.shape[0] < self.forecast_steps:
+            _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
+            y = torch.cat((y, _y), 0)
+
+        x[-self.forecast_steps :, -int(4 * 16) :] = x[
+            -int(self.forecast_steps + 1), -int(4 * 16) :
+        ].clone()
+
+        idx = min(i + self.sequence_length, len(self.P_ls) - 1)
+        img_name = self.P_ls[idx]  # This avoids an out-of-range error
+        images = []
+        for img in img_name:
+            # Load the image
+            image = np.load(img).astype(np.float32)
+
+            # Apply transform if available
+            if self.transform:
+                image = self.transform(image)
+
+            # Convert to tensor and move to device
+            images.append(image.clone().detach().to(torch.float32).to(self.device))
+
+        # Stack images into a single tensor
+        images = torch.stack(images)
+
+        # Expected shape
+        expected_shape = (1, 121, 6, 11)
+
+        # Compute padding values (ensure non-negative values)
+        padding = [
+            max(0, expected_shape[3] - images.shape[3]),  # Pad width (last dimension)
+            max(0, expected_shape[2] - images.shape[2]),  # Pad height (third dimension)
+            max(0, expected_shape[1] - images.shape[1]),  # Pad depth
+            max(0, expected_shape[0] - images.shape[0]),
+        ]  # Pad batch/channel
+
+        # Apply padding if necessary
+        if any(p > 0 for p in padding):
+            images = F.pad(
+                images, (0, padding[0], 0, padding[1], 0, padding[2], 0, padding[3])
+            )
+
+        return x, images, y
