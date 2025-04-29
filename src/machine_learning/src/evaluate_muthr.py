@@ -96,7 +96,7 @@ def find_shift(ldf):
     print("Shifting: ", shifter)  # Print the best shift value
 
     # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
-    ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).fillna(-999)
+    ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).dropna()
 
     return ldf  # Return the modified DataFrame
 
@@ -344,7 +344,6 @@ def main(
         metvar=metvar,
     )
 
-
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
@@ -386,8 +385,8 @@ def main(
     )
     valid_time = vt[: len(df_out)]
     df_out["valid_time"] = valid_time
-    #un_normalize data
-    df_out= un_normalize_out.un_normalize(station, metvar, df_out)
+    # un_normalize data
+    df_out = un_normalize_out.un_normalize(station, metvar, df_out)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
         f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
@@ -447,7 +446,7 @@ nwp = "HRRR"
 metvar_ls = ["u_total", "t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
-for c in nysm_clim['climate_division_name'].unique():
+for c in nysm_clim["climate_division_name"].unique():
     df = nysm_clim[nysm_clim["Climate_division"] == c]
     stations = df["stid"].unique()
 

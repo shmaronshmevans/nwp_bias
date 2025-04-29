@@ -16,7 +16,7 @@ def get_raw_nysm_data(year):
 
     df_nysm_list = []
     # for x in range(avail_months[0], avail_months[-1] + 1):
-    for x in ['01', '02', '03', '04']:
+    for x in ["01", "02", "03", "04"]:
         print("month index: ", x)
         ds_nysm_month = xr.open_mfdataset(f"{nysm_path}{str(x).zfill(2)}/*.nc")
         df_nysm_list.append(ds_nysm_month.to_dataframe())

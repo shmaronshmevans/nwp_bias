@@ -380,9 +380,9 @@ stations = df["stid"].unique()
 for f in np.arange(1, 19):
     print(f)
     for s in stations:
-        try:
-            for metvar in metvar_ls:
-                print(s)
+        for metvar in metvar_ls:
+            print(s)
+            try:
                 main(
                     batch_size=int(1000),
                     station=s,
@@ -396,5 +396,5 @@ for f in np.arange(1, 19):
                     metvar=metvar,
                 )
                 gc.collect()
-        except:
-            continue
+            except:
+                continue

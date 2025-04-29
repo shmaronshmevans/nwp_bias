@@ -87,7 +87,6 @@ def get_valid_time_data(df, hours_list, interval):
     return df_return
 
 
-
 def get_resampled_precip_data(df, interval, method):
     """
     df: main dataframe [pandas dataframe]
@@ -108,7 +107,7 @@ def get_resampled_precip_data(df, interval, method):
         .set_index(["station", f"time_{interval}"])
     )
     print()
-    print('PRECIP', precip_final)
+    print("PRECIP", precip_final)
     return precip_final
 
 
@@ -120,7 +119,9 @@ def get_resampled_wind_data(df, interval, method):
     """
     df = df.reset_index()
     wind_resampled = (
-        df.groupby(["station", pd.Grouper(freq=interval, key="valid_time")])["wspd_sonic"]
+        df.groupby(["station", pd.Grouper(freq=interval, key="valid_time")])[
+            "wspd_sonic"
+        ]
         .apply(method)
         .rename(f"wspd_sonic_{method}")
         .rename_axis(index={"valid_time": f"time_{interval}"})
@@ -128,7 +129,7 @@ def get_resampled_wind_data(df, interval, method):
         .set_index(["station", f"time_{interval}"])
     )
     print()
-    print('WIND', wind_resampled)
+    print("WIND", wind_resampled)
     return wind_resampled
 
 

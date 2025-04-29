@@ -264,7 +264,7 @@ def main(
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_decoder_{exclusion_buffer}.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
 
     (
         df_train,
@@ -283,6 +283,10 @@ def main(
     print()
     print("TARGET", target)
 
+    if len(stations) < 4:
+        print(f"Too few stations found: {len(stations)}. Exiting...")
+        sys.exit()
+
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
         project_name="seq2seq_exclusion_buffer",
@@ -300,9 +304,8 @@ def main(
         metvar=metvar,
     )
 
-    df_test = pd.concat([df_val, df_test])
     test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_test,
+        dataframe=df_val,
         target=target,
         features=features,
         sequence_length=sequence_length,
@@ -350,13 +353,6 @@ def main(
         model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
         # Example usage for encoder and decoder
         get_model_file_size(encoder_path)
-    # else:
-    #     if os.path.exists(model_path):
-    #         print("Loading Parent Model")
-    #         model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
-    #         for i, param in enumerate(model.encoder.parameters()):
-    #             if i < 1:
-    #                 param.requires_grad = False  # Freeze first two layers
 
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
@@ -444,7 +440,6 @@ def main(
     # End of MAIN
 
 
-
 metvar_ls = ["t2m"]
 nwp_model = "HRRR"
 
@@ -452,16 +447,18 @@ nwp_model = "HRRR"
 # df = nysm_clim[nysm_clim["climate_division_name"] == c]
 # # stations = df["stid"].unique()
 # stations = ["VOOR"]
-df = pd.read_csv('/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv')
+df = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv"
+)
 
-for i,_ in enumerate(df['stid']):
-    if i < 5:
+for i, _ in enumerate(df["stid"]):
+    if i < 2:
         continue
     else:
-        station = df['stid'].iloc[i]
-        clim_div = df['climate_division_name'].iloc[i]
+        station = df["stid"].iloc[i]
+        clim_div = df["climate_division_name"].iloc[i]
         print("TARGETING", station, clim_div)
-        for exclude in np.arange(200, 1001, 20):
+        for exclude in np.arange(20, 501, 20):
             for f in np.arange(1, 19):
                 print(f)
                 try:
@@ -475,10 +472,9 @@ for i,_ in enumerate(df['stid']):
                         clim_div=clim_div,
                         nwp_model=nwp_model,
                         exclusion_buffer=exclude,
-                        metvar='t2m',
+                        metvar="t2m",
                     )
                     gc.collect()
                 except:
                     print("Exclusion Buffer too large...")
                     print(f"Station: {station}, Exclusion Buffer: {exclude}")
-

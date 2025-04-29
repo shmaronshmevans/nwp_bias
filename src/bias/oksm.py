@@ -11,15 +11,17 @@ for file in files:
     df = pd.read_parquet(f"{path}{file}").reset_index()
 
     # Ensure 'time' is datetime and extract the base date
-    df['time'] = pd.to_datetime(df['time'])
-    df['date'] = df['time'].dt.date  # Just the date portion
+    df["time"] = pd.to_datetime(df["time"])
+    df["date"] = df["time"].dt.date  # Just the date portion
 
     # Create corrected time by adding minutes from 'TIME' column
-    df['time'] = pd.to_datetime(df['date'].astype(str)) + pd.to_timedelta(pd.to_numeric(df['TIME']), unit='m')
+    df["time"] = pd.to_datetime(df["date"].astype(str)) + pd.to_timedelta(
+        pd.to_numeric(df["TIME"]), unit="m"
+    )
 
     # Clean up
-    df = df.drop(columns=['date'])  # Optional
-    df = df.set_index(['station', 'time']).sort_index()
+    df = df.drop(columns=["date"])  # Optional
+    df = df.set_index(["station", "time"]).sort_index()
 
     # Overwrite fixed file
     df.to_parquet(f"{path}{file}")
@@ -52,15 +54,15 @@ for file in files:
 #     df_data["MONTH"] = int(timestamp_row[2])
 #     df_data["DAY"] = int(timestamp_row[3])
 #     # Extract hour, minute, second from the 'TIME' column
-    # Ensure 'time' is datetime and extract the base date
-    # df['time'] = pd.to_datetime(df['time'])
-    # df['date'] = df['time'].dt.date  # Just the date portion
+# Ensure 'time' is datetime and extract the base date
+# df['time'] = pd.to_datetime(df['time'])
+# df['date'] = df['time'].dt.date  # Just the date portion
 
-    # # Create corrected time by adding minutes from 'TIME' column
-    # df['time'] = pd.to_datetime(df['date'].astype(str)) + pd.to_timedelta(pd.to_numeric(df['TIME']), unit='m')
+# # Create corrected time by adding minutes from 'TIME' column
+# df['time'] = pd.to_datetime(df['date'].astype(str)) + pd.to_timedelta(pd.to_numeric(df['TIME']), unit='m')
 
-    # # Clean up
-    # df = df.drop(columns=['date'])  # Optional
+# # Clean up
+# df = df.drop(columns=['date'])  # Optional
 
 #     # Create 'time' column
 #     df_data["time"] = pd.to_datetime(

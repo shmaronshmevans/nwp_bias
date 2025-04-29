@@ -16,8 +16,8 @@ from processing import get_error
 from processing import get_closest_nysm_stations
 from processing import get_closest_radiometer
 
-from data import hrrr_data
-from data import nysm_data
+from data import hrrr_data, hrrr_data_oksm
+from data import nysm_data, oksm_data
 
 from visuals import error_output_bulk_main
 
@@ -59,6 +59,59 @@ def nwp_error(target, station, df):
     # df["target_error"] = df["target_error"].apply(lambda x: 0 if x > 0 else x)
 
     return df
+
+
+def create_data_for_model_oksm(station, fh, var):
+    """
+    This function creates and processes data for a LSTM machine learning model.
+
+    Args:
+        station (str): The station identifier for which data is being processed.
+
+    Returns:
+        new_df (pandas DataFrame): A DataFrame containing processed data.
+        df_train (pandas DataFrame): A DataFrame for training the machine learning model.
+        df_test (pandas DataFrame): A DataFrame for testing the machine learning model.
+        features (list): A list of feature names.
+        forecast_lead (int): The lead time for the target variable.
+    """
+
+    # Print a message indicating the current station being processed.
+    print(f"Targeting Error for {station}")
+
+    # Load data from NYSM and HRRR sources.
+    print("-- loading data from NYSM --")
+    oksm_df = oksm_data.load_oksm_data()
+    oksm_df.reset_index(inplace=True)
+    print("-- loading data from HRRR --")
+    hrrr_df = hrrr_data_oksm.read_hrrr_data(str(fh).zfill(2))
+
+    # Rename columns for consistency.
+    oksm_df = oksm_df.rename(columns={"time_1H": "valid_time"})
+
+    # Filter NYSM data to match valid times from HRRR data
+    mytimes = hrrr_df["valid_time"].tolist()
+    oksm_df = oksm_df[oksm_df["valid_time"].isin(mytimes)]
+
+    hrrr_df1 = hrrr_df[hrrr_df["station"] == station]
+    oksm_df1 = oksm_df[oksm_df["station"] == station]
+
+    oksm_df1 = oksm_df1.drop(
+        columns=[
+            "index",
+        ]
+    )
+
+    # combine HRRR + NYSM data on time
+    master_df = oksm_df1.merge(hrrr_df1, on="valid_time", suffixes=(None, f"_hrrr"))
+
+    # Calculate the error using NWP data.
+    # options are {
+    # t2m, mslma, tp, u_total
+    # }
+    the_df = nwp_error(var, station, master_df)
+
+    return the_df
 
 
 def create_data_for_model(station, fh, var):
@@ -128,7 +181,7 @@ def un_normalize(station, metvar, df):
         pd.DataFrame: The input DataFrame with un-normalized forecast error values.
     """
     for fh in np.arange(1, 19):  # Iterate over forecast hours from 1 to 18
-        og_data_df = create_data_for_model(
+        og_data_df = create_data_for_model_oksm(
             station, fh, metvar
         )  # Get original model data
         times = og_data_df[
@@ -197,31 +250,30 @@ def un_normalize(station, metvar, df):
     return df  # Return the DataFrame with un-normalized values
 
 
-def un_normalize_mean(station, metvar, df):
-    for fh in np.arange(1, 19):  # Iterate over forecast hours from 1 to 18
-        og_data_df = create_data_for_model(
-            station, fh, metvar
-        )  # Get original model data
+def un_normalize_mean(station, metvar, df, fh):
+    # for fh in np.arange(1, 19):  # Iterate over forecast hours from 1 to 18
+    og_data_df = create_data_for_model_oksm(
+        station, fh, metvar
+    )  # Get original model data
 
-        if fh == 1:
-            og_mu = st.mean(og_data_df["target_error"])
-            lstm_mu = st.mean(df["target_error_lead_0"])
-        else:
-            og_mu = st.mean(og_data_df[f"target_error"])
-            lstm_mu = st.mean(df[f"target_error_lead_0_{fh}"])
+    print(og_data_df)
+    if fh == 1:
+        og_mu = st.mean(og_data_df["target_error"])
+        lstm_mu = st.mean(df["target_error"])
+    else:
+        og_mu = st.mean(og_data_df[f"target_error"])
+        lstm_mu = st.mean(df[f"target_error_{fh}"])
 
-        diff = og_mu / lstm_mu
-        print("The multiplier is...", diff)
-        # Apply the scaling factor to revert normalization
-        if fh == 1:
-            df["target_error_lead_0"] = df["target_error_lead_0"] * diff
-            df["Model forecast"] = df["Model forecast"] * diff
-            df["diff"] = df["target_error_lead_0"] - df["Model forecast"]
-        else:
-            df[f"target_error_lead_0_{fh}"] = df[f"target_error_lead_0_{fh}"] * diff
-            df[f"Model forecast_{fh}"] = df[f"Model forecast_{fh}"] * diff
-            df[f"diff_{fh}"] = (
-                df[f"target_error_lead_0_{fh}"] - df[f"Model forecast_{fh}"]
-            )
+    diff = og_mu / lstm_mu
+    print("The multiplier is...", diff)
+    # Apply the scaling factor to revert normalization
+    if fh == 1:
+        df["target_error"] = df["target_error"] * diff
+        df["Model forecast"] = df["Model forecast"] * diff
+        df["diff"] = df["target_error"] - df["Model forecast"]
+    else:
+        df[f"target_error_{fh}"] = df[f"target_error_{fh}"] * diff
+        df[f"Model forecast_{fh}"] = df[f"Model forecast_{fh}"] * diff
+        df[f"diff_{fh}"] = df[f"target_error_{fh}"] - df[f"Model forecast_{fh}"]
 
-    return df
+    return df, diff

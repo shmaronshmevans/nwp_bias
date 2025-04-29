@@ -4,6 +4,7 @@ import glob
 import re
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+
 def compute_error_metrics_by_climate_division(
     nysm_csv_path,
     base_dir,
@@ -16,7 +17,7 @@ def compute_error_metrics_by_climate_division(
 ):
     """
     Loop through climate divisions and stations to calculate MAE/MSE from parquet files.
-    
+
     Parameters:
     - nysm_csv_path: str, path to the NYSM metadata CSV (with `stid` and `climate_division_name`)
     - base_dir: str, base directory containing station subfolders and parquet files
@@ -40,12 +41,12 @@ def compute_error_metrics_by_climate_division(
     - prediction_col: str, column with predicted values
     """
     df = pd.read_csv(nysm_csv_path)
-    clim_divs = df['climate_division_name'].unique()
+    clim_divs = df["climate_division_name"].unique()
 
     for c in clim_divs:
         master_df_ls = []
-        filtered = df[df['climate_division_name'] == c]
-        stations = filtered['stid'].unique()
+        filtered = df[df["climate_division_name"] == c]
+        stations = filtered["stid"].unique()
 
         for s in stations:
             station_dir = os.path.join(base_dir, s)
@@ -53,7 +54,11 @@ def compute_error_metrics_by_climate_division(
                 continue
 
             file_pattern = os.path.join(station_dir, f"{s}_fh*_*.parquet")
-            all_files = [f for f in glob.glob(file_pattern) if f"{metvar}_" in f and "linear" in f]
+            all_files = [
+                f
+                for f in glob.glob(file_pattern)
+                if f"{metvar}_" in f and "linear" in f
+            ]
 
             for file_path in all_files:
                 match = re.search(rf"{s}_fh(\d+)_.*\.parquet", file_path)
@@ -74,14 +79,20 @@ def compute_error_metrics_by_climate_division(
                     df_parquet = df_parquet[df_parquet[filter_col] != 0]
 
                 # Filter out large absolute errors
-                df_parquet = df_parquet[df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200]
+                df_parquet = df_parquet[
+                    df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200
+                ]
 
                 if df_parquet.empty:
                     continue
 
                 try:
-                    mae = mean_absolute_error(df_parquet[target_col], df_parquet[prediction_col])
-                    mse = mean_squared_error(df_parquet[target_col], df_parquet[prediction_col])
+                    mae = mean_absolute_error(
+                        df_parquet[target_col], df_parquet[prediction_col]
+                    )
+                    mse = mean_squared_error(
+                        df_parquet[target_col], df_parquet[prediction_col]
+                    )
                 except Exception as e:
                     print(f"Metric computation failed for {file_path}: {e}")
                     continue
@@ -89,23 +100,26 @@ def compute_error_metrics_by_climate_division(
                 master_df_ls.append([s, mae, mse, fh])
 
         if master_df_ls:
-            master_df = pd.DataFrame(master_df_ls, columns=["station", "mae", "mse", "fh"])
+            master_df = pd.DataFrame(
+                master_df_ls, columns=["station", "mae", "mse", "fh"]
+            )
             master_df.sort_values(by=["station", "fh"], inplace=True)
             master_df.set_index(["station", "fh"], inplace=True)
 
-            out_path = os.path.join(output_root, f"{c}/{c}_{metvar}_error_metrics_master.parquet")
+            out_path = os.path.join(
+                output_root, f"{c}/{c}_{metvar}_error_metrics_master.parquet"
+            )
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             master_df.to_parquet(out_path)
             print(f"Saved: {out_path}")
 
 
-
 compute_error_metrics_by_climate_division(
-    nysm_csv_path= '/home/aevans/nwp_bias/src/landtype/data/nysm.csv',
-    base_dir='/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus',
-    metvar='tp',
-    output_root='/home/aevans/nwp_bias/src/machine_learning/data/error_visuals',
-    filter_col='target_error_lead_0',
+    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus",
+    metvar="tp",
+    output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
+    filter_col="target_error_lead_0",
     target_col="Model forecast",
     prediction_col="target_error_lead_0",
     model_name="HRRR",
