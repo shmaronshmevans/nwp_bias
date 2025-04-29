@@ -9,6 +9,7 @@ from scipy.stats import gaussian_kde
 import matplotlib.dates as mdates
 import calendar
 from sklearn.metrics import r2_score
+import os
 
 
 def myround(x, base):
@@ -26,6 +27,11 @@ def unique(list1):
         if x not in unique_list:
             unique_list.append(x)
     return unique_list
+
+
+def make_directory(path):
+    if not os.path.exists(path):
+        os.mkdir(path)
 
 
 def round_small(full_df, met_col, rounded_base):
@@ -79,7 +85,7 @@ def round_small(full_df, met_col, rounded_base):
         # Iterate through all 'diff' columns to calculate absolute errors
         for col in diff_columns:
             err = full_df[col].iloc[i]
-            if err > -999:  # Exclude invalid entries
+            if abs(err) < 100:  # Exclude invalid entries
                 abs_err_sum += abs(err)
                 valid_count += 1
 
@@ -158,7 +164,9 @@ def err_bucket(full_df, met_col, rounded_base):
     return temp_df, instances
 
 
-def plot_buckets(temp_df, instances, var_name, cmap, width, title):
+def plot_buckets(
+    temp_df, instances, var_name, cmap, width, title, station, clim_div, metvar
+):
     my_cmap = plt.get_cmap(cmap)
     averages = temp_df / instances
     averages = averages.dropna()
@@ -188,11 +196,11 @@ def plot_buckets(temp_df, instances, var_name, cmap, width, title):
             rotation=90,
         )
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/met_error_{title}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_met_error_{title}.png"
     )
 
 
-def groupby_month_total(df):
+def groupby_month_total(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -206,7 +214,7 @@ def groupby_month_total(df):
         # Collect data for all 'diff' columns for this month
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by month and get the mean for this month
             monthly_mean = df_filtered[df_filtered.valid_time.dt.month == month][
@@ -242,21 +250,21 @@ def groupby_month_total(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Mean LSTM Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Mean LSTM Error", fontsize=28)
     ax.set_title("Monthly Mean Error for LSTM Predictions", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_error.png"
     )
 
 
-def groupby_month_std(df):
+def groupby_month_std(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -270,7 +278,7 @@ def groupby_month_std(df):
         # Collect data for all 'diff' columns for this month
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by month and get the standard deviation for this month
             monthly_std = df_filtered[df_filtered.valid_time.dt.month == month][
@@ -305,21 +313,21 @@ def groupby_month_std(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
     ax.set_title("Monthly Standard Deviation of NWP Error", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_std_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_std_error.png"
     )
 
 
-def groupby_abs_month_total(df):
+def groupby_abs_month_total(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -333,7 +341,7 @@ def groupby_abs_month_total(df):
         # Collect data for all 'diff' columns for this month
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by month and calculate the mean of absolute values for this month
             monthly_abs_mean = (
@@ -370,23 +378,23 @@ def groupby_abs_month_total(df):
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
     ax.set_title("Monthly Mean Absolute Error for LSTM Predictions", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_abs_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_abs_error.png"
     )
 
     return aggregated_results
 
 
-def boxplot_monthly_error(df):
+def boxplot_monthly_error(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -396,7 +404,7 @@ def boxplot_monthly_error(df):
     # Group by month for each diff column and collect all error values
     for col in diff_columns:
         df_filtered = df[
-            df[col] > -999
+            df[col].abs() < 100
         ]  # Filter rows where column values are greater than -999
         for month in range(1, 13):
             # Collect error values for the current month
@@ -420,22 +428,22 @@ def boxplot_monthly_error(df):
     ax.set_xticklabels(month_labels)
 
     # Add labels and title
-    ax.set_xlabel("Month", fontsize=20)
-    ax.set_ylabel("NWP Error", fontsize=20)
+    ax.set_xlabel("Month", fontsize=28)
+    ax.set_ylabel("NWP Error", fontsize=28)
     ax.set_title("Monthly Box-and-Whisker Plot of Errors for NWP Error", fontsize=32)
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
     ax.set_xticklabels(month_labels, rotation=45)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/month_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_error_boxplot.png"
     )
 
 
-def groupby_time_abs(df):
+def groupby_time_abs(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -450,7 +458,7 @@ def groupby_time_abs(df):
         # Collect data for all 'diff' columns for this hour
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by hour and calculate the mean of absolute values for this hour
             hourly_abs_mean = (
@@ -488,24 +496,24 @@ def groupby_time_abs(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
     ax.set_title("Mean Absolute Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_abs_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_abs_error_colored.png"
     )
 
     return aggregated_results
 
 
-def groupby_time(df):
+def groupby_time(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "diff" in col]
 
@@ -520,7 +528,7 @@ def groupby_time(df):
         # Collect data for all 'diff' columns for this hour
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by hour and calculate the mean for this hour
             hourly_mean = df_filtered[df_filtered.valid_time.dt.hour == hour][
@@ -558,24 +566,24 @@ def groupby_time(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Mean LSTM Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Mean LSTM Error", fontsize=28)
     ax.set_title("Mean Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_mean_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_mean_error_colored.png"
     )
 
     return aggregated_results
 
 
-def boxplot_time_of_day_error(df):
+def boxplot_time_of_day_error(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -585,7 +593,7 @@ def boxplot_time_of_day_error(df):
     # Group by hour (time of day) for each diff column and collect all error values
     for col in diff_columns:
         df_filtered = df[
-            df[col] > -999
+            df[col].abs() < 100
         ]  # Filter rows where column values are greater than -999
         for hour in range(0, 24):
             # Collect error values for the current hour
@@ -609,23 +617,23 @@ def boxplot_time_of_day_error(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("NWP Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("NWP Error", fontsize=28)
     ax.set_title(
         "Box-and-Whisker Plot of NWP Error Grouped by Time of Day", fontsize=32
     )
     # Customize tick mark font size
-    plt.xticks(fontsize=20)
-    plt.yticks(fontsize=20)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_error_boxplot.png"
     )
 
 
-def groupby_time_std(df):
+def groupby_time_std(df, station, clim_div, metvar):
     # Filter columns that contain 'target' in their name
     diff_columns = [col for col in df.columns if "target" in col]
 
@@ -640,7 +648,7 @@ def groupby_time_std(df):
         # Collect data for all 'diff' columns for this hour
         for col in diff_columns:
             df_filtered = df[
-                df[col] > -999
+                df[col].abs() < 100
             ]  # Filter rows where column values are greater than -999
             # Group by hour and calculate the standard deviation for this hour
             hourly_std = df_filtered[df_filtered.valid_time.dt.hour == hour][col].std()
@@ -676,18 +684,18 @@ def groupby_time_std(df):
     ax.set_xticklabels(hour_labels, rotation=45)
 
     # Add labels and title
-    ax.set_xlabel("Time of Day (Hour)", fontsize=20)
-    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=20)
+    ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
+    ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
     ax.set_title("Standard Deviation of Error Grouped by Time of Day", fontsize=32)
 
     # Customize tick mark font size
-    plt.xticks(fontsize=14)
-    plt.yticks(fontsize=14)
+    plt.xticks(fontsize=28)
+    plt.yticks(fontsize=28)
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/time_of_day_std_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_std_error_colored.png"
     )
 
     return aggregated_results
@@ -699,8 +707,18 @@ def date_filter(ldf, time1, time2):
     return ldf
 
 
-def create_scatterplot(x_column, y_column, fh):
-    # Calculate point density
+def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
+    if metvar == "tp":
+        filtered_data = [
+            (x, y)
+            for x, y in zip(x_column, y_column)
+            if abs(x) > 0.15 and abs(y) > 0.15
+        ]
+        if filtered_data:
+            x_column, y_column = zip(*filtered_data)  # Unzip filtered pairs
+        else:
+            x_column, y_column = x_column, y_column  # Keep original data
+
     xy = np.vstack([x_column, y_column])
     z = gaussian_kde(xy)(xy)
 
@@ -723,22 +741,27 @@ def create_scatterplot(x_column, y_column, fh):
 
     # Set labels and title
     plt.xlabel("Target", fontsize=24)
-    plt.xlim(-6, 6)
-    plt.ylim(-6, 6)
+    if metvar == "tp":
+        plt.xlim(-50, 100)
+        plt.ylim(-50, 100)
+    else:
+        plt.xlim(-30, 30)
+        plt.ylim(-30, 30)
     plt.ylabel("LSTM", fontsize=24)
-    plt.title("Target Temp Error v LSTM Predictions", fontsize=32)
+    plt.title(f"{station} {metvar} Error v LSTM Predictions", fontsize=32)
     # Customize tick mark font size
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
+    plt.grid(True, linestyle="--", alpha=0.6)
 
     # Show the plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/scatter_{fh}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}.png"
     )
 
 
-def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
+def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh, metvar):
     fig, ax = plt.subplots(figsize=(24, 6))
     x = df["valid_time"]
 
@@ -767,21 +790,6 @@ def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
         label="LSTM Output",
     )
 
-    # plt.axvline(
-    #     x=test_set_start,
-    #     c="green",
-    #     linestyle="--",
-    #     linewidth=2.0,
-    #     label="Test Set Start",
-    # )
-    # plt.axvline(
-    #     x=test_set_finish,
-    #     c="red",
-    #     linestyle="--",
-    #     linewidth=2.0,
-    #     label="Test Set Finish",
-    # )
-
     # Fill daytime hours with white color
     ax.fill_between(
         x_numeric, -4, 4.1, where=day_mask, color="white", alpha=0.5, label="Daytime"
@@ -792,13 +800,13 @@ def ml_output(df, full_df, fold, station, test_set_start, test_set_finish, fh):
         x_numeric, -4, 4.1, where=~day_mask, color="grey", alpha=0.2, label="Nighttime"
     )
 
-    ax.set_title(f"Temp Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
+    ax.set_title(f"{metvar} Error LSTM Output v Target: {station}: FH{fh}", fontsize=28)
     # plt.ylim(-5, 5.)
     ax.legend()
     plt.show()
 
 
-def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
+def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar):
     """
     Plots three lists (mae_ls, sq_ls, and r2_ls) as a function of forecast hour (fh).
     Each series will have a scatter-line plot with unique markers and colors,
@@ -814,14 +822,14 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
 
     # Plot mae_ls
     plt.plot(fh, mae_ls, label="MAE", marker="o", linestyle="-", color="blue")
-    plt.scatter(fh, mae_ls, marker="o", color="blue")
+    plt.scatter(fh, mae_ls, marker="o", s=100, color="blue")
     # Annotate mae_ls points
     for i, txt in enumerate(mae_ls):
         plt.annotate(
             f"{txt:.2f}",
             (fh[i], mae_ls[i]),
             textcoords="offset points",
-            xytext=(0, 10),
+            xytext=(0, 12),
             ha="center",
             fontsize=10,
             color="blue",
@@ -829,14 +837,14 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
 
     # Plot sq_ls
     plt.plot(fh, sq_ls, label="MSE", marker="x", linestyle="-", color="green")
-    plt.scatter(fh, sq_ls, marker="x", color="green")
+    plt.scatter(fh, sq_ls, marker="x", s=100, color="green")
     # Annotate sq_ls points
     for i, txt in enumerate(sq_ls):
         plt.annotate(
             f"{txt:.2f}",
             (fh[i], sq_ls[i]),
             textcoords="offset points",
-            xytext=(0, 10),
+            xytext=(0, 12),
             ha="center",
             fontsize=10,
             color="green",
@@ -844,7 +852,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
 
     # Plot r2_ls
     plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
-    plt.scatter(fh, r2_ls, marker="s", color="red")
+    plt.scatter(fh, r2_ls, marker="s", s=100, color="red")
     # Annotate r2_ls points
     for i, txt in enumerate(r2_ls):
         plt.annotate(
@@ -861,7 +869,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     plt.xlabel("Forecast Hour (FH)", fontsize=20)
     plt.ylabel("Error and R² Values", fontsize=20)
     plt.title(
-        "Error Metrics as a Function of Forecast Hour \n GFS, Temp-Error, Voorheesville",
+        f"Error Metrics as a Function of Forecast Hour \n {nwp_model}, {metvar}-Error",
         fontsize=24,
     )
     plt.legend(fontsize=14)
@@ -876,7 +884,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/AMS_2025/visuals/fh_drift.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift.png"
     )
 
 
@@ -885,31 +893,29 @@ def calculate_r2(df):
     targets = []
     r2_ls = []
 
-    for d in df[f"Model forecast"].values:
-        if abs(d) < 100:
+    for x, d in zip(df[f"Model forecast"].values, df[f"target_error_lead_0"].values):
+        if abs(d) < 100 and abs(x) < 100:
             lstms.append(d)
-
-    for x in df[f"target_error_lead_0"].values:
-        if abs(x) < 100:
             targets.append(x)
 
     # calculate r2
     r2 = r2_score(targets, lstms)
     r2_ls.append(r2)
 
-    for i in np.arange(6, 37, 3):
+    for i in np.arange(2, 19):
         lstms_ = []
         targets_ = []
 
-        for d in df[f"Model forecast_{i}"].values:
-            if abs(d) < 100:
+        for x, d in zip(
+            df[f"Model forecast_{i}"].values, df[f"target_error_lead_0_{i}"].values
+        ):
+            if abs(d) < 100 and abs(x) < 100:
                 lstms_.append(d)
-
-        for x in df[f"target_error_lead_0_{i}"].values:
-            if abs(x) < 100:
                 targets_.append(x)
 
         r2_ = r2_score(targets_, lstms_)
         r2_ls.append(r2_)
 
+    # make sure r squared values are positive
+    r2_ls = [max(0, r) for r in r2_ls]
     return r2_ls

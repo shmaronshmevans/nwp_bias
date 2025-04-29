@@ -29,20 +29,74 @@ from data import (
     create_data_for_lstm_nam,
     create_data_for_lstm_gfs,
 )
-
 from evaluate import un_normalize_out
-
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
+
+import torch
+from torch.utils.data import Dataset
+
 import random
 
-# from new_sequencer import (
-#     create_data_for_gfs_sequencer,
-#     create_data_for_nam_sequencer,
-#     sequencer,
-# )
+from data import (
+    create_data_for_lstm_oksm,
+)
 
 print("imports downloaded")
+
+
+class SequenceDatasetMultiTask(Dataset):
+    """Dataset class for multi-task learning with station-specific data."""
+
+    def __init__(
+        self,
+        dataframe,
+        target,
+        features,
+        sequence_length,
+        forecast_steps,
+        device,
+        metvar,
+    ):
+        self.dataframe = dataframe
+        self.features = features
+        self.target = target
+        self.sequence_length = sequence_length
+        self.forecast_steps = forecast_steps
+        self.device = device
+        self.metvar = metvar
+        self.y = torch.tensor(dataframe[target].values).float().to(device)
+        self.X = torch.tensor(dataframe[features].values).float().to(device)
+
+    def __len__(self):
+        return self.X.shape[0]
+
+    def __getitem__(self, i):
+        x_start = i
+        x_end = i + (self.sequence_length + self.forecast_steps)
+        y_start = i + self.sequence_length
+        y_end = y_start + self.forecast_steps
+        x = self.X[x_start:x_end, :]
+        y = self.y[y_start:y_end].unsqueeze(1)
+
+        if x.shape[0] < (self.sequence_length + self.forecast_steps):
+            _x = torch.zeros(
+                (
+                    (self.sequence_length + self.forecast_steps) - x.shape[0],
+                    self.X.shape[1],
+                ),
+                device=self.device,
+            )
+            x = torch.cat((x, _x), 0)
+
+        if y.shape[0] < self.forecast_steps:
+            _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
+            y = torch.cat((y, _y), 0)
+
+        x[-self.forecast_steps :, -int(4 * 15) :] = x[
+            -int(self.forecast_steps + 1), -int(4 * 15) :
+        ].clone()
+        return x, y
 
 
 def find_shift(ldf):
@@ -97,7 +151,6 @@ def find_shift(ldf):
 
     # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
     ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).dropna()
-
     return ldf  # Return the modified DataFrame
 
 
@@ -206,11 +259,13 @@ def refit(df):
     return df, diff
 
 
-def linear_fit(df, df_out, diff):
+def linear_fit(df, df_out, diff, alpha):
     df_out = df_out.copy()
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
     length = len(df["target_error"].values)
+    tener = int(length * 0.05)
+    print(tener)
     top_200_max_values = df["target_error"].nlargest(250)
     top_200_indexes = top_200_max_values.index
 
@@ -219,18 +274,16 @@ def linear_fit(df, df_out, diff):
     for i in top_200_indexes:
         target, lstm_val, _, _ = df.loc[i].values
         alpha = abs(target / lstm_val)
-        print(alpha)
-        if alpha > 12:
-            continue
-        else:
-            alphas.append(alpha)
+        alphas.append(alpha)
 
     multiply = st.mean(alphas)
+    print("multiply", multiply)
 
     df_out["Model forecast"] = df_out["Model forecast"] * multiply
-    df_out, diff = refit_output(df_out, diff)
+    df_out = refit_output(df_out, diff)
+    multiply = alpha * multiply
 
-    return df_out, multiply, diff
+    return df_out, multiply
 
 
 def refit_output(df, diff):
@@ -241,12 +294,11 @@ def refit_output(df, diff):
     mean3 = st.median(df["target_error"])
     mean4 = st.median(df["Model forecast"])
 
-    # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their median
+    # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their medians
     df["target_error"] = df["target_error"] - mean3
     df["Model forecast"] = df["Model forecast"] - mean4
-    diff += mean4
 
-    return df, diff
+    return df
 
 
 def get_performance_metrics(df):
@@ -317,8 +369,8 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
     (
         df_train,
@@ -328,12 +380,12 @@ def main(
         stations,
         target,
         vt,
-    ) = create_data_for_lstm.create_data_for_model(
+    ) = create_data_for_lstm_oksm.create_data_for_model(
         station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
 
     df_eval = pd.concat([df_train, df_val, df_test])
-
+    # df_eval.to_parquet('/home/aevans/nwp_bias/src/machine_learning/src/check.parquet')
     test_dataset = SequenceDatasetMultiTask(
         dataframe=df_eval,
         target=target,
@@ -345,6 +397,7 @@ def main(
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
+
     test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
     print("!! Data Loaders Succesful !!")
 
@@ -382,12 +435,14 @@ def main(
 
     df_out = model_out(
         df_eval, test_dataset, model, batch_size, target, features, device, station
-    )
+    ).dropna()
     valid_time = vt[: len(df_out)]
     df_out["valid_time"] = valid_time
-    # un_normalize data
-    df_out = un_normalize_out.un_normalize(station, metvar, df_out)
     # Trim valid_time to match the length of df_out
+
+    df_out, alpha = un_normalize_out.un_normalize_mean(station, metvar, df_out, fh)
+    print("alpha1")
+
     df_out.to_parquet(
         f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
@@ -399,7 +454,7 @@ def main(
     df_calc, diff = refit(df_calc)
 
     # # linear fit
-    df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
+    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff, alpha)
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
@@ -407,6 +462,7 @@ def main(
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+    print("alpha2", alpha)
 
     # linear save
     df_save_linear = pd.DataFrame(
@@ -442,32 +498,42 @@ def main(
     # END OF MAIN
 
 
+c = "Central"
 nwp = "HRRR"
-metvar_ls = ["u_total", "t2m", "tp"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+metvar_ls = ["t2m", "tp", "u_total"]
+oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+df = oksm_clim[oksm_clim["Climate_division"] == c]
+stations = df["stid"].unique()
 
-for c in nysm_clim["climate_division_name"].unique():
-    df = nysm_clim[nysm_clim["Climate_division"] == c]
-    stations = df["stid"].unique()
+main(
+    batch_size=int(1000),
+    station="ACME",
+    num_layers=3,
+    fh=1,
+    clim_div=c,
+    nwp_model="HRRR",
+    metvar="t2m",
+    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_t2m.pth",
+)
 
-    for m in metvar_ls:
-        print(m)
-        for f in np.arange(1, 19):
-            print(f)
-            for s in stations:
-                print(s)
-                try:
-                    main(
-                        batch_size=int(1000),
-                        station=s,
-                        num_layers=3,
-                        fh=f,
-                        clim_div=c,
-                        nwp_model=nwp,
-                        metvar=m,
-                        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-                    )
-                    gc.collect()
-                except:
-                    print("Couldn't evaluate...")
-                    print(f"station: {s}, variable: {m}, fh: {f}")
+# for m in metvar_ls:
+#     print(m)
+#     for f in np.arange(1, 19):
+#         print(f)
+#         for s in stations:
+#             print(s)
+#             try:
+#                 main(
+#                     batch_size=int(1000),
+#                     station=s,
+#                     num_layers=3,
+#                     fh=f,
+#                     clim_div=c,
+#                     nwp_model=nwp,
+#                     metvar=m,
+#                     model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+#                 )
+#                 gc.collect()
+#             except:
+#                 print("Couldn't evaluate...")
+#                 print(f"station: {s}, variable: {m}, fh: {f}")

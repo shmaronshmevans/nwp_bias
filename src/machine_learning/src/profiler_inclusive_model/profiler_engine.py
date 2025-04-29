@@ -14,37 +14,63 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
-
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 
 import pandas as pd
 import numpy as np
 import gc
 from datetime import datetime
 
-from processing import make_dirs
-
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_gfs,
-    create_data_for_lstm_nam,
-)
-
-from seq2seq import encode_decode_multitask
-from seq2seq import eval_seq2seq
-
-print("imports loaded")
+"""
+class ImageSequenceDataset(Dataset):
+    def __init__(self, image_list, dataframe, target, sequence_length, transform=None):
+        self.dataframe = dataframe
+        self.transform = transform
+        self.sequence_length = sequence_length
+        self.target = target
+        self.forecast_hour = fh
+        self.P_ls = dataframe[image_list].values
 
 
-def custom_collate(batch):
-    batch = [item for item in batch if item is not None]
-    if not batch:
-        return None  # Return None if the batch is empty
-    return torch.utils.data.default_collate(batch)
+    def __len__(self):
+        return len(self.image_list)
+
+    def __getitem__(self, i):
+        images = []
+        i_start = max(0, i - self.sequence_length + 1)
+
+        for j in range(i_start, i + 1):
+            if j < len(self.image_list):
+                img_name = self.image_list[j]
+                image = np.load(img_name).astype(np.float32)
+                image = image[:, :, 4:]
+                if self.transform:
+                    image = self.transform(image)
+                images.append(torch.tensor(image))
+            else:
+                pad_image = torch.zeros_like(images[0])
+                images.append(pad_image)
+
+        while len(images) < self.sequence_length:
+            pad_image = torch.zeros_like(images[0])
+            images.insert(0, pad_image)
+
+        images = torch.stack(images)
+        images = images.to(torch.float32)
+
+        # Extract target values
+        y = self.dataframe[self.target].values[i_start : i + 1]
+        if len(y) < self.sequence_length:
+            pad_width = (self.sequence_length - len(y), 0)
+            y = np.pad(y, (pad_width, (0, 0)), "constant", constant_values=0)
+
+        y = torch.tensor(y).to(torch.float32)
+
+        return images
+"""
 
 
 class SequenceDatasetMultiTask(Dataset):
@@ -60,6 +86,7 @@ class SequenceDatasetMultiTask(Dataset):
         device,
         nwp_model,
         metvar,
+        image_list_cols,
     ):
         self.dataframe = dataframe
         self.features = features
@@ -71,6 +98,7 @@ class SequenceDatasetMultiTask(Dataset):
         self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.P_ls = dataframe[image_list_cols].values
 
     def __len__(self):
         return self.X.shape[0]
@@ -176,7 +204,31 @@ class SequenceDatasetMultiTask(Dataset):
             x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
-        return x, y
+
+        ## Get images for ViT
+        image_list = self.P_ls
+        images = []
+        for j in range(x_start, i - self.forecast_steps):
+            if j < len(self.image_list):
+                img_name = self.image_list[j]
+                image = np.load(img_name).astype(np.float32)
+                if self.transform:
+                    image = self.transform(image)
+                images.append(torch.tensor(image))
+            else:
+                pad_image = torch.zeros_like(images[0])
+                images.append(pad_image)
+
+        while len(images) < self.sequence_length:
+            pad_image = torch.zeros_like(images[0])
+            images.insert(0, pad_image)
+
+        images = torch.stack(images)
+        images = images.to(torch.float32)
+
+        images.to(device)
+
+        return x, images, y
 
 
 class EarlyStopper:
@@ -225,17 +277,6 @@ class OutlierFocusedLoss(nn.Module):
         return weighted_loss.mean()
 
 
-def get_model_file_size(file_path):
-    size_bytes = os.path.getsize(file_path)
-    size_mb = size_bytes / (1024 * 1024)
-    print(f"Model file size: {size_mb:.2f} MB")
-
-
-def save_model_weights(model, encoder_path, decoder_path):
-    torch.save(model.encoder.state_dict(), f"{encoder_path}")
-    torch.save(model.decoder.state_dict(), decoder_path)
-
-
 def main(
     batch_size,
     station,
@@ -245,11 +286,11 @@ def main(
     fh,
     clim_div,
     nwp_model,
-    exclusion_buffer,
+    model_path,
     metvar,
     sequence_length=30,
     target="target_error",
-    learning_rate=5e-5,
+    learning_rate=9e-7,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -259,60 +300,62 @@ def main(
     torch.cuda.set_device(device)
     print(device)
     torch.manual_seed(101)
+
     print(" *********")
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_decoder_{exclusion_buffer}.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder_radio.pth"
+    lstm_encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder_radio.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder_radio.pth"
 
     (
         df_train,
         df_test,
         df_val,
         features,
+        forecast_lead,
+        nwp_features,
         stations,
         target,
         vt,
+        image_list_cols,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, metvar, exclusion_buffer
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()
-    # print(f"{nwp_model} FEATURES", nwp_features)
-    print()
+    print("RADIOMETER STATIONS", radiometer_stations)
     print("TARGET", target)
-
-    if len(stations) < 4:
-        print(f"Too few stations found: {len(stations)}. Exiting...")
-        sys.exit()
+    exit()
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_exclusion_buffer",
+        project_name="radiometer_beta",
         workspace="shmaronshmevans",
     )
 
-    train_dataset = SequenceDatasetMultiTask(
+    train_dataset = sequencer.SequenceDatasetMultiTask(
         dataframe=df_train,
         target=target,
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
-    test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_val,
+    df_test = pd.concat([df_val, df_test])
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_test,
         target=target,
         features=features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
     )
 
     train_kwargs = {
@@ -339,24 +382,45 @@ def main(
     hidden_units = int(12 * len(features))
 
     # Initialize multi-task learning model with one encoder and decoders for each station
-    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
+    model = encode_decode_multitask.LSTM_Encoder_Decoder_with_ViT(
         num_sensors=num_sensors,
         hidden_units=hidden_units,
         num_layers=num_layers,
         mlp_units=1500,
         device=device,
-        num_stations=len(stations),
+        num_stations=len(radiometer_stations),
+        radiometer_stations=radiometer_stations,
+        past_timesteps=past_timesteps,
+        future_timesteps=future_timesteps,
+        pos_embedding=0.25,
+        time_embedding=0.25,
+        vit_num_layers=3,
+        num_heads=12,
+        hidden_dim=hidden_dim,
+        mlp_dim=mlp_dim,
+        output_dim=output_dim,
+        dropout=1e-15,
+        attention_dropout=1e-12,
     ).to(device)
 
-    if os.path.exists(encoder_path):
+    if os.path.exists(lstm_encoder_path):
         print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
+        model.lstm_encoder.load_state_dict(torch.load(lstm_encoder_path))
+        model.ViT_encoder.load_state_dict(torch.load(vit_path))
         # Example usage for encoder and decoder
-        get_model_file_size(encoder_path)
+        get_model_file_size(lstm_encoder_path)
+        get_model_file_size(vit_path)
+    else:
+        if os.path.exists(model_path):
+            print("Loading Parent Model")
+            model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
+            for i, param in enumerate(model.encoder.parameters()):
+                if i < 1:
+                    param.requires_grad = False  # Freeze first two layers
 
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path), strict=False)
+        model.decoder.load_state_dict(torch.load(decoder_path))
         get_model_file_size(decoder_path)
 
     optimizer = torch.optim.AdamW(
@@ -366,7 +430,7 @@ def main(
     loss_function = OutlierFocusedLoss(2.0, device)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.1, patience=4
+        optimizer, factor=0.75, patience=4
     )
 
     hyper_params = {
@@ -374,19 +438,17 @@ def main(
         "learning_rate": learning_rate,
         "sequence_length": sequence_length,
         "num_hidden_units": hidden_units,
-        "forecast_lead": fh,
+        "forecast_lead": forecast_lead,
         "batch_size": batch_size,
         "station": station,
         "regularization": weight_decay,
         "forecast_hour": fh,
         "climate_div": clim_div,
         "metvar": metvar,
-        "exclusion_buffer": exclusion_buffer,
-        "triangulate": stations,
     }
     print("--- Training LSTM ---")
 
-    early_stopper = EarlyStopper(8)
+    early_stopper = EarlyStopper(10)
 
     init_start_event.record()
     train_loss_ls = []
@@ -412,22 +474,27 @@ def main(
         test_loss_ls.append(test_loss)
         # log info for comet and loss curves
         experiment.set_epoch(ix_epoch)
-        experiment.log_metric("val_loss", test_loss)
+        experiment.log_metric("test_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        scheduler.step(test_loss)
         if early_stopper.early_stop(test_loss):
             print(f"Early stopping at epoch {ix_epoch}")
             break
-        if test_loss <= min(test_loss_ls) and ix_epoch > 5:
-            print(f"Saving Model Weights... EPOCH {ix_epoch}")
-            save_model_weights(model, encoder_path, decoder_path)
-            save_model = False
 
     init_end_event.record()
 
     if save_model == True:
+        # datetime object containing current date and time
+        now = datetime.now()
+        print("now =", now)
+        # dd/mm/YY H:M:S
+        dt_string = now.strftime("%m_%d_%Y_%H:%M:%S")
         states = model.state_dict()
-        torch.save(model.encoder.state_dict(), f"{encoder_path}")
+        title = f"{station}_loss_{min(test_loss_ls)}"
+        # title = f"{station}_mloutput_eval_fh{fh}"
+        torch.save(model.lstm_encoder.state_dict(), f"{lstm_encoder_path}")
+        torch.save(model.ViT_encoder.state_dict(), f"{vit_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
 
     print("Successful Experiment")
@@ -438,43 +505,3 @@ def main(
     gc.collect()
     torch.cuda.empty_cache()
     # End of MAIN
-
-
-metvar_ls = ["t2m"]
-nwp_model = "HRRR"
-
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# # stations = df["stid"].unique()
-# stations = ["VOOR"]
-df = pd.read_csv(
-    "/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv"
-)
-
-for i, _ in enumerate(df["stid"]):
-    if i < 2:
-        continue
-    else:
-        station = df["stid"].iloc[i]
-        clim_div = df["climate_division_name"].iloc[i]
-        print("TARGETING", station, clim_div)
-        for exclude in np.arange(20, 501, 20):
-            for f in np.arange(1, 19):
-                print(f)
-                try:
-                    main(
-                        batch_size=int(1000),
-                        station=station,
-                        num_layers=3,
-                        epochs=5000,
-                        weight_decay=0.0,
-                        fh=f,
-                        clim_div=clim_div,
-                        nwp_model=nwp_model,
-                        exclusion_buffer=exclude,
-                        metvar="t2m",
-                    )
-                    gc.collect()
-                except:
-                    print("Exclusion Buffer too large...")
-                    print(f"Station: {station}, Exclusion Buffer: {exclude}")

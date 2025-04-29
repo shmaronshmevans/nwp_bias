@@ -28,14 +28,15 @@ from datetime import datetime
 
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-    create_data_for_lstm_gfs,
-    create_data_for_lstm_nam,
-)
-
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
+
+from new_sequencer import (
+    create_data_for_gfs_sequencer,
+    create_data_for_nam_sequencer,
+    create_data_for_hrrr_sequencer,
+    sequencer,
+)
 
 print("imports loaded")
 
@@ -45,138 +46,6 @@ def custom_collate(batch):
     if not batch:
         return None  # Return None if the batch is empty
     return torch.utils.data.default_collate(batch)
-
-
-class SequenceDatasetMultiTask(Dataset):
-    """Dataset class for multi-task learning with station-specific data."""
-
-    def __init__(
-        self,
-        dataframe,
-        target,
-        features,
-        sequence_length,
-        forecast_steps,
-        device,
-        nwp_model,
-        metvar,
-    ):
-        self.dataframe = dataframe
-        self.features = features
-        self.target = target
-        self.sequence_length = sequence_length
-        self.forecast_steps = forecast_steps
-        self.device = device
-        self.nwp_model = nwp_model
-        self.metvar = metvar
-        self.y = torch.tensor(dataframe[target].values).float().to(device)
-        self.X = torch.tensor(dataframe[features].values).float().to(device)
-
-    def __len__(self):
-        return self.X.shape[0]
-
-    def __getitem__(self, i):
-        if self.nwp_model == "HRRR":
-            x_start = i
-            x_end = i + (self.sequence_length + self.forecast_steps)
-            y_start = i + self.sequence_length
-            y_end = y_start + self.forecast_steps
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
-
-            if x.shape[0] < (self.sequence_length + self.forecast_steps):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + self.forecast_steps) - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < self.forecast_steps:
-                _y = torch.zeros(
-                    (self.forecast_steps - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-self.forecast_steps :, -int(4 * 16) :] = x[
-                -int(self.forecast_steps + 1), -int(4 * 16) :
-            ].clone()
-
-        if self.nwp_model == "GFS":
-            x_start = i
-            x_end = i + (self.sequence_length + int(self.forecast_steps / 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int(self.forecast_steps / 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
-
-            if x.shape[0] < (self.sequence_length + int(self.forecast_steps / 3)):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int(self.forecast_steps / 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < int(self.forecast_steps / 3):
-                _y = torch.zeros(
-                    (int(self.forecast_steps / 3) - y.shape[0], 1), device=self.device
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-int(self.forecast_steps / 3) :, -int(5 * 16) :] = x[
-                -(int(self.forecast_steps / 3) + 1), -int(5 * 16) :
-            ].clone()
-
-        if self.nwp_model == "NAM":
-            x_start = i
-            x_end = i + (self.sequence_length + int((self.forecast_steps + 2) // 3))
-            y_start = i + self.sequence_length
-            y_end = y_start + int((self.forecast_steps + 2) // 3)
-            x = self.X[x_start:x_end, :]
-            y = self.y[y_start:y_end].unsqueeze(1)
-
-            # # Check if all elements in the target 'y' are zero
-            # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
-            #     return None  # Skip the sequence if all target values are zero
-
-            if x.shape[0] < (
-                self.sequence_length + int((self.forecast_steps + 2) // 3)
-            ):
-                _x = torch.zeros(
-                    (
-                        (self.sequence_length + int((self.forecast_steps + 2) // 3))
-                        - x.shape[0],
-                        self.X.shape[1],
-                    ),
-                    device=self.device,
-                )
-                x = torch.cat((x, _x), 0)
-
-            if y.shape[0] < int((self.forecast_steps + 2) // 3):
-                _y = torch.zeros(
-                    (int((self.forecast_steps + 2) // 3) - y.shape[0], 1),
-                    device=self.device,
-                )
-                y = torch.cat((y, _y), 0)
-
-            x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
-                -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
-            ].clone()
-        return x, y
 
 
 class EarlyStopper:
@@ -245,7 +114,7 @@ def main(
     fh,
     clim_div,
     nwp_model,
-    exclusion_buffer,
+    model_path,
     metvar,
     sequence_length=30,
     target="target_error",
@@ -259,60 +128,65 @@ def main(
     torch.cuda.set_device(device)
     print(device)
     torch.manual_seed(101)
+
     print(" *********")
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_decoder_{exclusion_buffer}.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder_alpha2.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder_alpha2.pth"
 
     (
-        df_train,
-        df_test,
-        df_val,
+        df_train_nysm,
+        df_val_nysm,
+        nwp_train_df_ls,
+        nwp_val_df_ls,
         features,
+        nwp_features,
         stations,
         target,
-        vt,
-    ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, metvar, exclusion_buffer
-    )  # to change which model you are matching for you need to chage which
+        image_list_cols,
+    ) = create_data_for_gfs_sequencer.create_data_for_model(
+        station, fh, today_date, metvar
+    )
     print("FEATURES", features)
     print()
     # print(f"{nwp_model} FEATURES", nwp_features)
     print()
     print("TARGET", target)
 
-    if len(stations) < 4:
-        print(f"Too few stations found: {len(stations)}. Exiting...")
-        sys.exit()
-
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_exclusion_buffer",
+        project_name="seq2seq_hrrr_prospectus",
         workspace="shmaronshmevans",
     )
 
-    train_dataset = SequenceDatasetMultiTask(
-        dataframe=df_train,
+    train_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_train_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
+        dataframe_ls=nwp_train_df_ls,
     )
 
-    test_dataset = SequenceDatasetMultiTask(
-        dataframe=df_val,
+    test_dataset = sequencer.SequenceDatasetMultiTask(
+        dataframe=df_val_nysm,
         target=target,
         features=features,
+        nwp_features=nwp_features,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
         nwp_model=nwp_model,
         metvar=metvar,
+        image_list_cols=image_list_cols,
+        dataframe_ls=nwp_val_df_ls,
     )
 
     train_kwargs = {
@@ -337,6 +211,7 @@ def main(
 
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
+    # hidden_units = 1800
 
     # Initialize multi-task learning model with one encoder and decoders for each station
     model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
@@ -353,6 +228,13 @@ def main(
         model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
         # Example usage for encoder and decoder
         get_model_file_size(encoder_path)
+    else:
+        if os.path.exists(model_path):
+            print("Loading Parent Model")
+            model.encoder.load_state_dict(torch.load(f"{model_path}"), strict=False)
+            for i, param in enumerate(model.encoder.parameters()):
+                if i < 1:
+                    param.requires_grad = False  # Freeze first two layers
 
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
@@ -381,8 +263,6 @@ def main(
         "forecast_hour": fh,
         "climate_div": clim_div,
         "metvar": metvar,
-        "exclusion_buffer": exclusion_buffer,
-        "triangulate": stations,
     }
     print("--- Training LSTM ---")
 
@@ -426,6 +306,13 @@ def main(
     init_end_event.record()
 
     if save_model == True:
+        if not os.path.exists(
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"
+        ):
+            os.makedirs(
+                f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/"
+            )
+
         states = model.state_dict()
         torch.save(model.encoder.state_dict(), f"{encoder_path}")
         torch.save(model.decoder.state_dict(), decoder_path)
@@ -440,41 +327,30 @@ def main(
     # End of MAIN
 
 
-metvar_ls = ["t2m"]
-nwp_model = "HRRR"
+c = "Hudson Valley"
+metvar_ls = ["tp", "u_total", "t2m"]
+nwp_model = "GFS"
 
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# # stations = df["stid"].unique()
-# stations = ["VOOR"]
-df = pd.read_csv(
-    "/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv"
-)
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == c]
+# stations = df["stid"].unique()
+stations = ["VOOR", "BUFF"]
 
-for i, _ in enumerate(df["stid"]):
-    if i < 2:
-        continue
-    else:
-        station = df["stid"].iloc[i]
-        clim_div = df["climate_division_name"].iloc[i]
-        print("TARGETING", station, clim_div)
-        for exclude in np.arange(20, 501, 20):
-            for f in np.arange(1, 19):
-                print(f)
-                try:
-                    main(
-                        batch_size=int(1000),
-                        station=station,
-                        num_layers=3,
-                        epochs=5000,
-                        weight_decay=0.0,
-                        fh=f,
-                        clim_div=clim_div,
-                        nwp_model=nwp_model,
-                        exclusion_buffer=exclude,
-                        metvar="t2m",
-                    )
-                    gc.collect()
-                except:
-                    print("Exclusion Buffer too large...")
-                    print(f"Station: {station}, Exclusion Buffer: {exclude}")
+for f in np.arange(3, 37, 3):
+    print(f)
+    for s in stations:
+        for metvar in metvar_ls:
+            print(s)
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                epochs=5000,
+                weight_decay=0.0,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp_model,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+                metvar=metvar,
+            )
+            gc.collect()

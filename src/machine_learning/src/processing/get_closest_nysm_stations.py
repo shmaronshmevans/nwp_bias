@@ -5,9 +5,12 @@ from sklearn import preprocessing
 from sklearn import utils
 
 
-def get_closest_stations(nysm_df, neighbors, target_station, nwp_model):
+def get_closest_stations(
+    nysm_df, neighbors, target_station, nwp_model, exclusion_buffer
+):
     # Earth's radius in kilometers
     EARTH_RADIUS_KM = 6378
+    nysm_df = nysm_df[nysm_df["station"] != "LKPL"]
 
     lats = nysm_df["lat"].unique()
     lons = nysm_df["lon"].unique()
@@ -45,23 +48,29 @@ def get_closest_stations(nysm_df, neighbors, target_station, nwp_model):
     utilize_ls = []
     vals, dists = station_dict.get(target_station)
 
-    if nwp_model == "GFS":
-        utilize_ls.append(target_station)
-        for v, d in zip(vals, dists):
-            if d >= 30 and len(utilize_ls) < 5:
-                x = stations[v]
-                utilize_ls.append(x)
-
-    if nwp_model == "NAM":
-        utilize_ls.append(target_station)
-        for v, d in zip(vals, dists):
-            if d >= 12 and len(utilize_ls) < 4:
-                x = stations[v]
-                utilize_ls.append(x)
-
-    if nwp_model == "HRRR":
-        for v, d in zip(vals, dists):
+    utilize_ls.append(target_station)
+    for v, d in zip(vals, dists):
+        if d >= exclusion_buffer and len(utilize_ls) < 4:
             x = stations[v]
             utilize_ls.append(x)
+
+    # if nwp_model == "GFS":
+    #     utilize_ls.append(target_station)
+    #     for v, d in zip(vals, dists):
+    #         if d >= 30 and len(utilize_ls) < 5:
+    #             x = stations[v]
+    #             utilize_ls.append(x)
+
+    # if nwp_model == "NAM":
+    #     utilize_ls.append(target_station)
+    #     for v, d in zip(vals, dists):
+    #         if d >= 12 and len(utilize_ls) < 4:
+    #             x = stations[v]
+    #             utilize_ls.append(x)
+
+    # if nwp_model == "HRRR":
+    #     for v, d in zip(vals, dists):
+    #         x = stations[v]
+    #         utilize_ls.append(x)
 
     return utilize_ls
