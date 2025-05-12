@@ -150,7 +150,9 @@ def find_shift(ldf):
     print("Shifting: ", shifter)  # Print the best shift value
 
     # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
-    ldf["Model forecast"] = ldf["Model forecast"].shift(shifter).dropna()
+    shifted = ldf["Model forecast"].shift(shifter).dropna().reset_index(drop=True)
+    ldf = ldf.iloc[shifter:].reset_index(drop=True)  # Align ldf rows
+    ldf["Model forecast"] = shifted
     return ldf  # Return the modified DataFrame
 
 
@@ -214,7 +216,6 @@ def date_filter(ldf, time1, time2):
 def random_sampler(df, n):
     # Get the list of indices from the DataFrame
     i = df.index.tolist()
-    print(len(i))
 
     # Randomly sample 20 values from the index list
     sampled_indices = random.sample(i, n)
@@ -259,7 +260,7 @@ def refit(df):
     return df, diff
 
 
-def linear_fit(df, df_out, diff, alpha):
+def linear_fit(df, df_out, diff):
     df_out = df_out.copy()
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
@@ -274,7 +275,10 @@ def linear_fit(df, df_out, diff, alpha):
     for i in top_200_indexes:
         target, lstm_val, _, _ = df.loc[i].values
         alpha = abs(target / lstm_val)
-        alphas.append(alpha)
+        if alpha > 12:
+            continue
+        else:
+            alphas.append(alpha)
 
     multiply = st.mean(alphas)
     print("multiply", multiply)
@@ -369,8 +373,8 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/oksm/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/oksm/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/oksm/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
     (
         df_train,
@@ -440,8 +444,7 @@ def main(
     df_out["valid_time"] = valid_time
     # Trim valid_time to match the length of df_out
 
-    df_out, alpha = un_normalize_out.un_normalize_mean(station, metvar, df_out, fh)
-    print("alpha1")
+    # df_out = un_normalize_out.un_normalize(station, metvar, df_out, fh)
 
     df_out.to_parquet(
         f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
@@ -454,7 +457,7 @@ def main(
     df_calc, diff = refit(df_calc)
 
     # # linear fit
-    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff, alpha)
+    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
@@ -462,7 +465,6 @@ def main(
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
-    print("alpha2", alpha)
 
     # linear save
     df_save_linear = pd.DataFrame(
@@ -498,42 +500,35 @@ def main(
     # END OF MAIN
 
 
-c = "Central"
 nwp = "HRRR"
 metvar_ls = ["t2m", "tp", "u_total"]
 oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+c = "Panhandle"
+
+
+# for c in oksm_clim['Climate_division'].unique():
+
 df = oksm_clim[oksm_clim["Climate_division"] == c]
 stations = df["stid"].unique()
 
-main(
-    batch_size=int(1000),
-    station="ACME",
-    num_layers=3,
-    fh=1,
-    clim_div=c,
-    nwp_model="HRRR",
-    metvar="t2m",
-    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_t2m.pth",
-)
-
-# for m in metvar_ls:
-#     print(m)
-#     for f in np.arange(1, 19):
-#         print(f)
-#         for s in stations:
-#             print(s)
-#             try:
-#                 main(
-#                     batch_size=int(1000),
-#                     station=s,
-#                     num_layers=3,
-#                     fh=f,
-#                     clim_div=c,
-#                     nwp_model=nwp,
-#                     metvar=m,
-#                     model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-#                 )
-#                 gc.collect()
-#             except:
-#                 print("Couldn't evaluate...")
-#                 print(f"station: {s}, variable: {m}, fh: {f}")
+for m in metvar_ls:
+    print(m)
+    for f in np.arange(1, 19):
+        print(f)
+        for s in stations:
+            print(s)
+            try:
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    fh=f,
+                    clim_div=c,
+                    nwp_model=nwp,
+                    metvar=m,
+                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+                )
+                gc.collect()
+            except:
+                print("Couldn't evaluate...")
+                print(f"station: {s}, variable: {m}, fh: {f}")

@@ -37,6 +37,7 @@ from data import (
     create_data_for_lstm_gfs,
     create_data_for_lstm_nam,
 )
+import random
 
 
 class ZScoreNormalization:
@@ -315,9 +316,10 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder_radio.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder_radio.pth"
-    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit_radio.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
+
     # (
     #     df_train,
     #     df_test,
@@ -337,7 +339,6 @@ def main(
         df_test,
         df_val,
         features,
-        forecast_lead,
         stations,
         target,
         vt,
@@ -367,9 +368,8 @@ def main(
         image_list_cols=image_list_cols,
     )
 
-    df_test = pd.concat([df_val, df_test])
     test_dataset = sequencer.SequenceDatasetMultiTask(
-        dataframe=df_test,
+        dataframe=df_val,
         target=target,
         features=features,
         sequence_length=sequence_length,
@@ -549,16 +549,21 @@ c = "Hudson Valley"
 metvar = "tp"
 
 
-for fh in np.arange(1, 19):
+fh_all = np.arange(1, 19)
+fh = fh_all.copy()
+while len(fh) > 0:
+    fh_r = random.choice(fh)
     main(
         batch_size=70,
         station="VOOR",
         num_layers=3,
         epochs=int(1e3),
         weight_decay=1e-15,
-        fh=fh,
+        fh=fh_r,
         clim_div=c,
         nwp_model=nwp_model,
         model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
         metvar=metvar,
     )
+    gc.collect()
+    fh = fh[fh != fh_r]  # removes used FH by value

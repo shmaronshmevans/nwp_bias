@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import re
 import statistics as st
-
 from datetime import datetime
 from scipy.stats import gaussian_kde
 import matplotlib.dates as mdates
@@ -126,8 +125,7 @@ def err_bucket(full_df, met_col, rounded_base):
     temps = []
     for i, _ in enumerate(full_df[met_col]):
         rounded = myround(full_df[met_col].iloc[i], rounded_base)
-        if rounded >= -200:
-            temps.append(rounded)
+        temps.append(rounded)
 
     # Step 2: Identify unique temperature buckets
     unique_temps = unique(temps)
@@ -145,21 +143,20 @@ def err_bucket(full_df, met_col, rounded_base):
     # Step 5: Accumulate absolute errors and instance counts into the temperature buckets
     for i, _ in enumerate(full_df[met_col]):
         rounded = myround(full_df[met_col].iloc[i], rounded_base)
-        if rounded >= -200:
-            abs_err_sum = 0
-            valid_count = 0
+        abs_err_sum = 0
+        valid_count = 0
 
-            # Calculate absolute errors across all 'diff' columns
-            for col in diff_columns:
-                err = full_df[col].iloc[i]
-                if err > -100:
-                    abs_err_sum += abs(err)
-                    valid_count += 1
+        # Calculate absolute errors across all 'diff' columns
+        for col in diff_columns:
+            err = full_df[col].iloc[i]
+            if err > -100:
+                abs_err_sum += abs(err)
+                valid_count += 1
 
-            # Only update if at least one valid error exists
-            if valid_count > 0:
-                temp_df[rounded].iloc[0] += abs_err_sum / valid_count  # Add MAE
-                temp_df[rounded].iloc[-1] += valid_count  # Increment the instance count
+        # Only update if at least one valid error exists
+        if valid_count > 0:
+            temp_df[rounded].iloc[0] += abs_err_sum / valid_count  # Add MAE
+            temp_df[rounded].iloc[-1] += valid_count  # Increment the instance count
 
     instances = temp_df.iloc[-1]
     temp_df = temp_df.iloc[0]
@@ -199,7 +196,7 @@ def plot_buckets(
             rotation=90,
         )
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_met_error_{title}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_met_error_{title}.png"
     )
 
 
@@ -263,7 +260,7 @@ def groupby_month_total(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_error.png"
     )
 
 
@@ -326,7 +323,7 @@ def groupby_month_std(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_std_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_std_error.png"
     )
 
 
@@ -391,7 +388,7 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_abs_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_abs_error.png"
     )
 
     return aggregated_results
@@ -442,7 +439,7 @@ def boxplot_monthly_error(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{metvar}_month_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_month_error_boxplot.png"
     )
 
 
@@ -510,7 +507,7 @@ def groupby_time_abs(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_abs_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_abs_error_colored.png"
     )
 
     return aggregated_results
@@ -580,7 +577,7 @@ def groupby_time(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_mean_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_mean_error_colored.png"
     )
 
     return aggregated_results
@@ -632,7 +629,7 @@ def boxplot_time_of_day_error(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_error_boxplot.png"
     )
 
 
@@ -698,7 +695,7 @@ def groupby_time_std(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_std_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_time_of_day_std_error_colored.png"
     )
 
     return aggregated_results
@@ -760,7 +757,7 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Show the plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_scatter_{fh}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}.png"
     )
 
 
@@ -887,43 +884,38 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_fh_drift.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift.png"
     )
-
-
-from sklearn.metrics import r2_score
 
 
 def calculate_r2(df):
+    lstms = []
+    targets = []
     r2_ls = []
 
-    # Get all model forecast columns
-    forecast_cols = sorted(
-        [col for col in df.columns if col.startswith("Model forecast")],
-        key=lambda x: (len(x), x),
-    )
+    for x, d in zip(df[f"Model forecast"].values, df[f"target_error_lead_0"].values):
+        if abs(d) < 100 and abs(x) < 100:
+            lstms.append(d)
+            targets.append(x)
 
-    for fc in forecast_cols:
-        # Infer the suffix to find the matching target column
-        suffix = fc.replace("Model forecast", "")
-        target_col = f"target_error_lead_0{suffix}"
+    # calculate r2
+    r2 = r2_score(targets, lstms)
+    r2_ls.append(r2)
 
-        if target_col in df.columns:
-            lstms = []
-            targets = []
+    for i in np.arange(2, 19):
+        lstms_ = []
+        targets_ = []
 
-            for x, d in zip(df[fc].values, df[target_col].values):
-                if abs(d) < 100 and abs(x) < 100:
-                    lstms.append(d)
-                    targets.append(x)
+        for x, d in zip(
+            df[f"Model forecast_{i}"].values, df[f"target_error_lead_0_{i}"].values
+        ):
+            if abs(d) < 100 and abs(x) < 100:
+                lstms_.append(d)
+                targets_.append(x)
 
-            if lstms and targets:
-                r2 = r2_score(targets, lstms)
-                r2_ls.append(max(0, r2))  # Ensure R² is not negative
-            else:
-                r2_ls.append(0)  # Fallback if no valid data
-        else:
-            print(f"Missing expected column: {target_col}")
-            r2_ls.append(0)
+        r2_ = r2_score(targets_, lstms_)
+        r2_ls.append(r2_)
 
+    # make sure r squared values are positive
+    r2_ls = [max(0, r) for r in r2_ls]
     return r2_ls

@@ -19,7 +19,7 @@ from processing import get_closest_radiometer
 from data import hrrr_data, hrrr_data_oksm
 from data import nysm_data, oksm_data
 
-from visuals import error_output_bulk_main
+# from visuals import error_output_bulk_main
 
 
 def nwp_error(target, station, df):
@@ -77,13 +77,9 @@ def create_data_for_model_oksm(station, fh, var):
     """
 
     # Print a message indicating the current station being processed.
-    print(f"Targeting Error for {station}")
-
     # Load data from NYSM and HRRR sources.
-    print("-- loading data from NYSM --")
     oksm_df = oksm_data.load_oksm_data()
     oksm_df.reset_index(inplace=True)
-    print("-- loading data from HRRR --")
     hrrr_df = hrrr_data_oksm.read_hrrr_data(str(fh).zfill(2))
 
     # Rename columns for consistency.
@@ -114,6 +110,15 @@ def create_data_for_model_oksm(station, fh, var):
     return the_df
 
 
+def date_filter(ldf):
+    time1 = datetime(2024, 5, 1, 0, 0, 0)
+    time2 = datetime(2024, 8, 31, 23, 0, 0)
+    ldf = ldf[ldf["valid_time"] > time1]
+    ldf = ldf[ldf["valid_time"] < time2]
+
+    return ldf
+
+
 def create_data_for_model(station, fh, var):
     """
     This function creates and processes data for a LSTM machine learning model.
@@ -130,13 +135,9 @@ def create_data_for_model(station, fh, var):
     """
 
     # Print a message indicating the current station being processed.
-    print(f"Targeting Error for {station}")
-
     # Load data from NYSM and HRRR sources.
-    print("-- loading data from NYSM --")
     nysm_df = nysm_data.load_nysm_data(gfs=False)
     nysm_df.reset_index(inplace=True)
-    print("-- loading data from HRRR --")
     hrrr_df = hrrr_data.read_hrrr_data(str(fh).zfill(2))
 
     # Rename columns for consistency.
@@ -167,87 +168,38 @@ def create_data_for_model(station, fh, var):
     return the_df
 
 
-def un_normalize(station, metvar, df):
+def un_normalize(station, metvar, df, fh):
     """
-    Reverses the normalization process for model forecast error predictions
-    by scaling them back to their original values using reference data.
-
-    Args:
-        station (str): The station identifier for which data is being processed.
-        metvar (str): The meteorological variable being analyzed.
-        df (pd.DataFrame): The DataFrame containing forecast error data.
-
-    Returns:
-        pd.DataFrame: The input DataFrame with un-normalized forecast error values.
+    Reverses normalization using a heuristic based on top 20 target_error values.
     """
-    for fh in np.arange(1, 19):  # Iterate over forecast hours from 1 to 18
-        og_data_df = create_data_for_model_oksm(
-            station, fh, metvar
-        )  # Get original model data
-        times = og_data_df[
-            "valid_time"
-        ].values  # Extract valid times from original data
+    og_data_df = create_data_for_model_oksm(station, fh, metvar)
 
-        for t in times:  # Iterate over each valid time
-            filtered_df = df[
-                df["valid_time"] == t
-            ]  # Filter input DataFrame by valid time
-            og_data_df_filtered = og_data_df[
-                og_data_df["valid_time"] == t
-            ]  # Filter original data
+    # Filter
+    og_data_df = date_filter(og_data_df)
+    sampled_df = date_filter(df)
 
-            if not filtered_df.empty:  # Check if matching data exists
-                if fh == 1:
-                    og_value = og_data_df_filtered[
-                        "target_error"
-                    ].values  # Extract values from original data
-                    lstm_value = filtered_df[
-                        f"target_error_lead_0"
-                    ].values  # Extract LSTM-predicted error
-                else:
-                    lstm_value = filtered_df[
-                        f"target_error_lead_0_{fh}"
-                    ].values  # Extract LSTM-predicted error
-                    og_value = og_data_df_filtered[
-                        f"target_error"
-                    ].values  # Extract values from original data
+    top_20_max_values_og = og_data_df["target_error"].nlargest(20)
+    top_20_max_values = sampled_df["target_error"].nlargest(20)
 
-                if (lstm_value == 0).any() or (og_value == 0).any():
-                    continue
+    alphas = []
+    for idx_sample, idx_og in zip(top_20_max_values.index, top_20_max_values_og.index):
+        target = sampled_df.loc[idx_sample, "target_error"]
+        target_og = og_data_df.loc[idx_og, "target_error"]
 
-                # Compute the scaling factor to revert normalization
-                diff = og_value[0] / lstm_value[0]
-                # make sure the multiplier is positive or a rational number
-                if abs(diff) < 1:
-                    diff = 1
-                if diff < 0 or diff > 3:
-                    continue
+        if target != 0:
+            alpha = abs(target_og / target)
+            alphas.append(alpha)
 
-                print(
-                    "Data Loss from normalization, coefficient... ",
-                    lstm_value[0] / og_value[0],
-                )
-                print()
-                print("multiply ", diff)
+    if len(alphas) == 0:
+        raise ValueError("No valid ratios found for unnormalization.")
 
-                # Apply the scaling factor to revert normalization
-                if fh == 1:
-                    df["target_error_lead_0"] = df["target_error_lead_0"] * diff
-                    df["Model forecast"] = df["Model forecast"] * diff
-                    df["diff"] = df["target_error_lead_0"] - df["Model forecast"]
-                else:
-                    df[f"target_error_lead_0_{fh}"] = (
-                        df[f"target_error_lead_0_{fh}"] * diff
-                    )
-                    df[f"Model forecast_{fh}"] = df[f"Model forecast_{fh}"] * diff
-                    df[f"diff_{fh}"] = (
-                        df[f"target_error_lead_0_{fh}"] - df[f"Model forecast_{fh}"]
-                    )
-                break  # Stop iterating over times once a match is found
-            else:
-                continue  # Continue looping if no match is found
+    multiply = st.mean(alphas)
 
-    return df  # Return the DataFrame with un-normalized values
+    df["target_error"] = df["target_error"] * multiply
+    df["Model forecast"] = df["Model forecast"] * multiply
+    df["diff"] = df["target_error"] - df["Model forecast"]
+
+    return df, multiply
 
 
 def un_normalize_mean(station, metvar, df, fh):
@@ -255,8 +207,6 @@ def un_normalize_mean(station, metvar, df, fh):
     og_data_df = create_data_for_model_oksm(
         station, fh, metvar
     )  # Get original model data
-
-    print(og_data_df)
     if fh == 1:
         og_mu = st.mean(og_data_df["target_error"])
         lstm_mu = st.mean(df["target_error"])
@@ -277,3 +227,49 @@ def un_normalize_mean(station, metvar, df, fh):
         df[f"diff_{fh}"] = df[f"target_error_{fh}"] - df[f"Model forecast_{fh}"]
 
     return df, diff
+
+
+def main():
+    nysm_df = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    stations = nysm_df["stid"].unique()
+
+    parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus_v2"
+
+    metvar_ls = ["t2m", "u_total", "tp"]
+
+    for s in stations:
+        df = nysm_df[nysm_df["stid"] == s]
+        clim_div = df["climate_division_name"].iloc[0]
+
+        for m in metvar_ls:
+            linear_tbl = pd.read_csv(
+                f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{m}_HRRR_lookup_linear.csv"
+            )
+
+            for fh in np.arange(1, 19):
+                alpha1 = linear_tbl[
+                    (linear_tbl["station"] == s) & (linear_tbl["forecast_hour"] == fh)
+                ]["alpha"].values[0]
+
+                q_df = pd.read_parquet(
+                    f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear.parquet"
+                )
+
+                q_df, alpha2 = un_normalize(s, m, q_df, fh)
+
+                new_alpha = alpha1 * alpha2
+
+                q_df.to_parquet(
+                    f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear.parquet"
+                )
+
+                # Update alpha in the table
+                linear_tbl.loc[
+                    (linear_tbl["station"] == s) & (linear_tbl["forecast_hour"] == fh),
+                    "alpha",
+                ] = new_alpha
+
+                # Save the updated table
+                linear_tbl.to_csv(
+                    f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{m}_HRRR_lookup_linear.csv"
+                )

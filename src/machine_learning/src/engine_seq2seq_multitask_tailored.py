@@ -25,6 +25,7 @@ import pandas as pd
 import numpy as np
 import gc
 from datetime import datetime
+import random
 
 from processing import make_dirs
 
@@ -245,7 +246,6 @@ def main(
     fh,
     clim_div,
     nwp_model,
-    exclusion_buffer,
     metvar,
     sequence_length=30,
     target="target_error",
@@ -263,8 +263,8 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_decoder_{exclusion_buffer}.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
     (
         df_train,
@@ -275,7 +275,7 @@ def main(
         target,
         vt,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, metvar, exclusion_buffer
+        station, fh, today_date, metvar, 1
     )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()
@@ -289,7 +289,7 @@ def main(
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_exclusion_buffer",
+        project_name="seq2seq_hrrr_prospectus",
         workspace="shmaronshmevans",
     )
 
@@ -381,7 +381,6 @@ def main(
         "forecast_hour": fh,
         "climate_div": clim_div,
         "metvar": metvar,
-        "exclusion_buffer": exclusion_buffer,
         "triangulate": stations,
     }
     print("--- Training LSTM ---")
@@ -440,41 +439,30 @@ def main(
     # End of MAIN
 
 
-metvar_ls = ["t2m"]
+metvar_ls = ["t2m", "u_total", "tp"]
 nwp_model = "HRRR"
+c = "Champlain Valley"
 
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# # stations = df["stid"].unique()
-# stations = ["VOOR"]
-df = pd.read_csv(
-    "/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv"
-)
-
-for i, _ in enumerate(df["stid"]):
-    if i < 2:
-        continue
-    else:
-        station = df["stid"].iloc[i]
-        clim_div = df["climate_division_name"].iloc[i]
-        print("TARGETING", station, clim_div)
-        for exclude in np.arange(20, 501, 20):
-            for f in np.arange(1, 19):
-                print(f)
-                try:
-                    main(
-                        batch_size=int(1000),
-                        station=station,
-                        num_layers=3,
-                        epochs=5000,
-                        weight_decay=0.0,
-                        fh=f,
-                        clim_div=clim_div,
-                        nwp_model=nwp_model,
-                        exclusion_buffer=exclude,
-                        metvar="t2m",
-                    )
-                    gc.collect()
-                except:
-                    print("Exclusion Buffer too large...")
-                    print(f"Station: {station}, Exclusion Buffer: {exclude}")
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == c]
+stations = df["stid"].unique()
+for metvar in metvar_ls:
+    for s in stations:
+        print("TARGETING", s, c, metvar)
+        fh_all = np.arange(1, 19)
+        fh = fh_all.copy()
+        while len(fh) > 0:
+            fh_r = random.choice(fh)
+            main(
+                batch_size=int(500),
+                station=s,
+                num_layers=3,
+                epochs=5000,
+                weight_decay=1e-15,
+                fh=fh_r,
+                clim_div=c,
+                nwp_model=nwp_model,
+                metvar=metvar,
+            )
+            gc.collect()
+            fh = fh[fh != fh_r]  # removes used FH by value

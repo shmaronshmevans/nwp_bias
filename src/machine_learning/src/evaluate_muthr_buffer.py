@@ -36,7 +36,6 @@ from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
 import random
 
-
 print("imports downloaded")
 
 
@@ -223,9 +222,8 @@ def find_shift(ldf):
     print("Shifting: ", shifter)  # Print the best shift value
 
     # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
-    shifted = ldf["Model forecast"].shift(shifter).dropna().reset_index(drop=True)
-    ldf = ldf.iloc[shifter:].reset_index(drop=True)  # Align ldf rows
-    ldf["Model forecast"] = shifted
+    ldf["Model forecast"] = ldf["Model forecast"].shift(shifter)
+    ldf.dropna(inplace=True)
 
     return ldf  # Return the modified DataFrame
 
@@ -316,6 +314,10 @@ def refit(df):
     tithe = ruler * 0.1
     indexes = random_sampler(df, int(tithe))
     df = df.loc[indexes]
+    # Step 2: Sort by index
+    df.sort_index(inplace=True)
+    # Step 3: Drop duplicated index entries, keeping the first one
+    df = df.loc[~df.index.duplicated(keep="first")]
 
     targets = []
     lstms = []
@@ -339,9 +341,8 @@ def linear_fit(df, df_out, diff):
     df_out = df_out.copy()
     df = df.copy()
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
-    print(df.columns)
-    length = len(df["target_error_lead_0"].values)
-    top_200_max_values = df["target_error_lead_0"].nlargest(250)
+    length = len(df["target_error"].values)
+    top_200_max_values = df["target_error"].nlargest(250)
     top_200_indexes = top_200_max_values.index
 
     alphas = []
@@ -368,11 +369,11 @@ def refit_output(df, diff):
     df["Model forecast"] = df["Model forecast"] - diff
 
     # Calculate the median of 'target_error_lead_0' and 'Model forecast'
-    mean3 = st.median(df["target_error_lead_0"])
+    mean3 = st.median(df["target_error"])
     mean4 = st.median(df["Model forecast"])
 
     # Center both 'target_error_lead_0' and 'Model forecast' by subtracting their median
-    df["target_error_lead_0"] = df["target_error_lead_0"] - mean3
+    df["target_error"] = df["target_error"] - mean3
     df["Model forecast"] = df["Model forecast"] - mean4
     diff += mean4
 
@@ -432,6 +433,7 @@ def main(
     nwp_model,
     metvar,
     model_path,
+    exclusion_buffer,
     sequence_length=30,
     target="target_error",
 ):
@@ -447,8 +449,8 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/exclusion_buffer/{clim_div}_{metvar}_{station}_decoder_{exclusion_buffer}.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/exclusion_buffer/{clim_div}_{metvar}_{station}_encoder_{exclusion_buffer}.pth"
 
     (
         df_train,
@@ -458,22 +460,21 @@ def main(
         stations,
         target,
         vt,
-        _,
     ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, metvar
+        station, fh, today_date, metvar, exclusion_buffer
     )  # to change which model you are matching for you need to chage which
 
     df_eval = pd.concat([df_train, df_val, df_test])
 
     test_dataset = SequenceDatasetMultiTask(
         dataframe=df_eval,
-        target=target,
         features=features,
+        target=target,
         sequence_length=sequence_length,
         forecast_steps=fh,
         device=device,
-        nwp_model=nwp_model,
-        metvar=metvar,
+        nwp_model="HRRR",
+        metvar="t2m",
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
@@ -518,10 +519,10 @@ def main(
     valid_time = vt[: len(df_out)]
     df_out["valid_time"] = valid_time
     # un_normalize data
-    # df_out, mult1 = un_normalize_out.un_normalize(station, metvar, df_out)
+    df_out = un_normalize_out.un_normalize(station, metvar, df_out)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og_{exclusion_buffer}.parquet"
     )
 
     # calculate post processing on validation set
@@ -530,78 +531,61 @@ def main(
     df_calc = date_filter(df_out, time1, time2)
     df_calc, diff = refit(df_calc)
 
-    # # linear fit
-    df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
-
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
     time4 = datetime(2024, 12, 31, 23, 59, 0)
-    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
-
+    df_evaluate_linear = date_filter(df_out, time3, time4)
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
     # linear save
     df_save_linear = pd.DataFrame(
         {
             "station": [station],
-            "forecast_hour": [fh],
-            "alpha": [multiply],
-            "diff": [diff],
+            "buffer": [exclusion_buffer],
+            # "alpha": [multiply],
+            # "diff": [diff],
             "mae": [mae2],
             "mse": [mse2],
         }
     )
 
     if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
     ):
         df_og_linear = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
         )
         df_save_linear = pd.concat([df_og_linear, df_save_linear])
 
     df_save_linear.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/exclusion_buffer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
         index=False,
-    )
-
-    today_date, today_date_hr = make_dirs.get_time_title(station)
-    df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
 
 
-nwp = "HRRR"
-metvar_ls = ["u_total", "t2m", "tp"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-c = "Eastern Plateau"
+df = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/random_nysm_by_climdiv.csv"
+)
 
-
-# for c in nysm_clim["climate_division_name"].unique():
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
-
-for m in metvar_ls:
-    print(m)
-    for f in np.arange(1, 19):
-        print(f)
-        for s in stations:
-            print(s)
-            # try:
-            main(
-                batch_size=int(1000),
-                station=s,
-                num_layers=3,
-                fh=f,
-                clim_div=c,
-                nwp_model=nwp,
-                metvar=m,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-            )
-            gc.collect()
-            # except:
-            #     print("Couldn't evaluate...")
-            #     print(f"station: {s}, variable: {m}, fh: {f}")
+for i, _ in enumerate(df["stid"]):
+    s = df["stid"].iloc[i]
+    c = df["climate_division_name"].iloc[i]
+    for exclude in np.arange(20, 501, 20):
+        # try:
+        main(
+            batch_size=int(1000),
+            station=s,
+            num_layers=3,
+            fh=12,
+            clim_div=c,
+            nwp_model="HRRR",
+            metvar="t2m",
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{c}_t2m.pth",
+            exclusion_buffer=exclude,
+        )
+        gc.collect()
+        # except:
+        #     continue

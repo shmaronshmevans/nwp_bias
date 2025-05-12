@@ -90,7 +90,15 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             device=device,
         )
 
-        self.hidden_proj = self.hidden_proj = nn.Linear(4416, 1728)
+        self.hidden_proj = self.hidden_proj = nn.Linear(2688, 1728)
+
+        # Gating layer: learns weights between LSTM and ViT encodings
+        self.gate_layer = nn.Sequential(nn.Linear(4416, hidden_units), nn.Sigmoid())
+
+        # MLP fusion layer to blend features after gating
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(hidden_units, hidden_units), nn.LeakyReLU(), nn.Dropout(dropout)
+        )
 
     def train_model(
         self,
@@ -112,36 +120,34 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
             X, P, y = batch
             X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
-
-            # Encoder forward pass (shared)
+            # --- Encoders ---
             encoder_hidden = self.encoder(X)
             encoder_hidden_profiler = self.ViT(P)
 
-            # Expand to match LSTM layers (repeat across 3 layers)
+            # Expand ViT encoding to match (num_layers, batch, hidden_size)
             encoder_hidden_profiler = encoder_hidden_profiler.repeat(
                 encoder_hidden[0].shape[0], 1, 1
             )
-            # (num_layers=3, batch, hidden_size)
 
-            # Concatenate along hidden dimension
-            decoder_hidden = torch.cat(
+            # Concatenate LSTM and ViT outputs for gating
+            combined = torch.cat(
                 [encoder_hidden[0], encoder_hidden_profiler], dim=-1
-            )
-            # (num_layers=3, batch, 2 * hidden_size)
+            )  # shape: (num_layers, batch, 2*hidden_size)
 
-            # Project back to hidden_size using Linear layer
-            pass_hidden = self.hidden_proj(
-                decoder_hidden
+            # Apply gating
+            gate = self.gate_layer(combined)  # shape: (num_layers, batch, hidden_size)
+            print("Gate mean:", gate.mean().item())
+
+            encoder_hidden_profiler = self.hidden_proj(
+                encoder_hidden_profiler
             )  # (num_layers=3, batch, hidden_size)
+            gated = gate * encoder_hidden[0] + (1 - gate) * encoder_hidden_profiler
 
-            # # Combine hidden states somehow
-            # pass_hidden = torch.cat(
-            #     [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-            # ).contiguous()
+            # Apply fusion MLP
+            pass_hidden = self.fusion_mlp(gated)  # (num_layers, batch, hidden_size)
 
-            # Initialize outputs tensor
+            # Decoder init
             outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
-
             decoder_input = X[:, -1, :].unsqueeze(1)
             decoder_hidden = pass_hidden, encoder_hidden[1]
 
@@ -191,35 +197,38 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                 gc.collect()
                 X, P, y = batch
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
-
+                # --- Encoders ---
                 encoder_hidden = self.encoder(X)
                 encoder_hidden_profiler = self.ViT(P)
 
-                # Expand to match LSTM layers (repeat across 3 layers)
+                # Expand ViT encoding to match (num_layers, batch, hidden_size)
                 encoder_hidden_profiler = encoder_hidden_profiler.repeat(
                     encoder_hidden[0].shape[0], 1, 1
                 )
-                # (num_layers=3, batch, hidden_size)
 
-                # Concatenate along hidden dimension
-                decoder_hidden = torch.cat(
+                # Concatenate LSTM and ViT outputs for gating
+                combined = torch.cat(
                     [encoder_hidden[0], encoder_hidden_profiler], dim=-1
-                )
-                # (num_layers=3, batch, 2 * hidden_size)
+                )  # shape: (num_layers, batch, 2*hidden_size)
+                print("combined shape:", combined.shape)
 
-                # Project back to hidden_size using Linear layer
-                pass_hidden = self.hidden_proj(
-                    decoder_hidden
+                # Apply gating
+                gate = self.gate_layer(
+                    combined
+                )  # shape: (num_layers, batch, hidden_size)
+
+                encoder_hidden_profiler = self.hidden_proj(
+                    encoder_hidden_profiler
                 )  # (num_layers=3, batch, hidden_size)
+                gated = gate * encoder_hidden[0] + (1 - gate) * encoder_hidden_profiler
 
-                # pass_hidden = torch.cat(
-                #     [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-                # ).contiguous()
+                # Apply fusion MLP
+                pass_hidden = self.fusion_mlp(gated)  # (num_layers, batch, hidden_size)
 
+                # Decoder init
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)
                 decoder_hidden = pass_hidden, encoder_hidden[1]
-
                 for t in range(y.size(1)):
                     decoder_output, decoder_hidden = self.decoder(
                         decoder_input, decoder_hidden
