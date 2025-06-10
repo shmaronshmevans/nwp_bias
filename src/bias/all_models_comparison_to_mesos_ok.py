@@ -459,281 +459,275 @@ def main(month, year, model, fh, mask_water=True):
     model = model.upper()
     print("Month: ", month)
     print("Model: ", model)
-    if not os.path.exists(
-        f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet"
-    ):
-        if model == "HRRR":
-            pres = "mslma"
-        else:
-            pres = "prmsl"
+    # if not os.path.exists(
+    #     f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet"
+    # ):
+    if model == "HRRR":
+        pres = "mslma"
+    else:
+        pres = "prmsl"
 
-        # nysm_1H_obs, nysm_3H_obs = load_nysm_data(year)
-        oksm_1H_obs, oksm_3H_obs = load_oksm_data(year)
-        # df_model_ny = read_data_ny(model, init, month, year)
-        df_model_ok = read_data_ok(model, month, year, fh)
+    # nysm_1H_obs, nysm_3H_obs = load_nysm_data(year)
+    oksm_1H_obs, oksm_3H_obs = load_oksm_data(year)
+    # df_model_ny = read_data_ny(model, init, month, year)
+    df_model_ok = read_data_ok(model, month, year, fh)
+    gc.collect()
+
+    oksm_1H_obs = oksm_1H_obs.rename(columns={"STID": "station"})
+    oksm_3H_obs = oksm_3H_obs.rename(columns={"STID": "station"})
+
+    if model == "HRRR" and fh != "01":
+        print("Loading Previous Model Data")
+        previous_fh_df = read_data_ok_v2(model, month, year, str(int(fh) - 1).zfill(2))
         gc.collect()
 
-        oksm_1H_obs = oksm_1H_obs.rename(columns={"STID": "station"})
-        oksm_3H_obs = oksm_3H_obs.rename(columns={"STID": "station"})
+    if model == "NAM" and fh != "001":
+        print("Loading Previous Model Data")
+        previous_fh_df = read_data_ok_v2(model, month, year, str(int(fh) - 1).zfill(3))
+        gc.collect()
 
-        if model == "HRRR" and fh != "01":
-            print("Loading Previous Model Data")
-            previous_fh_df = read_data_ok_v2(
-                model, month, year, str(int(fh) - 1).zfill(2)
-            )
-            gc.collect()
+    if model == "GFS" and fh != "003":
+        print("Loading Previous Model Data")
+        previous_fh_df = read_data_ok_v2(model, month, year, str(int(fh) - 3).zfill(3))
+        gc.collect()
 
-        if model == "NAM" and fh != "001":
-            print("Loading Previous Model Data")
-            previous_fh_df = read_data_ok_v2(
-                model, month, year, str(int(fh) - 1).zfill(3)
-            )
-            gc.collect()
+    if model == "HRRR":
+        # drop some info that got carried over from xarray data array
+        keep_vars = [
+            "valid_time",
+            "time",
+            "latitude",
+            "longitude",
+            "t2m",
+            "sh2",
+            "d2m",
+            "r2",
+            "u10",
+            "v10",
+            "tp",
+            pres,
+            "orog",
+            "tcc",
+            "asnow",
+            "cape",
+            "dswrf",
+            "dlwrf",
+            "gh",
+        ]
+    else:
+        # drop some info that got carried over from xarray data array
+        keep_vars = [
+            "valid_time",
+            "time",
+            "latitude",
+            "longitude",
+            "t2m",
+            "sh2",
+            "d2m",
+            "r2",
+            "u10",
+            "v10",
+            "tp",
+            pres,
+            "orog",
+            "tcc",
+            "cape",
+            "cin",
+            "dswrf",
+            "dlwrf",
+            "gh",
+        ]
 
-        if model == "GFS" and fh != "003":
-            print("Loading Previous Model Data")
-            previous_fh_df = read_data_ok_v2(
-                model, month, year, str(int(fh) - 3).zfill(3)
-            )
-            gc.collect()
+    if "x" in df_model_ok.keys():
+        df_model_ok = df_model_ok.drop(
+            columns=["x", "y"]
+        )  # drop x & y if they're columns since reindex will fail with them in original index
 
-        if model == "HRRR":
-            # drop some info that got carried over from xarray data array
-            keep_vars = [
-                "valid_time",
-                "time",
-                "latitude",
-                "longitude",
-                "t2m",
-                "sh2",
-                "d2m",
-                "r2",
-                "u10",
-                "v10",
-                "tp",
-                pres,
-                "orog",
-                "tcc",
-                "asnow",
-                "cape",
-                "dswrf",
-                "dlwrf",
-                "gh",
-            ]
-        else:
-            # drop some info that got carried over from xarray data array
-            keep_vars = [
-                "valid_time",
-                "time",
-                "latitude",
-                "longitude",
-                "t2m",
-                "sh2",
-                "d2m",
-                "r2",
-                "u10",
-                "v10",
-                "tp",
-                pres,
-                "orog",
-                "tcc",
-                "cape",
-                "cin",
-                "dswrf",
-                "dlwrf",
-                "gh",
-            ]
+    df_model_ok = df_model_ok.reset_index()[keep_vars]
+    df_model_ok = reformat_df(df_model_ok)
 
-        if "x" in df_model_ok.keys():
-            df_model_ok = df_model_ok.drop(
-                columns=["x", "y"]
-            )  # drop x & y if they're columns since reindex will fail with them in original index
+    if mask_water:
+        # before interpolation or nearest neighbor methods, mask out any grid cells over water
+        # df_model_ny = mask_out_water(model, df_model_ny)
+        df_model_ok = mask_out_water(model, df_model_ok)
 
-        df_model_ok = df_model_ok.reset_index()[keep_vars]
-        df_model_ok = reformat_df(df_model_ok)
+    if model in ["GFS", "NAM"]:
+        vars_to_interp = [
+            "valid_time",
+            "time",
+            "latitude",
+            "longitude",
+            "t2m",
+            "sh2",
+            "d2m",
+            "r2",
+            "u10",
+            "v10",
+            "u_total",
+            "u_dir",
+            "tp",
+            pres,
+            "orog",
+            "tcc",
+            "cape",
+            "cin",
+            "dswrf",
+            "dlwrf",
+            "gh",
+        ]
+        indices_list_ok = get_ball_tree_indices_ok(df_model_ok, oksm_1H_obs)
+        gc.collect()
 
-        if mask_water:
-            # before interpolation or nearest neighbor methods, mask out any grid cells over water
-            # df_model_ny = mask_out_water(model, df_model_ny)
-            df_model_ok = mask_out_water(model, df_model_ok)
-
-        if model in ["GFS", "NAM"]:
-            vars_to_interp = [
-                "valid_time",
-                "time",
-                "latitude",
-                "longitude",
-                "t2m",
-                "sh2",
-                "d2m",
-                "r2",
-                "u10",
-                "v10",
-                "u_total",
-                "u_dir",
-                "tp",
-                pres,
-                "orog",
-                "tcc",
-                "cape",
-                "cin",
-                "dswrf",
-                "dlwrf",
-                "gh",
-            ]
-            indices_list_ok = get_ball_tree_indices_ok(df_model_ok, oksm_1H_obs)
-            gc.collect()
-
-            # nearest neighbor
-            if model == "NAM":
-                df_model_oksm_sites_nn, interpolate_stations = df_with_oksm_locations(
-                    df_model_ok, oksm_1H_obs, indices_list_ok
-                )
-                if fh != "001":
-                    # nn
-                    previous_fh_df_nn, interpolate_stations = df_with_oksm_locations(
-                        previous_fh_df, oksm_1H_obs, indices_list_ok
-                    )
-                    previous_fh_df_nn.reset_index(inplace=True)
-                    # interpolation
-                    previous_fh_df = interpolate_model_data_to_oksm_locations_groupby(
-                        previous_fh_df,
-                        oksm_1H_obs,
-                        ["valid_time", "time", "latitude", "longitude", "tp"],
-                    )
-                gc.collect()
-                # interpolation
-                df_model_oksm_sites_interp = (
-                    interpolate_model_data_to_oksm_locations_groupby(
-                        df_model_ok, oksm_1H_obs, vars_to_interp
-                    )
-                )
-
-            if model == "GFS":
-                df_model_oksm_sites_nn, interpolate_stations = df_with_oksm_locations(
-                    df_model_ok, oksm_3H_obs, indices_list_ok
-                )
-                if fh != "003":
-                    previous_fh_df_nn, interpolate_stations = df_with_oksm_locations(
-                        df_model_ok, oksm_3H_obs, indices_list_ok
-                    )
-                    previous_fh_df_nn.reset_index(inplace=True)
-                    # interpolation
-                    previous_fh_df = interpolate_model_data_to_oksm_locations_groupby(
-                        previous_fh_df,
-                        oksm_3H_obs,
-                        ["valid_time", "time", "latitude", "longitude", "tp"],
-                    )
-                gc.collect()
-
-                # interpolation
-                df_model_oksm_sites_interp = (
-                    interpolate_model_data_to_oksm_locations_groupby(
-                        df_model_ok, oksm_3H_obs, vars_to_interp
-                    )
-                )
-
-            df_model_oksm_sites_nn["lead time"] = (
-                df_model_oksm_sites_nn["lead time"].astype(float).round(0).astype(int)
-            )
-
-            df_model_oksm_sites_nn.reset_index(inplace=True)
-
-            # join dataframes
-            # Filter out rows where 'station' is not in interpolate_stations
-            df_model_oksm_sites_nn = df_model_oksm_sites_nn[
-                ~df_model_oksm_sites_nn["station"].isin(interpolate_stations)
-            ]
-            # Filter out rows where 'station' is in interpolate_stations
-            df_model_oksm_sites_interp = df_model_oksm_sites_interp[
-                df_model_oksm_sites_interp["station"].isin(interpolate_stations)
-            ]
-
-            df_model_oksm_sites = pd.concat(
-                [df_model_oksm_sites_interp, df_model_oksm_sites_nn], axis=0
-            )
-            df_model_oksm_sites.set_index("time", inplace=True)
-            gc.collect()
-
-            if (model == "NAM" and fh != "001") or (model == "GFS" and fh != "003"):
-                # join dataframes
-                # Filter out rows where 'station' is not in interpolate_stations
-                previous_fh_df_nn = previous_fh_df_nn[
-                    ~previous_fh_df_nn["station"].isin(interpolate_stations)
-                ]
-                # Filter out rows where 'station' is in interpolate_stations
-                previous_fh_df = previous_fh_df[
-                    previous_fh_df["station"].isin(interpolate_stations)
-                ]
-
-                previous_fh_df = pd.concat([previous_fh_df, previous_fh_df_nn], axis=0)
-                previous_fh_df.set_index("time", inplace=True)
-                gc.collect()
-
-        elif model == "HRRR":
-            gc.collect()
-            indices_list_ok = get_ball_tree_indices_ok(df_model_ok, oksm_1H_obs)
-            df_model_oksm_sites, interpolate_stations = df_with_oksm_locations(
+        # nearest neighbor
+        if model == "NAM":
+            df_model_oksm_sites_nn, interpolate_stations = df_with_oksm_locations(
                 df_model_ok, oksm_1H_obs, indices_list_ok
             )
-            if fh != "01":
-                previous_fh_df, interpolate_stations = df_with_oksm_locations(
+            if fh != "001":
+                # nn
+                previous_fh_df_nn, interpolate_stations = df_with_oksm_locations(
                     previous_fh_df, oksm_1H_obs, indices_list_ok
                 )
-
-            # to avoid future issues, convert lead time to float, round, and then convert to integer
-            # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
-            df_model_oksm_sites["lead time"] = (
-                df_model_oksm_sites["lead time"].astype(float).round(0).astype(int)
+                previous_fh_df_nn.reset_index(inplace=True)
+                # interpolation
+                previous_fh_df = interpolate_model_data_to_oksm_locations_groupby(
+                    previous_fh_df,
+                    oksm_1H_obs,
+                    ["valid_time", "time", "latitude", "longitude", "tp"],
+                )
+            gc.collect()
+            # interpolation
+            df_model_oksm_sites_interp = (
+                interpolate_model_data_to_oksm_locations_groupby(
+                    df_model_ok, oksm_1H_obs, vars_to_interp
+                )
             )
+
+        if model == "GFS":
+            df_model_oksm_sites_nn, interpolate_stations = df_with_oksm_locations(
+                df_model_ok, oksm_3H_obs, indices_list_ok
+            )
+            if fh != "003":
+                previous_fh_df_nn, interpolate_stations = df_with_oksm_locations(
+                    df_model_ok, oksm_3H_obs, indices_list_ok
+                )
+                previous_fh_df_nn.reset_index(inplace=True)
+                # interpolation
+                previous_fh_df = interpolate_model_data_to_oksm_locations_groupby(
+                    previous_fh_df,
+                    oksm_3H_obs,
+                    ["valid_time", "time", "latitude", "longitude", "tp"],
+                )
             gc.collect()
 
-        if model == "GFS" and fh != "003":
-            gc.collect()
-            print("Redefining Precip")
-            previous_fh_df.reset_index(inplace=True)
-            df_model_oksm_sites = redefine_precip_intervals(
-                df_model_oksm_sites, previous_fh_df, model
+            # interpolation
+            df_model_oksm_sites_interp = (
+                interpolate_model_data_to_oksm_locations_groupby(
+                    df_model_ok, oksm_3H_obs, vars_to_interp
+                )
             )
 
-        if model == "HRRR" and fh != "01":
-            gc.collect()
-            print("Redefining Precip")
-            previous_fh_df.reset_index(inplace=True)
-            df_model_oksm_sites = redefine_precip_intervals(
-                df_model_oksm_sites, previous_fh_df, model
-            )
-        if model == "NAM" and fh != "001":
-            gc.collect()
-            print("Redefining Precip")
-            previous_fh_df.reset_index(inplace=True)
-            df_model_oksm_sites = redefine_precip_intervals(
-                df_model_oksm_sites, previous_fh_df, model
-            )
-
-        make_dirs(savedir, fh)
-        df_model_oksm_sites = df_model_oksm_sites.fillna(0)
-        gc.collect()
-        # df_model_nysm_sites.set_index(inplace=True)
-        if mask_water:
-            df_model_oksm_sites.to_parquet(
-                f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet"
-            )
-        else:
-            df_model_oksm_sites.to_parquet(
-                f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites.parquet"
-            )
-
-        timer9 = time.time() - start_time
-
-        print(f"Saving New Files For :: {model} : {year}--{month}")
-        print("--- %s seconds ---" % (timer9))
-    else:
-        print(
-            f"{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet already compiled"
+        df_model_oksm_sites_nn["lead time"] = (
+            df_model_oksm_sites_nn["lead time"].astype(float).round(0).astype(int)
         )
-        print("... exiting ...")
-        exit
+
+        df_model_oksm_sites_nn.reset_index(inplace=True)
+
+        # join dataframes
+        # Filter out rows where 'station' is not in interpolate_stations
+        df_model_oksm_sites_nn = df_model_oksm_sites_nn[
+            ~df_model_oksm_sites_nn["station"].isin(interpolate_stations)
+        ]
+        # Filter out rows where 'station' is in interpolate_stations
+        df_model_oksm_sites_interp = df_model_oksm_sites_interp[
+            df_model_oksm_sites_interp["station"].isin(interpolate_stations)
+        ]
+
+        df_model_oksm_sites = pd.concat(
+            [df_model_oksm_sites_interp, df_model_oksm_sites_nn], axis=0
+        )
+        df_model_oksm_sites.set_index("time", inplace=True)
+        gc.collect()
+
+        if (model == "NAM" and fh != "001") or (model == "GFS" and fh != "003"):
+            # join dataframes
+            # Filter out rows where 'station' is not in interpolate_stations
+            previous_fh_df_nn = previous_fh_df_nn[
+                ~previous_fh_df_nn["station"].isin(interpolate_stations)
+            ]
+            # Filter out rows where 'station' is in interpolate_stations
+            previous_fh_df = previous_fh_df[
+                previous_fh_df["station"].isin(interpolate_stations)
+            ]
+
+            previous_fh_df = pd.concat([previous_fh_df, previous_fh_df_nn], axis=0)
+            previous_fh_df.set_index("time", inplace=True)
+            gc.collect()
+
+    elif model == "HRRR":
+        gc.collect()
+        indices_list_ok = get_ball_tree_indices_ok(df_model_ok, oksm_1H_obs)
+        df_model_oksm_sites, interpolate_stations = df_with_oksm_locations(
+            df_model_ok, oksm_1H_obs, indices_list_ok
+        )
+        if fh != "01":
+            previous_fh_df, interpolate_stations = df_with_oksm_locations(
+                previous_fh_df, oksm_1H_obs, indices_list_ok
+            )
+
+        # to avoid future issues, convert lead time to float, round, and then convert to integer
+        # without rounding first, the conversion to int will round to the floor, leading to incorrect lead times
+        df_model_oksm_sites["lead time"] = (
+            df_model_oksm_sites["lead time"].astype(float).round(0).astype(int)
+        )
+        gc.collect()
+
+    if model == "GFS" and fh != "003":
+        gc.collect()
+        print("Redefining Precip")
+        previous_fh_df.reset_index(inplace=True)
+        df_model_oksm_sites = redefine_precip_intervals(
+            df_model_oksm_sites, previous_fh_df, model
+        )
+
+    if model == "HRRR" and fh != "01":
+        gc.collect()
+        print("Redefining Precip")
+        previous_fh_df.reset_index(inplace=True)
+        df_model_oksm_sites = redefine_precip_intervals(
+            df_model_oksm_sites, previous_fh_df, model
+        )
+    if model == "NAM" and fh != "001":
+        gc.collect()
+        print("Redefining Precip")
+        previous_fh_df.reset_index(inplace=True)
+        df_model_oksm_sites = redefine_precip_intervals(
+            df_model_oksm_sites, previous_fh_df, model
+        )
+
+    make_dirs(savedir, fh)
+    df_model_oksm_sites = df_model_oksm_sites.fillna(0)
+    gc.collect()
+    # df_model_nysm_sites.set_index(inplace=True)
+    if mask_water:
+        df_model_oksm_sites.to_parquet(
+            f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet"
+        )
+    else:
+        df_model_oksm_sites.to_parquet(
+            f"{savedir}/{model}_{year}_{month}_direct_compare_to_oksm_sites.parquet"
+        )
+
+    timer9 = time.time() - start_time
+
+    print(f"Saving New Files For :: {model} : {year}--{month}")
+    print("--- %s seconds ---" % (timer9))
+    # else:
+    #     print(
+    #         f"{model}_{year}_{month}_direct_compare_to_oksm_sites_mask_water.parquet already compiled"
+    #     )
+    #     print("... exiting ...")
+    #     exit
 
 
 ####   END OF MAIN
@@ -746,8 +740,8 @@ if __name__ == "__main__":
         for year in np.arange(2018, 2025):
             print("YEAR: ", year)
             for month in np.arange(1, 13):
-                try:
-                    print("Month: ", month)
-                    main(str(month).zfill(2), year, model, str(fh).zfill(2))
-                except:
-                    continue
+                # try:
+                print("Month: ", month)
+                main(str(month).zfill(2), year, model, str(fh).zfill(2))
+                # except:
+                #     continue

@@ -35,7 +35,7 @@ def get_raw_oksm_data(year):
     df_oksm = format_ok(df_oksm)
 
     # import elevations to dataframe
-    df_lon = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/geoinfo.csv")
+    df_lon = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
     station_list = df_lon["stid"].tolist()
     elev_list = df_lon["elev"].tolist()
     lon_list = df_lon["elon"].tolist()
@@ -233,5 +233,5 @@ def main(year):
 
 
 if __name__ == "__main__":
-    for year in np.arange(2019, 2025):
+    for year in np.arange(2018, 2025):
         main(year)

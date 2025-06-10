@@ -848,12 +848,10 @@ if __name__ == "__main__":
         print("FH", fh)
         for year in np.arange(2025, 2026):
             print("YEAR: ", year)
-            for month in np.arange(1, 4):
-                try:
-                    print("Month: ", month)
-                    main(str(month).zfill(2), year, model, str(fh).zfill(2))
-                except:
-                    continue
+            try:
+                main(str(4).zfill(2), year, model, str(fh).zfill(2))
+            except:
+                continue
 
     # # multiprocessing
     """

@@ -577,7 +577,7 @@ def main(
 nwp = "HRRR"
 metvar_ls = ["u_total", "t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-c = "Eastern Plateau"
+c = "Western Plateau"
 
 
 # for c in nysm_clim["climate_division_name"].unique():

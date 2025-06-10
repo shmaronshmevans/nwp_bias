@@ -558,7 +558,7 @@ while len(fh) > 0:
         station="VOOR",
         num_layers=3,
         epochs=int(1e3),
-        weight_decay=1e-15,
+        weight_decay=0.0,
         fh=fh_r,
         clim_div=c,
         nwp_model=nwp_model,

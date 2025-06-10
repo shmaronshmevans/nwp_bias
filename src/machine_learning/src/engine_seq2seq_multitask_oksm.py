@@ -367,33 +367,33 @@ def main(
 
 metvar_ls = ["t2m", "u_total", "tp"]
 nwp_model = "HRRR"
-
 oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+c = "Panhandle"
 
-for c in oksm_clim["Climate_division"].unique():
-    df = oksm_clim[oksm_clim["Climate_division"] == c]
-    stations = df["stid"].unique()
-    for s in stations:
-        for metvar in metvar_ls:
-            print(s)
-            try:
-                fh_all = np.arange(1, 19)
-                fh = fh_all.copy()
-                while len(fh) > 0:
-                    fh_r = random.choice(fh)
-                    main(
-                        batch_size=int(1000),
-                        station=s,
-                        num_layers=3,
-                        epochs=5000,
-                        weight_decay=1e-15,
-                        fh=fh_r,
-                        clim_div=c,
-                        nwp_model=nwp_model,
-                        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
-                        metvar=metvar,
-                    )
-                    gc.collect()
-                    fh = fh[fh != fh_r]  # removes used FH by value
-            except:
-                continue
+# for c in oksm_clim["Climate_division"].unique():
+df = oksm_clim[oksm_clim["Climate_division"] == c]
+stations = df["stid"].unique()
+for s in stations:
+    for metvar in metvar_ls:
+        print(s)
+        # try:
+        fh_all = np.arange(1, 19)
+        fh = fh_all.copy()
+        while len(fh) > 0:
+            fh_r = random.choice(fh)
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                epochs=5000,
+                weight_decay=0.0,
+                fh=fh_r,
+                clim_div=c,
+                nwp_model=nwp_model,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{c}_{metvar}.pth",
+                metvar=metvar,
+            )
+            gc.collect()
+            fh = fh[fh != fh_r]  # removes used FH by value
+        # except:
+        #     continue

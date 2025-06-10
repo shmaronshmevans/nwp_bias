@@ -486,10 +486,10 @@ def main(
         )
         df_save_linear = pd.concat([df_og_linear, df_save_linear])
 
-    df_save_linear.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
-        index=False,
-    )
+    # df_save_linear.to_csv(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+    #     index=False,
+    # )
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
@@ -503,32 +503,33 @@ def main(
 nwp = "HRRR"
 metvar_ls = ["t2m", "tp", "u_total"]
 oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
-c = "Panhandle"
+# c = "West Central"
 
 
 # for c in oksm_clim['Climate_division'].unique():
-
-df = oksm_clim[oksm_clim["Climate_division"] == c]
-stations = df["stid"].unique()
+# stations = df["stid"].unique()
+stations = ["MEDI"]
 
 for m in metvar_ls:
     print(m)
     for f in np.arange(1, 19):
         print(f)
         for s in stations:
+            df = oksm_clim[oksm_clim["stid"] == s]
+            c = df["Climate_division"].iloc[0]
             print(s)
-            try:
-                main(
-                    batch_size=int(1000),
-                    station=s,
-                    num_layers=3,
-                    fh=f,
-                    clim_div=c,
-                    nwp_model=nwp,
-                    metvar=m,
-                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
-                )
-                gc.collect()
-            except:
-                print("Couldn't evaluate...")
-                print(f"station: {s}, variable: {m}, fh: {f}")
+            # try:
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp,
+                metvar=m,
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
+            )
+            gc.collect()
+            # except:
+            #     print("Couldn't evaluate...")
+            #     print(f"station: {s}, variable: {m}, fh: {f}")

@@ -309,9 +309,9 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder_radio.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder_radio.pth"
-    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit_radio.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{station}_encoder.pth"
+    vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
 
     (
         df_train,
@@ -408,7 +408,7 @@ def main(
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2024, 12, 31, 23, 59, 0)
+    time4 = datetime(2025, 4, 30, 23, 59, 0)
     df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
@@ -470,7 +470,7 @@ for m in metvar_ls:
                 batch_size=int(30),
                 station=s,
                 num_layers=3,
-                weight_decay=1e-15,
+                weight_decay=0.0,
                 fh=f,
                 clim_div=c,
                 nwp_model=nwp_model,

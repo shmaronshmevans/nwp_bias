@@ -44,11 +44,11 @@ def compute_error_metrics_by_climate_division(
     - prediction_col: str, column with predicted values
     """
     df = pd.read_csv(nysm_csv_path)
-    clim_divs = df["climate_division_name"].unique()
+    clim_divs = df["Climate_division"].unique()
 
     for c in clim_divs:
         master_df_ls = []
-        filtered = df[df["climate_division_name"] == c]
+        filtered = df[df["Climate_division"] == c]
         stations = filtered["stid"].unique()
 
         for s in stations:
@@ -86,21 +86,21 @@ def compute_error_metrics_by_climate_division(
                     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200
                 ]
 
-                # normalize
-                cols = ["valid_time"]
-                for k, r in df_parquet.items():
-                    if k in cols or any(sub in k for sub in cols) or "images" in k:
-                        continue
-                    else:
-                        print(k)
-                        means = st.mean(df_parquet[k])
-                        stdevs = st.stdev(df_parquet[k])
-                        df_parquet[k] = (df_parquet[k] - means) / stdevs
+                # # normalize
+                # cols = ["valid_time"]
+                # for k, r in df_parquet.items():
+                #     if k in cols or any(sub in k for sub in cols) or "images" in k:
+                #         continue
+                #     else:
+                #         print(k)
+                #         means = st.mean(df_parquet[k])
+                #         stdevs = st.stdev(df_parquet[k])
+                #         df_parquet[k] = (df_parquet[k] - means) / stdevs
 
-                # Filter out large absolute errors
-                df_parquet = df_parquet[
-                    df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 20
-                ]
+                # # Filter out large absolute errors
+                # df_parquet = df_parquet[
+                #     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 20
+                # ]
 
                 if df_parquet.empty:
                     continue
@@ -126,7 +126,7 @@ def compute_error_metrics_by_climate_division(
             master_df.set_index(["station", "fh"], inplace=True)
 
             out_path = os.path.join(
-                output_root, f"{c}/{c}_{metvar}_error_metrics_master_normalized.parquet"
+                output_root, f"{c}/{c}_{metvar}_error_metrics_master.parquet"
             )
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             master_df.to_parquet(out_path)
@@ -158,7 +158,7 @@ def confusion_matrix_create(
     - model_name: str, model identifier in filenames
     """
     df = pd.read_csv(nysm_csv_path)
-    clim_divs = df["climate_division_name"].unique()
+    clim_divs = df["Climate_division"].unique()
 
     # Initialize confusion matrix counts
     hit = 0
@@ -167,7 +167,7 @@ def confusion_matrix_create(
     correct_negative = 0
 
     for c in clim_divs:
-        filtered = df[df["climate_division_name"] == c]
+        filtered = df[df["Climate_division"] == c]
         stations = filtered["stid"].unique()
 
         for s in stations:
@@ -274,12 +274,23 @@ def confusion_matrix_create(
 
 
 confusion_matrix_create(
-    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
-    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus",
-    metvar="u_total",
+    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/oksm.csv",
+    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr",
+    metvar="tp",
     output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
-    filter_col="target_error_lead_0",
+    filter_col="target_error",
     target_col="Model forecast",
-    prediction_col="target_error_lead_0",
+    prediction_col="target_error",
+    model_name="HRRR",
+)
+
+compute_error_metrics_by_climate_division(
+    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/oksm.csv",
+    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr",
+    metvar="tp",
+    output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
+    filter_col="target_error",
+    target_col="Model forecast",
+    prediction_col="target_error",
     model_name="HRRR",
 )

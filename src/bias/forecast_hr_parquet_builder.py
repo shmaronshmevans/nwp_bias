@@ -91,7 +91,7 @@ for i in np.arange(1, 19):
     # Step 2: Use pool.apply() to execute the main function with specified arguments
     results = pool.apply(
         main,
-        args=(datetime(2025, 1, 1, 0, 0, 0), datetime(2025, 3, 31, 23, 59, 59), fh),
+        args=(datetime(2018, 1, 1, 0, 0, 0), datetime(2025, 3, 31, 23, 59, 59), fh),
     )
 
     # Step 3: Close the multiprocessing pool

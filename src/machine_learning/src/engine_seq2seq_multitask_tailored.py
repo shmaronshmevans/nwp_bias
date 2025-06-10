@@ -263,33 +263,22 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/gpu/{clim_div}_{metvar}_{station}_decoder_101_grace.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/gpu/{clim_div}_{metvar}_{station}_encoder_101_grace.pth"
 
-    (
-        df_train,
-        df_test,
-        df_val,
-        features,
-        stations,
-        target,
-        vt,
-    ) = create_data_for_lstm.create_data_for_model(
-        station, fh, today_date, metvar, 1
+    (df_train, df_test, df_val, features, stations, target, vt, _) = (
+        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
     )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()
     # print(f"{nwp_model} FEATURES", nwp_features)
     print()
     print("TARGET", target)
-
-    if len(stations) < 4:
-        print(f"Too few stations found: {len(stations)}. Exiting...")
-        sys.exit()
+    print(stations)
 
     experiment = Experiment(
         api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-        project_name="seq2seq_hrrr_prospectus",
+        project_name="gpu_effect",
         workspace="shmaronshmevans",
     )
 
@@ -363,7 +352,7 @@ def main(
         model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
 
-    loss_function = OutlierFocusedLoss(2.0, device)
+    loss_function = nn.HuberLoss(delta=2.0)
 
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.1, patience=4
@@ -441,13 +430,13 @@ def main(
 
 metvar_ls = ["t2m", "u_total", "tp"]
 nwp_model = "HRRR"
-c = "Champlain Valley"
-
+stations = ["SOUT", "STON", "BUFF"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
-for metvar in metvar_ls:
-    for s in stations:
+
+for s in stations:
+    df = nysm_clim[nysm_clim["stid"] == s]
+    c = df["climate_division_name"].iloc[0]
+    for metvar in metvar_ls:
         print("TARGETING", s, c, metvar)
         fh_all = np.arange(1, 19)
         fh = fh_all.copy()
@@ -458,7 +447,7 @@ for metvar in metvar_ls:
                 station=s,
                 num_layers=3,
                 epochs=5000,
-                weight_decay=1e-15,
+                weight_decay=0.0,
                 fh=fh_r,
                 clim_div=c,
                 nwp_model=nwp_model,

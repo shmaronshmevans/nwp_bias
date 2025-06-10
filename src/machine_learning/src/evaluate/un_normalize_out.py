@@ -173,6 +173,7 @@ def un_normalize(station, metvar, df, fh):
     Reverses normalization using a heuristic based on top 20 target_error values.
     """
     og_data_df = create_data_for_model_oksm(station, fh, metvar)
+    df = df.rename(columns={"target_error_lead_0": "target_error"})
 
     # Filter
     og_data_df = date_filter(og_data_df)
@@ -230,46 +231,60 @@ def un_normalize_mean(station, metvar, df, fh):
 
 
 def main():
-    nysm_df = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    nysm_df = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
     stations = nysm_df["stid"].unique()
 
-    parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus_v2"
+    parent_dir = (
+        "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/oksm_hrrr"
+    )
 
     metvar_ls = ["t2m", "u_total", "tp"]
 
     for s in stations:
-        df = nysm_df[nysm_df["stid"] == s]
-        clim_div = df["climate_division_name"].iloc[0]
+        try:
+            df = nysm_df[nysm_df["stid"] == s]
+            clim_div = df["Climate_division"].iloc[0]
 
-        for m in metvar_ls:
-            linear_tbl = pd.read_csv(
-                f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{m}_HRRR_lookup_linear.csv"
-            )
-
-            for fh in np.arange(1, 19):
-                alpha1 = linear_tbl[
-                    (linear_tbl["station"] == s) & (linear_tbl["forecast_hour"] == fh)
-                ]["alpha"].values[0]
-
-                q_df = pd.read_parquet(
-                    f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear.parquet"
-                )
-
-                q_df, alpha2 = un_normalize(s, m, q_df, fh)
-
-                new_alpha = alpha1 * alpha2
-
-                q_df.to_parquet(
-                    f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear.parquet"
-                )
-
-                # Update alpha in the table
-                linear_tbl.loc[
-                    (linear_tbl["station"] == s) & (linear_tbl["forecast_hour"] == fh),
-                    "alpha",
-                ] = new_alpha
-
-                # Save the updated table
-                linear_tbl.to_csv(
+            for m in metvar_ls:
+                linear_tbl = pd.read_csv(
                     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{m}_HRRR_lookup_linear.csv"
                 )
+
+                for fh in np.arange(1, 19):
+                    alpha1 = linear_tbl[
+                        (linear_tbl["station"] == s)
+                        & (linear_tbl["forecast_hour"] == fh)
+                    ]["alpha"].values[0]
+
+                    q_df = pd.read_parquet(
+                        f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear.parquet"
+                    )
+
+                    q_df, alpha2 = un_normalize(s, m, q_df, fh)
+
+                    new_alpha = alpha1 * alpha2
+
+                    q_df.to_parquet(
+                        f"{parent_dir}/{s}/{s}_fh{fh}_{m}_HRRR_ml_output_linear_unnormal.parquet"
+                    )
+
+                    if alpha1 > new_alpha:
+                        continue
+                    else:
+                        # Update alpha in the table
+                        linear_tbl.loc[
+                            (linear_tbl["station"] == s)
+                            & (linear_tbl["forecast_hour"] == fh),
+                            "alpha",
+                        ] = new_alpha
+
+                        # Save the updated table
+                        linear_tbl.to_csv(
+                            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/s2s/{clim_div}_{m}_HRRR_lookup_linear.csv"
+                        )
+        except:
+            continue
+
+
+if __name__ == "__main__":
+    main()

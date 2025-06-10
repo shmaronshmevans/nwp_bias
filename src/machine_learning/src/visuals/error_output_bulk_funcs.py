@@ -141,10 +141,12 @@ def err_bucket(full_df, met_col, rounded_base):
 
     # Step 4: Find all 'diff' columns in the DataFrame
     diff_columns = [col for col in full_df.columns if "diff" in col]
+    print(diff_columns)
 
     # Step 5: Accumulate absolute errors and instance counts into the temperature buckets
     for i, _ in enumerate(full_df[met_col]):
         rounded = myround(full_df[met_col].iloc[i], rounded_base)
+        print(rounded)
         if rounded >= -200:
             abs_err_sum = 0
             valid_count = 0
@@ -161,6 +163,7 @@ def err_bucket(full_df, met_col, rounded_base):
                 temp_df[rounded].iloc[0] += abs_err_sum / valid_count  # Add MAE
                 temp_df[rounded].iloc[-1] += valid_count  # Increment the instance count
 
+    print(temp_df)
     instances = temp_df.iloc[-1]
     temp_df = temp_df.iloc[0]
 
@@ -181,8 +184,10 @@ def plot_buckets(
     )
     bars = plt.bar(temp_df.keys(), the_list, color=my_cmap(rescale(y)), width=width)
     ax.set_title("Absolute Error of LSTM", fontsize=28, c="white")
-    ax.set_xlabel(var_name, fontsize=18, c="white")
-    ax.set_ylabel("Mean Absolute Error", fontsize=18, c="white")
+    ax.set_xlabel(var_name, fontsize=28, c="white")
+    ax.set_ylabel("Mean Absolute Error", fontsize=28, c="white")
+    plt.xticks(fontsize=22)
+    plt.yticks(fontsize=22)
     # Iterating over the bars one-by-one
     # Annotate each bar with its value
     # Annotate each bar with the number of instances
@@ -745,11 +750,11 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Set labels and title
     plt.xlabel("Target", fontsize=24)
     if metvar == "tp":
-        plt.xlim(-50, 100)
-        plt.ylim(-50, 100)
-    else:
         plt.xlim(-30, 30)
         plt.ylim(-30, 30)
+    else:
+        plt.xlim(-10, 10)
+        plt.ylim(-10, 10)
     plt.ylabel("LSTM", fontsize=24)
     plt.title(f"{station} {metvar} Error v LSTM Predictions", fontsize=32)
     # Customize tick mark font size
@@ -760,7 +765,7 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Show the plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_scatter_{fh}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}.png"
     )
 
 
@@ -825,7 +830,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Plot mae_ls
     plt.plot(fh, mae_ls, label="MAE", marker="o", linestyle="-", color="blue")
-    plt.scatter(fh, mae_ls, marker="o", s=100, color="blue")
+    plt.scatter(fh, mae_ls, marker="o", s=150, color="blue")
     # Annotate mae_ls points
     for i, txt in enumerate(mae_ls):
         plt.annotate(
@@ -840,7 +845,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Plot sq_ls
     plt.plot(fh, sq_ls, label="MSE", marker="x", linestyle="-", color="green")
-    plt.scatter(fh, sq_ls, marker="x", s=100, color="green")
+    plt.scatter(fh, sq_ls, marker="x", s=150, color="green")
     # Annotate sq_ls points
     for i, txt in enumerate(sq_ls):
         plt.annotate(
@@ -855,7 +860,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Plot r2_ls
     plt.plot(fh, r2_ls, label="R²", marker="s", linestyle="-", color="red")
-    plt.scatter(fh, r2_ls, marker="s", s=100, color="red")
+    plt.scatter(fh, r2_ls, marker="s", s=150, color="red")
     # Annotate r2_ls points
     for i, txt in enumerate(r2_ls):
         plt.annotate(
@@ -875,19 +880,19 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
         f"Error Metrics as a Function of Forecast Hour \n {nwp_model}, {metvar}-Error",
         fontsize=24,
     )
-    plt.legend(fontsize=14)
+    plt.legend(fontsize=18)
     plt.grid(True, linestyle="--", alpha=0.6)
 
     # Ensure x-ticks are integers
-    plt.xticks(ticks=range(int(min(fh)), int(max(fh)) + 1), fontsize=14)
-    plt.yticks(fontsize=14)
+    plt.xticks(ticks=range(int(min(fh)), int(max(fh)) + 1), fontsize=20)
+    plt.yticks(fontsize=20)
 
     plt.tight_layout()
 
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_fh_drift.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift.png"
     )
 
 
@@ -906,7 +911,7 @@ def calculate_r2(df):
     for fc in forecast_cols:
         # Infer the suffix to find the matching target column
         suffix = fc.replace("Model forecast", "")
-        target_col = f"target_error_lead_0{suffix}"
+        target_col = f"target_error{suffix}"
 
         if target_col in df.columns:
             lstms = []
