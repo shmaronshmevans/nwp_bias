@@ -1,130 +1,3 @@
-# import pandas as pd
-# import os
-# import glob
-# import re
-# from sklearn.metrics import mean_absolute_error, mean_squared_error
-
-
-# def compute_error_metrics_by_climate_division(
-#     nysm_csv_path,
-#     base_dir,
-#     metvar,
-#     output_root,
-#     filter_col,
-#     target_col,
-#     prediction_col,
-#     model_name="HRRR",
-# ):
-#     """
-#     Loop through climate divisions and stations to calculate MAE/MSE from parquet files.
-
-#     Parameters:
-#     - nysm_csv_path: str, path to the NYSM metadata CSV (with `stid` and `climate_division_name`)
-#     - base_dir: str, base directory containing station subfolders and parquet files
-#     - metvar: str, meteorological variable name for file labeling
-#     - output_root: str, where to save output parquet files per climate division
-#     - model_name: str, model identifier in filenames
-#     - filter_col: str, name of column to filter (e.g., "qc_flag"), or None
-#     - target_col: str, column with ground truth values
-#     - prediction_col: str, column with predicted values
-#     """
-#     """
-#     Loop through climate divisions and stations to calculate MAE/MSE from parquet files.
-
-#     Parameters:
-#     - nysm_csv_path: str, path to the NYSM metadata CSV (with `stid` and `climate_division_name`)
-#     - base_dir: str, base directory containing station subfolders and parquet files
-#     - metvar: str, meteorological variable name for file labeling
-#     - output_root: str, where to save output parquet files per climate division
-#     - filter_col: str, name of column to filter (e.g., "qc_flag"), or None
-#     - target_col: str, column with ground truth values
-#     - prediction_col: str, column with predicted values
-#     """
-#     df = pd.read_csv(nysm_csv_path)
-#     clim_divs = df["climate_division_name"].unique()
-
-#     for c in clim_divs:
-#         master_df_ls = []
-#         filtered = df[df["climate_division_name"] == c]
-#         stations = filtered["stid"].unique()
-
-#         for s in stations:
-#             station_dir = os.path.join(base_dir, s)
-#             if not os.path.isdir(station_dir):
-#                 continue
-
-#             file_pattern = os.path.join(station_dir, f"{s}_fh*_*.parquet")
-#             all_files = [
-#                 f
-#                 for f in glob.glob(file_pattern)
-#                 if f"{metvar}_" in f and "linear" in f
-#             ]
-
-#             for file_path in all_files:
-#                 match = re.search(rf"{s}_fh(\d+)_.*\.parquet", file_path)
-#                 print(match)
-#                 if not match:
-#                     print(f"Skipping unrecognized file: {file_path}")
-#                     continue
-
-#                 fh = int(match.group(1))
-
-#                 try:
-#                     df_parquet = pd.read_parquet(file_path)
-#                 except Exception as e:
-#                     print(f"Failed to read {file_path}: {e}")
-#                     continue
-
-#                 if filter_col:
-#                     df_parquet = df_parquet[df_parquet[filter_col] != 0]
-
-#                 # Filter out large absolute errors
-#                 df_parquet = df_parquet[
-#                     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200
-#                 ]
-
-#                 if df_parquet.empty:
-#                     continue
-
-#                 try:
-#                     mae = mean_absolute_error(
-#                         df_parquet[target_col], df_parquet[prediction_col]
-#                     )
-#                     mse = mean_squared_error(
-#                         df_parquet[target_col], df_parquet[prediction_col]
-#                     )
-#                 except Exception as e:
-#                     print(f"Metric computation failed for {file_path}: {e}")
-#                     continue
-
-#                 master_df_ls.append([s, mae, mse, fh])
-
-#         if master_df_ls:
-#             master_df = pd.DataFrame(
-#                 master_df_ls, columns=["station", "mae", "mse", "fh"]
-#             )
-#             master_df.sort_values(by=["station", "fh"], inplace=True)
-#             master_df.set_index(["station", "fh"], inplace=True)
-
-#             out_path = os.path.join(
-#                 output_root, f"{c}/{c}_{metvar}_error_metrics_master.parquet"
-#             )
-#             os.makedirs(os.path.dirname(out_path), exist_ok=True)
-#             master_df.to_parquet(out_path)
-#             print(f"Saved: {out_path}")
-
-
-# compute_error_metrics_by_climate_division(
-#     nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
-#     base_dir="/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/hrrr_prospectus",
-#     metvar="tp",
-#     output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
-#     filter_col="target_error_lead_0",
-#     target_col="Model forecast",
-#     prediction_col="target_error_lead_0",
-#     model_name="HRRR",
-# )
-
 import sys
 
 sys.path.append("..")
@@ -145,6 +18,8 @@ def get_errors(lookup_path, station, metvar):
         ldf = pd.read_parquet(
             f"{lookup_path}/{station}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
         )
+        ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
+        # ldf['Model forecast'] = ldf['Model forecast']*3
 
         # ldf['Model forecast'] = ldf['Model forecast']*0.6
         # ldf = ldf[abs(ldf['target_error']) > 0.05]
@@ -155,7 +30,7 @@ def get_errors(lookup_path, station, metvar):
 
         met_df = met_df.rename(columns={"time_1H": "valid_time"})
 
-        time1 = datetime(2023, 1, 1, 0, 0, 0)
+        time1 = datetime(2024, 1, 1, 0, 0, 0)
         time2 = datetime(2025, 3, 30, 23, 59, 59)
 
         ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
@@ -345,24 +220,25 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         #     clim_div,
         #     metvar
         # )
-    master_df = pd.DataFrame(master_df_ls, columns=["station", "mae", "mse", "fh"])
-    master_df.set_index(["station", "fh"], inplace=True)
-    master_df.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_error_metrics_master.parquet"
-    )
+    # master_df = pd.DataFrame(master_df_ls, columns=["station", "mae", "mse", "fh"])
+    # master_df.set_index(["station", "fh"], inplace=True)
+    # master_df.to_parquet(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_error_metrics_master.parquet"
+    # )
     # save master_df
 
 
 ## END OF MAIN
 
 
-clim_div = "Central"
-lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr"
-metvar_ls = ["t2m", "tp", "u_total"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
-df = nysm_clim[nysm_clim["Climate_division"] == clim_div]
-stations = df["stid"].unique()
-print(stations)
+clim_div = "Hudson Valley"
+lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
+metvar_ls = ["u_total", "t2m"]
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
+# stations = df["stid"].unique()
+# print(stations)
+stations = ["VOOR"]
 
 if __name__ == "__main__":
     for m in metvar_ls:

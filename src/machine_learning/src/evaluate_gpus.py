@@ -239,7 +239,6 @@ def model_out(
     features,
     device,
     station,
-    og_df,
 ):
     test_eval_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False
@@ -270,17 +269,10 @@ def model_out(
     df_out = df_test[[target, ystar_col]]
 
     for c in df_out.columns:
-        if c == "target_error_lead_0":
-            print(og_df)
-            vals = og_df["target_error"].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
-        else:
-            vals = df_out[c].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
+        vals = df_out[c].values.tolist()
+        mean = st.mean(vals)
+        std = st.pstdev(vals)
+        df_out[c] = df_out[c] * std + mean
 
     df_out = find_shift(df_out)
 
@@ -455,15 +447,23 @@ def main(
     print("::: In Main :::")
     station = station
     today_date, today_date_hr = make_dirs.get_time_title(station)
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
+    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_decoder.pth"
+    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}/{clim_div}_{metvar}_{station}_encoder.pth"
 
-    (df_train, df_test, df_val, features, stations, target, vt, og_df) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        stations,
+        target,
+        vt,
+        _,
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
 
     df_eval = pd.concat([df_train, df_val, df_test])
-    df_eval.dropna(inplace=True)
 
     test_dataset = SequenceDatasetMultiTask(
         dataframe=df_eval,
@@ -513,44 +513,21 @@ def main(
     # valid_time = nwp_test_df_ls[int((fh) - 1)]["valid_time"]
 
     df_out = model_out(
-        df_eval,
-        test_dataset,
-        model,
-        batch_size,
-        target,
-        features,
-        device,
-        station,
-        og_df,
+        df_eval, test_dataset, model, batch_size, target, features, device, station
     )
-
-    valid_time = vt[-len(df_out) :]
+    valid_time = vt[: len(df_out)]
     df_out["valid_time"] = valid_time
     # un_normalize data
     # df_out, mult1 = un_normalize_out.un_normalize(station, metvar, df_out)
-    # Build the directory path
-    dir_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}"
-
-    # Create the directory if it doesn't exist
-    os.makedirs(dir_path, exist_ok=True)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
-
-    # calculate post processing on validation set
-    time1 = datetime(2023, 1, 1, 0, 0, 0)
-    time2 = datetime(2023, 12, 31, 23, 59, 0)
-    df_calc = date_filter(df_out, time1, time2)
-    df_calc, diff = refit(df_calc)
-
-    # # linear fit
-    df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2025, 3, 15, 23, 59, 0)
-    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
+    time4 = datetime(2024, 12, 31, 23, 59, 0)
+    df_evaluate_linear = date_filter(df_out, time3, time4)
 
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
@@ -559,29 +536,27 @@ def main(
         {
             "station": [station],
             "forecast_hour": [fh],
-            "alpha": [multiply],
-            "diff": [diff],
             "mae": [mae2],
             "mse": [mse2],
         }
     )
 
     if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/gpu/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
     ):
         df_og_linear = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/gpu/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
         )
         df_save_linear = pd.concat([df_og_linear, df_save_linear])
 
     df_save_linear.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/gpu/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
         index=False,
     )
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
@@ -589,9 +564,9 @@ def main(
 
 
 nwp = "HRRR"
-metvar_ls = ["tp", "t2m", "u_total"]
+metvar_ls = ["u_total", "t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-c = "Central Lakes"
+c = "Western Plateau"
 
 
 # for c in nysm_clim["climate_division_name"].unique():
@@ -604,6 +579,7 @@ for m in metvar_ls:
         print(f)
         for s in stations:
             print(s)
+            # try:
             main(
                 batch_size=int(1000),
                 station=s,
@@ -612,6 +588,9 @@ for m in metvar_ls:
                 clim_div=c,
                 nwp_model=nwp,
                 metvar=m,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/retry/{c}_{m}.pth",
+                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/s2s/{c}_{m}.pth",
             )
             gc.collect()
+            # except:
+            #     print("Couldn't evaluate...")
+            #     print(f"station: {s}, variable: {m}, fh: {f}")

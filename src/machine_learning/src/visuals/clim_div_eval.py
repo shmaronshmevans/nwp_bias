@@ -44,11 +44,11 @@ def compute_error_metrics_by_climate_division(
     - prediction_col: str, column with predicted values
     """
     df = pd.read_csv(nysm_csv_path)
-    clim_divs = df["Climate_division"].unique()
+    clim_divs = df["climate_division_name"].unique()
 
     for c in clim_divs:
         master_df_ls = []
-        filtered = df[df["Climate_division"] == c]
+        filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
 
         for s in stations:
@@ -74,6 +74,10 @@ def compute_error_metrics_by_climate_division(
 
                 try:
                     df_parquet = pd.read_parquet(file_path)
+                    [print(c) for c in df_parquet.columns]
+                    df_parquet = df_parquet.rename(
+                        columns={"target_error_lead_0": "target_error"}
+                    )
                 except Exception as e:
                     print(f"Failed to read {file_path}: {e}")
                     continue
@@ -158,7 +162,7 @@ def confusion_matrix_create(
     - model_name: str, model identifier in filenames
     """
     df = pd.read_csv(nysm_csv_path)
-    clim_divs = df["Climate_division"].unique()
+    clim_divs = df["climate_division_name"].unique()
 
     # Initialize confusion matrix counts
     hit = 0
@@ -167,7 +171,7 @@ def confusion_matrix_create(
     correct_negative = 0
 
     for c in clim_divs:
-        filtered = df[df["Climate_division"] == c]
+        filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
 
         for s in stations:
@@ -192,6 +196,9 @@ def confusion_matrix_create(
 
                 try:
                     df_parquet = pd.read_parquet(file_path)
+                    df_parquet = df_parquet.rename(
+                        columns={"target_error_lead_0": "target_error"}
+                    )
                 except Exception as e:
                     print(f"Failed to read {file_path}: {e}")
                     continue
@@ -202,24 +209,28 @@ def confusion_matrix_create(
                 )
 
                 # Filter rows to only include data from 2023 onward
-                df_parquet = df_parquet[df_parquet["valid_time"] >= "2023-01-01"]
+                df_parquet = df_parquet[df_parquet["valid_time"] >= "2024-01-01"]
 
                 # Filter out large absolute errors
                 df_parquet = df_parquet[
                     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200
+                ]
+                # Filter out large absolute errors
+                df_parquet = df_parquet[
+                    df_parquet[target_col].sub(df_parquet[prediction_col]).abs() > 1
                 ]
 
                 hits = (
                     (df_parquet[target_col] > 0) & (df_parquet[prediction_col] > 0)
                 ).sum()
                 false_alarms = (
-                    (df_parquet[target_col] <= 0) & (df_parquet[prediction_col] > 0)
+                    (df_parquet[target_col] < 0) & (df_parquet[prediction_col] > 0)
                 ).sum()
                 misses = (
-                    (df_parquet[target_col] > 0) & (df_parquet[prediction_col] <= 0)
+                    (df_parquet[target_col] > 0) & (df_parquet[prediction_col] < 0)
                 ).sum()
                 correct_negs = (
-                    (df_parquet[target_col] <= 0) & (df_parquet[prediction_col] <= 0)
+                    (df_parquet[target_col] < 0) & (df_parquet[prediction_col] < 0)
                 ).sum()
 
                 hit += hits
@@ -254,6 +265,7 @@ def confusion_matrix_create(
     ax.set_yticks([0, 1])
     ax.set_xticklabels(labels)
     ax.set_yticklabels(labels)
+    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
     ax.set_xlabel("LSTM Prediction")
     ax.set_ylabel("True Condition")
     ax.set_title(f"Confusion Matrix: Precipitation Error")
@@ -273,21 +285,21 @@ def confusion_matrix_create(
     plt.close()
 
 
-confusion_matrix_create(
-    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/oksm.csv",
-    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr",
-    metvar="tp",
-    output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
-    filter_col="target_error",
-    target_col="Model forecast",
-    prediction_col="target_error",
-    model_name="HRRR",
-)
+# confusion_matrix_create(
+#     nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+#     base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
+#     metvar="tp",
+#     output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
+#     filter_col="target_error",
+#     target_col="Model forecast",
+#     prediction_col="target_error",
+#     model_name="HRRR",
+# )
 
 compute_error_metrics_by_climate_division(
-    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/oksm.csv",
-    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr",
-    metvar="tp",
+    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
+    metvar="u_total",
     output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
     filter_col="target_error",
     target_col="Model forecast",

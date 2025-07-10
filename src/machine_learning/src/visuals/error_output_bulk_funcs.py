@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+
+# import seaborn as sns
 import re
 import statistics as st
 
@@ -750,8 +751,8 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Set labels and title
     plt.xlabel("Target", fontsize=24)
     if metvar == "tp":
-        plt.xlim(-30, 30)
-        plt.ylim(-30, 30)
+        plt.xlim(-30, 50)
+        plt.ylim(-30, 50)
     else:
         plt.xlim(-10, 10)
         plt.ylim(-10, 10)

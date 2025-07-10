@@ -39,14 +39,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--weight_decay",
         type=float,
-        default=float(1e-15),
+        default=float(0.0),
         help="input weight_decay for training in the model",
-    )
-    parser.add_argument(
-        "--fh",
-        type=int,
-        default=int(15),
-        help="input forecast hour for training in the model",
     )
     parser.add_argument(
         "--clim_div",
@@ -57,13 +51,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--nwp_model",
         type=str,
-        default=str("GFS"),
+        default=str("HRRR"),
         help="input nwp_model target for training in the model",
     )
     parser.add_argument(
         "--metvar",
         type=str,
-        default=str("t2m"),
+        default=str("tp"),
         help="input target variable for training in the model",
     )
     parser.add_argument(
@@ -73,7 +67,7 @@ if __name__ == "__main__":
         "--target", type=str, default="target_error", help="target column name"
     )
     parser.add_argument(
-        "--learning_rate", type=float, default=9e-7, help="learning rate"
+        "--learning_rate", type=float, default=9e-6, help="learning rate"
     )
     parser.add_argument(
         "--seed", type=int, default=101, help="random seed (default: 101)"

@@ -115,6 +115,17 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             use_orig_params=True,
         )
 
+        self.hidden_proj = nn.Linear(
+            2688, 1728
+        )  # Optional if dimensions need alignment
+
+        # MLP fusion layer to combine encoders directly
+        self.fusion_mlp = nn.Sequential(
+            nn.Linear(hidden_units * 2, hidden_units),
+            nn.LeakyReLU(),
+            nn.Dropout(dropout),
+        )
+
     def train_model(
         self,
         data_loader,
@@ -159,14 +170,22 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
             encoder_hidden = self.encoder(X)
             encoder_hidden_profiler = self.ViT(P)
 
-            # Combine hidden states somehow
-            pass_hidden = torch.cat(
-                [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-            ).contiguous()
+            # Expand ViT encoding to match (num_layers, batch, hidden_size)
+            encoder_hidden_profiler = encoder_hidden_profiler.repeat(
+                encoder_hidden[0].shape[0], 1, 1
+            )
 
-            # Initialize outputs tensor
+            # Optionally project ViT encoding
+            encoder_hidden_profiler = self.hidden_proj(encoder_hidden_profiler)
+
+            # Concatenate LSTM and ViT encodings
+            combined = torch.cat([encoder_hidden[0], encoder_hidden_profiler], dim=-1)
+
+            # Apply fusion MLP
+            pass_hidden = self.fusion_mlp(combined)
+
+            # Decoder init
             outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
-
             decoder_input = X[:, -1, :].unsqueeze(1)
             decoder_hidden = pass_hidden, encoder_hidden[1]
 
@@ -250,13 +269,27 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                     y.to(int(os.environ["RANK"]) % torch.cuda.device_count()),
                 )
 
+                # --- Encoders ---
                 encoder_hidden = self.encoder(X)
                 encoder_hidden_profiler = self.ViT(P)
 
-                pass_hidden = torch.cat(
-                    [encoder_hidden[0][1:], encoder_hidden_profiler], dim=0
-                ).contiguous()
+                # Expand ViT encoding to match (num_layers, batch, hidden_size)
+                encoder_hidden_profiler = encoder_hidden_profiler.repeat(
+                    encoder_hidden[0].shape[0], 1, 1
+                )
 
+                # Optionally project ViT encoding
+                encoder_hidden_profiler = self.hidden_proj(encoder_hidden_profiler)
+
+                # Concatenate LSTM and ViT encodings
+                combined = torch.cat(
+                    [encoder_hidden[0], encoder_hidden_profiler], dim=-1
+                )
+
+                # Apply fusion MLP
+                pass_hidden = self.fusion_mlp(combined)
+
+                # Decoder init
                 outputs = torch.zeros(y.size(0), y.size(1), X.size(2)).to(self.device)
                 decoder_input = X[:, -1, :].unsqueeze(1)
                 decoder_hidden = pass_hidden, encoder_hidden[1]

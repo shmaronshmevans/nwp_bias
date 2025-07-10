@@ -15,42 +15,43 @@ import multiprocessing as mp
 def get_errors(lookup_path, stations, metvar):
     master_df = pd.DataFrame()
     for s in stations:
-        try:
-            for i in np.arange(1, 19):
-                ldf = pd.read_parquet(
-                    f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
-                )
-                ldf = ldf[ldf["diff"].abs() > 1]
+        # try:
+        for i in np.arange(1, 19):
+            ldf = pd.read_parquet(
+                f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
+            )
+            ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
+            ldf = ldf[ldf["diff"].abs() > 1]
 
-                met_df = oksm_data.load_oksm_data()
-                met_df = met_df[met_df["station"] == s]
+            met_df = nysm_data.load_nysm_data(gfs=False)
+            met_df = met_df[met_df["station"] == s]
 
-                met_df = met_df.rename(columns={"time_1H": "valid_time"})
+            met_df = met_df.rename(columns={"time_1H": "valid_time"})
 
-                time1 = datetime(2023, 1, 1, 0, 0, 0)
-                time2 = datetime(2024, 12, 31, 23, 59, 59)
+            time1 = datetime(2023, 1, 1, 0, 0, 0)
+            time2 = datetime(2024, 12, 31, 23, 59, 59)
 
-                ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
-                met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
-                cols_of_interest = ["Model forecast", "target_error"]
-                for c in ldf.columns:
-                    if c in (cols_of_interest):
-                        ldf[c] = ldf[c] * 2
+            ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
+            met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
+            cols_of_interest = ["Model forecast", "target_error"]
+            for c in ldf.columns:
+                if c in (cols_of_interest):
+                    ldf[c] = ldf[c] * 2
 
-                ldf["diff"] = ldf.iloc[:, 0] - ldf.iloc[:, 1]
-                ldf = ldf.merge(met_df, on="valid_time", how="left")
+            ldf["diff"] = ldf.iloc[:, 0] - ldf.iloc[:, 1]
+            ldf = ldf.merge(met_df, on="valid_time", how="left")
 
-                if i == 1:
-                    df = ldf.copy()
-                else:
-                    # For subsequent iterations, merge the diff data on valid_time
-                    df = df.merge(
-                        ldf, on="valid_time", how="outer", suffixes=("", f"_{i}_{s}")
-                    ).fillna(-999)
-        except:
-            print("Exception on station", s)
-            continue
-        master_df = pd.concat([master_df, df], ignore_index=True)
+            if i == 1:
+                df = ldf.copy()
+            else:
+                # For subsequent iterations, merge the diff data on valid_time
+                df = df.merge(
+                    ldf, on="valid_time", how="outer", suffixes=("", f"_{i}_{s}")
+                ).fillna(-999)
+        # except:
+        #     print("Exception on station", s)
+        #     continue
+        master_df = pd.concat([master_df, df], ignore_index=True).fillna(-999)
 
     return master_df
 
@@ -61,7 +62,6 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/"
     )
     df = get_errors(lookup_path, stations, metvar)
-    print(df)
     # df = un_normalize_out.un_normalize(s, metvar, df)
     s = "ALL"
 
@@ -195,20 +195,14 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         print("Snow not executed")
 
 
-# master_df = pd.DataFrame(master_df_ls, columns=["station", "mae", "mse", "fh"])
-# master_df.set_index(["station", "fh"], inplace=True)
-# master_df.to_parquet(
-#     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_error_metrics_master_bulking.parquet"
-# )
-# save master_df
 ## END OF MAIN
 
-# have not run southeast yet
-clim_div = "West Central"
-lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr"
-metvar_ls = ["tp", "t2m", "u_total"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
-df = nysm_clim[nysm_clim["Climate_division"] == clim_div]
+
+clim_div = "Hudson Valley"
+lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
+metvar_ls = ["u_total", "t2m", "tp"]
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 stations = df["stid"].unique()
 
 if __name__ == "__main__":
