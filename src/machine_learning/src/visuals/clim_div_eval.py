@@ -60,7 +60,7 @@ def compute_error_metrics_by_climate_division(
             all_files = [
                 f
                 for f in glob.glob(file_pattern)
-                if f"{metvar}_" in f and "linear" in f
+                if f"{metvar}_" in f and "linear" in f and "normal" not in f
             ]
 
             for file_path in all_files:
@@ -268,7 +268,7 @@ def confusion_matrix_create(
     ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
     ax.set_xlabel("LSTM Prediction")
     ax.set_ylabel("True Condition")
-    ax.set_title(f"Confusion Matrix: Precipitation Error")
+    ax.set_title(f"NYSM Precision Matrix: Precipitation Error")
 
     # Add text annotations with percent values (formatted to 1 decimal)
     for (i, j), val in np.ndenumerate(conf_matrix_percent):
@@ -278,31 +278,33 @@ def confusion_matrix_create(
 
     # Save the figure
     output_path = os.path.join(
-        output_root, f"confusion_matrix_{model_name}_percent.png"
+        output_root, f"confusion_matrix_{model_name}_percent_nysm.png"
     )
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
 
 
-# confusion_matrix_create(
-#     nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
-#     base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
-#     metvar="tp",
-#     output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
-#     filter_col="target_error",
-#     target_col="Model forecast",
-#     prediction_col="target_error",
-#     model_name="HRRR",
-# )
+for m in ["t2m", "u_total", "tp"]:
+    compute_error_metrics_by_climate_division(
+        nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+        base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
+        metvar=m,
+        output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
+        filter_col="target_error",
+        target_col="Model forecast",
+        prediction_col="target_error",
+        model_name="HRRR",
+    )
 
-compute_error_metrics_by_climate_division(
-    nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
-    base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
-    metvar="u_total",
-    output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
-    filter_col="target_error",
-    target_col="Model forecast",
-    prediction_col="target_error",
-    model_name="HRRR",
-)
+    if m == "tp":
+        confusion_matrix_create(
+            nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+            base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2",
+            metvar="tp",
+            output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
+            filter_col="target_error",
+            target_col="Model forecast",
+            prediction_col="target_error",
+            model_name="HRRR",
+        )

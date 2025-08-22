@@ -158,7 +158,7 @@ def main(
     ):
         vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
     else:
-        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/tp_BUFF_vit.pth"
+        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/tp_HFAL_vit.pth"
 
     (
         df_train,
@@ -356,7 +356,7 @@ def main(
 nwp_model = "HRRR"
 metvar = "tp"
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-station = "BELL"
+station = "ONTA"
 filtered = nysm_clim[nysm_clim["stid"] == station]
 c = filtered["climate_division_name"].iloc[0]
 

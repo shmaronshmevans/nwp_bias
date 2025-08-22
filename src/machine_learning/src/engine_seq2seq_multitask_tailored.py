@@ -275,6 +275,7 @@ def main(
     print()
     print("TARGET", target)
     print(stations)
+    exit()
 
     # experiment = Experiment(
     #     api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
@@ -452,20 +453,32 @@ def main(
 #                 )
 #                 gc.collect()
 
+main(
+    batch_size=int(1000),
+    station="COHO",
+    num_layers=3,
+    epochs=5000,
+    weight_decay=0.0,
+    fh=6,
+    clim_div="Central Lakes",
+    nwp_model="HRRR",
+    metvar="tp",
+)
 
-metvar_ls = ["u_total", "t2m", "tp"]
-fh = np.arange(1, 19)
 
-for m in metvar_ls:
-    for f in fh:
-        main(
-            batch_size=int(1000),
-            station="VOOR",
-            num_layers=3,
-            epochs=5000,
-            weight_decay=0.0,
-            fh=f,
-            clim_div="Hudson Valley",
-            nwp_model="HRRR",
-            metvar=m,
-        )
+# metvar_ls = ["u_total", "t2m", "tp"]
+# fh = np.arange(1, 19)
+
+# for m in metvar_ls:
+#     for f in fh:
+#         main(
+#             batch_size=int(1000),
+#             station="VOOR",
+#             num_layers=3,
+#             epochs=5000,
+#             weight_decay=0.0,
+#             fh=f,
+#             clim_div="Hudson Valley",
+#             nwp_model="HRRR",
+#             metvar=m,
+#         )

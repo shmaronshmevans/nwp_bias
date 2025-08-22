@@ -14,40 +14,42 @@ import multiprocessing as mp
 
 def get_errors(lookup_path, stations, metvar):
     master_df = pd.DataFrame()
+    # no_ls = ['SEMI', 'YUKO', "WEB3", "FAIR"]
+    no_ls = []
     for s in stations:
-        # try:
-        for i in np.arange(1, 19):
-            ldf = pd.read_parquet(
-                f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
-            )
-            ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
-            ldf = ldf[ldf["diff"].abs() > 1]
+        if s not in no_ls:
+            for i in np.arange(1, 19):
+                ldf = pd.read_parquet(
+                    f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
+                )
+                ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
+                ldf = ldf[ldf["diff"].abs() > 1]
 
-            met_df = nysm_data.load_nysm_data(gfs=False)
-            met_df = met_df[met_df["station"] == s]
+                met_df = oksm_data.load_oksm_data()
+                met_df = met_df[met_df["station"] == s]
 
-            met_df = met_df.rename(columns={"time_1H": "valid_time"})
+                met_df = met_df.rename(columns={"time_1H": "valid_time"})
 
-            time1 = datetime(2023, 1, 1, 0, 0, 0)
-            time2 = datetime(2024, 12, 31, 23, 59, 59)
+                time1 = datetime(2023, 1, 1, 0, 0, 0)
+                time2 = datetime(2024, 12, 31, 23, 59, 59)
 
-            ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
-            met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
-            cols_of_interest = ["Model forecast", "target_error"]
-            for c in ldf.columns:
-                if c in (cols_of_interest):
-                    ldf[c] = ldf[c] * 2
+                ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
+                met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
+                cols_of_interest = ["Model forecast", "target_error"]
+                for c in ldf.columns:
+                    if c in (cols_of_interest):
+                        ldf[c] = ldf[c] * 2
 
-            ldf["diff"] = ldf.iloc[:, 0] - ldf.iloc[:, 1]
-            ldf = ldf.merge(met_df, on="valid_time", how="left")
+                ldf["diff"] = ldf.iloc[:, 0] - ldf.iloc[:, 1]
+                ldf = ldf.merge(met_df, on="valid_time", how="left")
 
-            if i == 1:
-                df = ldf.copy()
-            else:
-                # For subsequent iterations, merge the diff data on valid_time
-                df = df.merge(
-                    ldf, on="valid_time", how="outer", suffixes=("", f"_{i}_{s}")
-                ).fillna(-999)
+                if i == 1:
+                    df = ldf.copy()
+                else:
+                    # For subsequent iterations, merge the diff data on valid_time
+                    df = df.merge(
+                        ldf, on="valid_time", how="outer", suffixes=("", f"_{i}_{s}")
+                    ).fillna(-999)
         # except:
         #     print("Exception on station", s)
         #     continue
@@ -141,7 +143,6 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         )
     except:
         print("Precip not executed")
-
     try:
         ## WIND MAGNITUDE
         wmax, instances4 = error_output_bulk_funcs.err_bucket(met_df, f"wmax_sonic", 2)
@@ -172,7 +173,6 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         )
     except:
         print("Wind not executed")
-
     try:
         ## SNOW
         snow_df, instances3 = error_output_bulk_funcs.round_small(
@@ -198,8 +198,8 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 ## END OF MAIN
 
 
-clim_div = "Hudson Valley"
-lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
+clim_div = "Western Plateau"
+lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr"
 metvar_ls = ["u_total", "t2m", "tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]

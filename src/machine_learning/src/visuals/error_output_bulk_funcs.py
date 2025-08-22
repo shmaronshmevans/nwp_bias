@@ -12,6 +12,7 @@ import matplotlib.dates as mdates
 import calendar
 from sklearn.metrics import r2_score
 import os
+from matplotlib.colors import LogNorm
 
 
 def myround(x, base):
@@ -184,7 +185,7 @@ def plot_buckets(
         figsize=(30, 10), facecolor="slategrey", constrained_layout=True
     )
     bars = plt.bar(temp_df.keys(), the_list, color=my_cmap(rescale(y)), width=width)
-    ax.set_title("Absolute Error of LSTM", fontsize=28, c="white")
+    ax.set_title(f"NYSM Absolute Error of LSTM {clim_div}", fontsize=28, c="white")
     ax.set_xlabel(var_name, fontsize=28, c="white")
     ax.set_ylabel("Mean Absolute Error", fontsize=28, c="white")
     plt.xticks(fontsize=22)
@@ -261,7 +262,9 @@ def groupby_month_total(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Month", fontsize=28)
     ax.set_ylabel("Mean LSTM Error", fontsize=28)
-    ax.set_title("Monthly Mean Error for LSTM Predictions", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div}\n Monthly Mean Error for LSTM Predictions", fontsize=32
+    )
     # Customize tick mark font size
     plt.xticks(fontsize=28)
     plt.yticks(fontsize=28)
@@ -324,7 +327,9 @@ def groupby_month_std(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Month", fontsize=28)
     ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
-    ax.set_title("Monthly Standard Deviation of NWP Error", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div}\n Monthly Standard Deviation of NWP Error", fontsize=32
+    )
     # Customize tick mark font size
     plt.xticks(fontsize=28)
     plt.yticks(fontsize=28)
@@ -389,7 +394,10 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Month", fontsize=28)
     ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
-    ax.set_title("Monthly Mean Absolute Error for LSTM Predictions", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div}\n Monthly Mean Absolute Error for LSTM Predictions",
+        fontsize=32,
+    )
     # Customize tick mark font size
     plt.xticks(fontsize=28)
     plt.yticks(fontsize=28)
@@ -507,7 +515,10 @@ def groupby_time_abs(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
     ax.set_ylabel("Mean Absolute LSTM Error", fontsize=28)
-    ax.set_title("Mean Absolute Error Grouped by Time of Day", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div} Mean Absolute Error of LSTM\n Grouped by Time of Day",
+        fontsize=32,
+    )
 
     # Customize tick mark font size
     plt.xticks(fontsize=28)
@@ -577,7 +588,9 @@ def groupby_time(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
     ax.set_ylabel("Mean LSTM Error", fontsize=28)
-    ax.set_title("Mean Error Grouped by Time of Day", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div} Mean LSTM Error\n Grouped by Time of Day", fontsize=32
+    )
 
     # Customize tick mark font size
     plt.xticks(fontsize=28)
@@ -695,7 +708,10 @@ def groupby_time_std(df, station, clim_div, metvar):
     # Add labels and title
     ax.set_xlabel("Local Time of Day (Hour)", fontsize=28)
     ax.set_ylabel("Standard Deviation of NWP Error", fontsize=28)
-    ax.set_title("Standard Deviation of Error Grouped by Time of Day", fontsize=32)
+    ax.set_title(
+        f"NYSM: {clim_div} Standard Deviation of HRRR Error\n Grouped by Time of Day",
+        fontsize=32,
+    )
 
     # Customize tick mark font size
     plt.xticks(fontsize=28)
@@ -724,23 +740,22 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
             if abs(x) > 0.15 and abs(y) > 0.15
         ]
         if filtered_data:
-            x_column, y_column = zip(*filtered_data)  # Unzip filtered pairs
-        else:
-            x_column, y_column = x_column, y_column  # Keep original data
+            x_column, y_column = zip(*filtered_data)
+        # Convert to arrays regardless
+        x_column = np.array(x_column)
+        y_column = np.array(y_column)
 
     xy = np.vstack([x_column, y_column])
     z = gaussian_kde(xy)(xy)
 
     plt.figure(figsize=(16, 12))
-
-    # Create the scatterplot
     scatter = plt.scatter(
         x_column,
         y_column,
         c=z,
+        norm=LogNorm(vmin=z.min(), vmax=z.max()),
         cmap="viridis",
         s=100,
-        # edgecolor="black",
         alpha=0.5,
     )
 
@@ -754,10 +769,15 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
         plt.xlim(-30, 50)
         plt.ylim(-30, 50)
     else:
-        plt.xlim(-10, 10)
-        plt.ylim(-10, 10)
+        plt.xlim(-10, 15)
+        plt.ylim(-10, 15)
     plt.ylabel("LSTM", fontsize=24)
-    plt.title(f"{station} {metvar} Error v LSTM Predictions", fontsize=32)
+    if metvar == "tp":
+        plt.title(f"{station} Precipitation Error v LSTM Predictions", fontsize=32)
+    if metvar == "t2m":
+        plt.title(f"{station} Temperature Error v LSTM Predictions", fontsize=32)
+    if metvar == "u_total":
+        plt.title(f"{station} Wind Error v LSTM Predictions", fontsize=32)
     # Customize tick mark font size
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
@@ -877,8 +897,14 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
     # Add labels, legend, and title
     plt.xlabel("Forecast Hour (FH)", fontsize=20)
     plt.ylabel("Error and R² Values", fontsize=20)
+    if metvar == "tp":
+        title_var = "Precipitation"
+    if metvar == "t2m":
+        title_var = "Temperature"
+    if metvar == "u_total":
+        title_var = "Wind"
     plt.title(
-        f"Error Metrics as a Function of Forecast Hour \n {nwp_model}, {metvar}-Error",
+        f"Error Metrics as a Function of Forecast Hour \n {nwp_model}, {title_var}-Error",
         fontsize=24,
     )
     plt.legend(fontsize=18)
@@ -922,7 +948,6 @@ def calculate_r2(df):
                 if abs(d) < 100 and abs(x) < 100:
                     lstms.append(d)
                     targets.append(x)
-
             if lstms and targets:
                 r2 = r2_score(targets, lstms)
                 r2_ls.append(max(0, r2))  # Ensure R² is not negative

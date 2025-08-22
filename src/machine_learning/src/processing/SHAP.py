@@ -2,7 +2,6 @@ import sys
 
 sys.path.append("..")
 
-import shap
 import numpy as np
 import pandas as pd
 from data import create_data_for_lstm
@@ -15,10 +14,8 @@ from torch.utils.data import Dataset
 from torch.utils.data import TensorDataset, DataLoader
 from functools import partial
 
-
-# Monkey-patch np.int if it's missing
-if not hasattr(np, "int"):
-    np.int = int
+np.int = int
+import shap
 
 
 class SequenceDatasetMultiTask(Dataset):
@@ -285,7 +282,10 @@ def main(encoder_path, decoder_path, station, fh, metvar, seq_len):
     shap_long_df = pd.concat(shap_dfs, ignore_index=True)
 
     # Save to CSV
-    shap_long_df.to_csv("shap_values_long.csv", index=False)
+    shap_long_df.to_csv(
+        "/home/aevans/nwp_bias/src/machine_learning/data/shap_values_long.csv",
+        index=False,
+    )
     print("SHAP values saved to shap_values_long.csv")
 
 

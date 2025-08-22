@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 from cuml.neighbors import NearestNeighbors
 from datetime import datetime
+from matplotlib.colors import LogNorm
 
 
 def date_filter(ldf, time1, time2):
@@ -16,12 +17,14 @@ def date_filter(ldf, time1, time2):
 def main(stations, master_dir, metvar, clim_div):
     x_column = []
     y_column = []
+    # no_ls = ['SEMI', 'YUKO', "WEB3", "FAIR"]
+    no_ls = []
 
-    dirs = [d for d in os.listdir(master_dir) if d in stations]
+    dirs = [d for d in os.listdir(master_dir) if d in stations and d not in no_ls]
 
     for d in dirs:
         files = os.listdir(f"{master_dir}/{d}")
-        files = [f for f in files if "linear" in f]
+        files = [f for f in files if "linear" in f and "normal" not in f]
         files = [f for f in files if metvar in f]
         for f in files:
             try:
@@ -30,7 +33,8 @@ def main(stations, master_dir, metvar, clim_div):
                 time1 = datetime(2024, 1, 1, 0, 0, 0)
                 time2 = datetime(2024, 12, 31, 23, 59, 59)
                 temp_ = date_filter(temp_, time1, time2)
-                # temp_['Model forecast'] = temp_['Model forecast'] * 2
+                if metvar == "tp":
+                    temp_["Model forecast"] = temp_["Model forecast"] * 3
 
                 if (
                     "Model forecast" in temp_.columns
@@ -92,6 +96,7 @@ def main(stations, master_dir, metvar, clim_div):
         cp.asnumpy(y_cp),
         c=cp.asnumpy(z_density),
         cmap="viridis",
+        norm=LogNorm(vmin=1, vmax=z_density.max().get()),
         s=100,
         alpha=0.5,
     )
@@ -99,39 +104,50 @@ def main(stations, master_dir, metvar, clim_div):
     cbar = plt.colorbar(scatter)
     cbar.set_label("Point Density")
 
-    plt.xlabel("Target", fontsize=24)
-    plt.ylabel("LSTM", fontsize=24)
-
     if metvar == "tp":
-        plt.xlim(-50, 100)
-        plt.ylim(-50, 100)
+        plt.xlim(-70, 140)
+        plt.ylim(-70, 140)
     else:
-        plt.xlim(-30, 30)
-        plt.ylim(-30, 30)
-
-    plt.title(f"{clim_div} Temperature Error vs LSTM Predictions", fontsize=32)
+        plt.xlim(-20, 20)
+        plt.ylim(-20, 20)
+    if metvar == "u_total":
+        plt.title(f"NYSM Wind Error vs LSTM Predictions", fontsize=32)
+        plt.xlabel("Target (m s$^{-1}$)", fontsize=24)
+        plt.ylabel("LSTM (m s$^{-1}$)", fontsize=24)
+    if metvar == "t2m":
+        plt.title(f"NYSM Temperature Error vs LSTM Predictions", fontsize=32)
+        plt.xlabel("Target (°C)", fontsize=24)
+        plt.ylabel("LSTM (°C)", fontsize=24)
+    if metvar == "tp":
+        plt.title(f"NYSM Precipitation Error vs LSTM Predictions", fontsize=32)
+        plt.xlabel("Target (mm hr$^{-1}$)", fontsize=24)
+        plt.ylabel("LSTM (mm hr$^{-1}$)", fontsize=24)
     plt.xticks(fontsize=20)
     plt.yticks(fontsize=20)
     plt.grid(True, linestyle="--", alpha=0.6)
 
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter_nysm.png"
     )
     plt.show()
 
 
 # Setup
-clim_div = "Mohawk Valley"
-metvar_ls = ["t2m"]
+clim_div = "ALL"
+# metvar_ls = ["u_total", "t2m", "tp"]
+metvar_ls = ["tp"]
 
 # Load stations
 nysm_clim = cudf.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-stations = (
-    nysm_clim[nysm_clim["climate_division_name"] == clim_div]["stid"]
-    .unique()
-    .to_arrow()
-    .to_pylist()
-)
+# stations = (
+#     nysm_clim[nysm_clim["Climate_division"] == clim_div]["stid"]
+#     .unique()
+#     .to_arrow()
+#     .to_pylist()
+# )
+
+
+stations = nysm_clim["stid"].unique().to_arrow().to_pylist()
 
 parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
 
