@@ -158,7 +158,7 @@ def main(
     ):
         vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
     else:
-        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/tp_HFAL_vit.pth"
+        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/tp_{station}_vit.pth"
 
     (
         df_train,
@@ -354,31 +354,39 @@ def main(
 
 
 nwp_model = "HRRR"
-metvar = "tp"
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-station = "ONTA"
-filtered = nysm_clim[nysm_clim["stid"] == station]
-c = filtered["climate_division_name"].iloc[0]
+metvar = "t2m"
+nysm_radios = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+)
+radios = nysm_radios["stid"].unique()
+# radios = radios[: int(len(radios) * 0.5)]
+radios = radios[-int(len(radios) * 0.5) :]
 
 
-fh_all = np.arange(1, 19)
-fh = fh_all.copy()
-while len(fh) > 0:
-    fh_r = random.choice(fh)
-    main(
-        batch_size=70,
-        station=station,
-        num_layers=3,
-        epochs=int(1e3),
-        weight_decay=0.0,
-        fh=fh_r,
-        clim_div=c,
-        nwp_model=nwp_model,
-        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-        metvar=metvar,
-    )
-    gc.collect()
-    fh = fh[fh != fh_r]  # removes used FH by value
+for r in radios:
+    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    station = r
+    filtered = nysm_clim[nysm_clim["stid"] == station]
+    c = filtered["climate_division_name"].iloc[0]
+
+    fh_all = np.arange(1, 19)
+    fh = fh_all.copy()
+    while len(fh) > 0:
+        fh_r = random.choice(fh)
+        main(
+            batch_size=70,
+            station=station,
+            num_layers=3,
+            epochs=int(1e3),
+            weight_decay=0.0,
+            fh=fh_r,
+            clim_div=c,
+            nwp_model=nwp_model,
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+            metvar=metvar,
+        )
+        gc.collect()
+        fh = fh[fh != fh_r]  # removes used FH by value
 
 # for fh_r in [6, 7, 8, 11, 13, 17]:
 #     main(

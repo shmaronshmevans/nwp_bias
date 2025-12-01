@@ -16,10 +16,10 @@ import multiprocessing as mp
 def get_errors(lookup_path, station, metvar):
     for i in np.arange(1, 19):
         ldf = pd.read_parquet(
-            f"{lookup_path}/{station}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
+            f"{lookup_path}/refitted_{station}_fh{str(i)}_{metvar}_HRRR_ml_output_linear_radio.parquet"
         )
         ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
-        ldf["Model forecast"] = ldf["Model forecast"] * 0.5
+        # ldf["Model forecast"] = ldf["Model forecast"] * 0.5
 
         # ldf['Model forecast'] = ldf['Model forecast']*0.6
         # ldf = ldf[abs(ldf['target_error']) > 0.05]
@@ -51,7 +51,8 @@ def get_errors(lookup_path, station, metvar):
 
 def func_main(path, stations, metvar, clim_div, nwp_model):
     master_df_ls = []
-    no_ls = ["SEMI", "YUKO", "WEB3", "FAIR"]
+    # no_ls = ["SEMI", "YUKO", "WEB3", "FAIR"]
+    no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
     for s in stations:
         if s in no_ls:
             continue
@@ -103,7 +104,7 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
             lstm_vals = []
             target_vals = []
 
-            lstms = df["Model forecast"].values
+            lstms = df["Model forecast_fitted"].values
             targs = df["target_error"].values
 
             for m, t in zip(lstms, targs):
@@ -121,7 +122,7 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
             )
 
             for p in np.arange(2, 19):
-                lstms = df[f"Model forecast_{p}"].values
+                lstms = df[f"Model forecast_fitted_{p}"].values
                 targs = df[f"target_error_{p}"].values
 
                 for m, t in zip(lstms, targs):
@@ -235,11 +236,13 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 ## END OF MAIN
 
 
-clim_div = "Central"
-lookup_path = f"/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr_v2"
-metvar_ls = ["t2m"]
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
-df = nysm_clim[nysm_clim["Climate_division"] == clim_div]
+clim_div = "Champlain Valley"
+lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/radiometer_output/precip_error"
+metvar_ls = ["tp"]
+nysm_clim = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+)
+df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
 stations = df["stid"].unique()
 print(stations)
 

@@ -188,8 +188,8 @@ def plot_buckets(
     ax.set_title(f"NYSM Absolute Error of LSTM {clim_div}", fontsize=28, c="white")
     ax.set_xlabel(var_name, fontsize=28, c="white")
     ax.set_ylabel("Mean Absolute Error", fontsize=28, c="white")
-    plt.xticks(fontsize=22)
-    plt.yticks(fontsize=22)
+    plt.xticks(fontsize=25)
+    plt.yticks(fontsize=25)
     # Iterating over the bars one-by-one
     # Annotate each bar with its value
     # Annotate each bar with the number of instances
@@ -206,7 +206,7 @@ def plot_buckets(
             rotation=90,
         )
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_met_error_{title}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_met_error_{title}_radio.png"
     )
 
 
@@ -238,6 +238,20 @@ def groupby_month_total(df, station, clim_div, metvar):
             aggregated_results.append(
                 np.mean(monthly_data)
             )  # You can also sum or apply other aggregations here
+
+            # ---- Create DataFrame of results ----
+    month_labels = [calendar.month_name[m] for m in range(1, 13)]
+    results_df = pd.DataFrame({"Month": month_labels, "Mean_Error": aggregated_results})
+
+    # Ensure output folder exists
+    out_dir = (
+        f"/home/aevans/nwp_bias/src/machine_learning/src/visuals/dataframes/{clim_div}"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_radio.csv")
+    results_df.to_csv(csv_path, index=False)
 
     # Plotting
     fig, ax = plt.subplots(figsize=(30, 17))
@@ -272,7 +286,7 @@ def groupby_month_total(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_error_radio.png"
     )
 
 
@@ -304,6 +318,20 @@ def groupby_month_std(df, station, clim_div, metvar):
             aggregated_results.append(
                 np.mean(monthly_data)
             )  # You can also sum or apply other aggregations here
+
+            # ---- Create DataFrame of results ----
+    month_labels = [calendar.month_name[m] for m in range(1, 13)]
+    results_df = pd.DataFrame({"Month": month_labels, "Mean_Error": aggregated_results})
+
+    # Ensure output folder exists
+    out_dir = (
+        f"/home/aevans/nwp_bias/src/machine_learning/src/visuals/dataframes/{clim_div}"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_std_radio.csv")
+    results_df.to_csv(csv_path, index=False)
 
     # Plotting
     fig, ax = plt.subplots(figsize=(30, 17))
@@ -372,6 +400,20 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
                 np.mean(monthly_data)
             )  # You can also sum or apply other aggregations here
 
+            # ---- Create DataFrame of results ----
+    month_labels = [calendar.month_name[m] for m in range(1, 13)]
+    results_df = pd.DataFrame({"Month": month_labels, "Mean_Error": aggregated_results})
+
+    # Ensure output folder exists
+    out_dir = (
+        f"/home/aevans/nwp_bias/src/machine_learning/src/visuals/dataframes/{clim_div}"
+    )
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_abs_radio.csv")
+    results_df.to_csv(csv_path, index=False)
+
     # Plotting
     fig, ax = plt.subplots(figsize=(30, 17))
     x = np.arange(1, len(aggregated_results) + 1)
@@ -405,7 +447,7 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_abs_error.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_abs_error_radio.png"
     )
 
     return aggregated_results
@@ -456,7 +498,7 @@ def boxplot_monthly_error(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{metvar}_month_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{metvar}_month_error_boxplot_radio.png"
     )
 
 
@@ -493,6 +535,20 @@ def groupby_time_abs(df, station, clim_div, metvar):
             )  # Aggregate the data (mean of hourly values)
             valid_hours.append(hour)  # Track the hour that has valid data
 
+        # ---- Create DataFrame of results ----
+    hour_labels = [f"{h:02d}:00" for h in valid_hours]
+    results_df = pd.DataFrame(
+        {"Hour": hour_labels, "Mean_Absolute_Error": aggregated_results}
+    )
+
+    # Ensure output directory exists
+    out_dir = f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/dataframes/{clim_div}"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_abs_error_radio.csv")
+    results_df.to_csv(csv_path, index=False)
+
     # Plotting
     fig, ax = plt.subplots(figsize=(30, 17))
     x = np.arange(0, len(aggregated_results))
@@ -527,7 +583,7 @@ def groupby_time_abs(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_abs_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_abs_error_colored_radio.png"
     )
 
     return aggregated_results
@@ -564,7 +620,21 @@ def groupby_time(df, station, clim_div, metvar):
             )  # Aggregate the data (mean of hourly values)
             valid_hours.append(hour)  # Track the hour that has valid data
 
+    # ---- Create DataFrame of results ----
+    hour_labels = [f"{h:02d}:00" for h in valid_hours]
+    results_df = pd.DataFrame(
+        {"Hour": hour_labels, "Mean_Absolute_Error": aggregated_results}
+    )
+
+    # Ensure output directory exists
+    out_dir = f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/dataframes/{clim_div}"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_error_radio.csv")
+    results_df.to_csv(csv_path, index=False)
     # Plotting
+
     fig, ax = plt.subplots(figsize=(30, 17))
     x = np.arange(0, len(aggregated_results))
 
@@ -599,7 +669,7 @@ def groupby_time(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_mean_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_mean_error_colored_radio.png"
     )
 
     return aggregated_results
@@ -651,7 +721,7 @@ def boxplot_time_of_day_error(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_error_boxplot.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_error_boxplot_radio.png"
     )
 
 
@@ -683,6 +753,20 @@ def groupby_time_std(df, station, clim_div, metvar):
                 np.mean(hourly_data)
             )  # Aggregate the data (mean of hourly standard deviations)
             valid_hours.append(hour)  # Track the hour that has valid data
+
+    # ---- Create DataFrame of results ----
+    hour_labels = [f"{h:02d}:00" for h in valid_hours]
+    results_df = pd.DataFrame(
+        {"Hour": hour_labels, "Mean_Absolute_Error": aggregated_results}
+    )
+
+    # Ensure output directory exists
+    out_dir = f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/dataframes/{clim_div}"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Save DataFrame to CSV
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_std_error_radio.csv")
+    results_df.to_csv(csv_path, index=False)
 
     # Plotting
     fig, ax = plt.subplots(figsize=(30, 17))
@@ -720,7 +804,7 @@ def groupby_time_std(df, station, clim_div, metvar):
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_std_error_colored.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_std_error_colored_radio.png"
     )
 
     return aggregated_results
@@ -786,7 +870,7 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
     # Show the plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}_radio.png"
     )
 
 
@@ -919,7 +1003,7 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
     # Show plot
     plt.show()
     plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift.png"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift_radio.png"
     )
 
 
@@ -931,13 +1015,13 @@ def calculate_r2(df):
 
     # Get all model forecast columns
     forecast_cols = sorted(
-        [col for col in df.columns if col.startswith("Model forecast")],
+        [col for col in df.columns if col.startswith("Model forecast_fitted")],
         key=lambda x: (len(x), x),
     )
 
     for fc in forecast_cols:
         # Infer the suffix to find the matching target column
-        suffix = fc.replace("Model forecast", "")
+        suffix = fc.replace("Model forecast_fitted", "")
         target_col = f"target_error{suffix}"
 
         if target_col in df.columns:

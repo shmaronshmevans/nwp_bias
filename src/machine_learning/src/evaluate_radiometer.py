@@ -294,7 +294,7 @@ def main(
     metvar,
     sequence_length=15,
     target="target_error",
-    learning_rate=9e-7,
+    learning_rate=9e-6,
     save_model=True,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -408,7 +408,7 @@ def main(
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2025, 4, 30, 23, 59, 0)
+    time4 = datetime(2024, 12, 31, 23, 59, 0)
     df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
@@ -450,31 +450,29 @@ def main(
     # END OF MAIN
 
 
-c = "Hudson Valley"
 nwp_model = "HRRR"
-metvar_ls = ["tp"]
+metvar = "tp"
+nysm_radios = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+)
+radios = nysm_radios["stid"].unique()
 
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-# stations = df["stid"].unique()
-stations = ["VOOR"]
+for r in radios:
+    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    station = r
+    filtered = nysm_clim[nysm_clim["stid"] == station]
+    c = filtered["climate_division_name"].iloc[0]
 
-
-for m in metvar_ls:
-    print(m)
     for f in np.arange(1, 19):
-        print(f)
-        for s in stations:
-            print(s)
-            main(
-                batch_size=int(30),
-                station=s,
-                num_layers=3,
-                weight_decay=0.0,
-                fh=f,
-                clim_div=c,
-                nwp_model=nwp_model,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{m}.pth",
-                metvar=m,
-            )
-            gc.collect()
+        main(
+            batch_size=int(30),
+            station=r,
+            num_layers=3,
+            weight_decay=0.0,
+            fh=f,
+            clim_div=c,
+            nwp_model=nwp_model,
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+            metvar=metvar,
+        )
+        gc.collect()

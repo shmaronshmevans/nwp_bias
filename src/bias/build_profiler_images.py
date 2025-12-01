@@ -122,7 +122,7 @@ def main(radiometer_data_path):
     save_path = "/home/aevans/nwp_bias/src/machine_learning/data/profiler_images"
 
     # Loop through the specified years and process data for each
-    for yy in np.arange(2018, 2026):
+    for yy in np.arange(2025, 2026):
         print("YEAR", yy)
         df_nysm, nysm_sites = get_raw_profiler_data(yy, radiometer_data_path)
         gc.collect()

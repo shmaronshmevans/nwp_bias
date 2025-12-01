@@ -45,11 +45,14 @@ def compute_error_metrics_by_climate_division(
     """
     df = pd.read_csv(nysm_csv_path)
     clim_divs = df["climate_division_name"].unique()
+    print(clim_divs)
 
     for c in clim_divs:
         master_df_ls = []
         filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
+        no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        stations = [s for s in stations if s not in no_ls]
 
         for s in stations:
             station_dir = os.path.join(base_dir, s)
@@ -65,7 +68,6 @@ def compute_error_metrics_by_climate_division(
 
             for file_path in all_files:
                 match = re.search(rf"{s}_fh(\d+)_.*\.parquet", file_path)
-                print(match)
                 if not match:
                     print(f"Skipping unrecognized file: {file_path}")
                     continue
@@ -74,10 +76,10 @@ def compute_error_metrics_by_climate_division(
 
                 try:
                     df_parquet = pd.read_parquet(file_path)
-                    [print(c) for c in df_parquet.columns]
                     df_parquet = df_parquet.rename(
                         columns={"target_error_lead_0": "target_error"}
                     )
+                    # df_parquet["Model forecast"] = df_parquet["Model forecast"]*3
                 except Exception as e:
                     print(f"Failed to read {file_path}: {e}")
                     continue
@@ -130,7 +132,7 @@ def compute_error_metrics_by_climate_division(
             master_df.set_index(["station", "fh"], inplace=True)
 
             out_path = os.path.join(
-                output_root, f"{c}/{c}_{metvar}_error_metrics_master.parquet"
+                output_root, f"{c}/radionysm_{c}_{metvar}_error_metrics_master.parquet"
             )
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
             master_df.to_parquet(out_path)
@@ -173,6 +175,8 @@ def confusion_matrix_create(
     for c in clim_divs:
         filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
+        no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        stations = [s for s in stations if s not in no_ls]
 
         for s in stations:
             station_dir = os.path.join(base_dir, s)
@@ -199,6 +203,7 @@ def confusion_matrix_create(
                     df_parquet = df_parquet.rename(
                         columns={"target_error_lead_0": "target_error"}
                     )
+                    # df_parquet["Model forecast"] = df_parquet["Model forecast"]*3
                 except Exception as e:
                     print(f"Failed to read {file_path}: {e}")
                     continue
@@ -215,7 +220,7 @@ def confusion_matrix_create(
                 df_parquet = df_parquet[
                     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() <= 200
                 ]
-                # Filter out large absolute errors
+                # # Filter out large absolute errors
                 df_parquet = df_parquet[
                     df_parquet[target_col].sub(df_parquet[prediction_col]).abs() > 1
                 ]
@@ -268,7 +273,7 @@ def confusion_matrix_create(
     ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
     ax.set_xlabel("LSTM Prediction")
     ax.set_ylabel("True Condition")
-    ax.set_title(f"NYSM Precision Matrix: Precipitation Error")
+    ax.set_title(f"NYSM Radiometer\n Precision Matrix: Precipitation Error")
 
     # Add text annotations with percent values (formatted to 1 decimal)
     for (i, j), val in np.ndenumerate(conf_matrix_percent):
@@ -278,16 +283,16 @@ def confusion_matrix_create(
 
     # Save the figure
     output_path = os.path.join(
-        output_root, f"confusion_matrix_{model_name}_percent_nysm.png"
+        output_root, f"radionysm_confusion_matrix_{model_name}_percent_nysm.png"
     )
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
 
 
-for m in ["t2m", "u_total", "tp"]:
+for m in ["tp"]:
     compute_error_metrics_by_climate_division(
-        nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
+        nysm_csv_path="/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv",
         base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
         metvar=m,
         output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
@@ -299,8 +304,8 @@ for m in ["t2m", "u_total", "tp"]:
 
     if m == "tp":
         confusion_matrix_create(
-            nysm_csv_path="/home/aevans/nwp_bias/src/landtype/data/nysm.csv",
-            base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2",
+            nysm_csv_path="/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv",
+            base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
             metvar="tp",
             output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
             filter_col="target_error",
