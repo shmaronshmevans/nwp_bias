@@ -205,9 +205,9 @@ def plot_buckets(
             fontsize=12,
             rotation=90,
         )
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_met_error_{title}_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_met_error_{title}_radio.png"
+    # )
 
 
 def groupby_month_total(df, station, clim_div, metvar):
@@ -250,7 +250,9 @@ def groupby_month_total(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_radio.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_monthly_error_persistence.csv"
+    )
     results_df.to_csv(csv_path, index=False)
 
     # Plotting
@@ -285,14 +287,14 @@ def groupby_month_total(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_error_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_error_radio.png"
+    # )
 
 
 def groupby_month_std(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
-    diff_columns = [col for col in df.columns if "target" in col]
+    diff_columns = [col for col in df.columns if "diff" in col]
 
     # Create an empty list to store the aggregated results
     aggregated_results = []
@@ -330,7 +332,9 @@ def groupby_month_std(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_std_radio.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_monthly_error_std_persistence.csv"
+    )
     results_df.to_csv(csv_path, index=False)
 
     # Plotting
@@ -364,9 +368,9 @@ def groupby_month_std(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_std_error.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_std_error.png"
+    # )
 
 
 def groupby_abs_month_total(df, station, clim_div, metvar):
@@ -411,7 +415,9 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_monthly_error_abs_radio.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_monthly_error_abs_persistence.csv"
+    )
     results_df.to_csv(csv_path, index=False)
 
     # Plotting
@@ -446,16 +452,16 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_abs_error_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_month_abs_error_radio.png"
+    # )
 
     return aggregated_results
 
 
 def boxplot_monthly_error(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
-    diff_columns = [col for col in df.columns if "target" in col]
+    diff_columns = [col for col in df.columns if "diff" in col]
 
     # Create a dictionary to store monthly data
     monthly_data = {month: [] for month in range(1, 13)}
@@ -497,9 +503,9 @@ def boxplot_monthly_error(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{metvar}_month_error_boxplot_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{metvar}_month_error_boxplot_radio.png"
+    # )
 
 
 def groupby_time_abs(df, station, clim_div, metvar):
@@ -546,7 +552,9 @@ def groupby_time_abs(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_abs_error_radio.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_hourly_abs_error_persistence.csv"
+    )
     results_df.to_csv(csv_path, index=False)
 
     # Plotting
@@ -582,9 +590,9 @@ def groupby_time_abs(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_abs_error_colored_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_abs_error_colored_radio.png"
+    # )
 
     return aggregated_results
 
@@ -631,7 +639,7 @@ def groupby_time(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_error_radio.csv")
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_error_persistence.csv")
     results_df.to_csv(csv_path, index=False)
     # Plotting
 
@@ -668,16 +676,16 @@ def groupby_time(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_mean_error_colored_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_mean_error_colored_radio.png"
+    # )
 
     return aggregated_results
 
 
 def boxplot_time_of_day_error(df, station, clim_div, metvar):
     # Filter columns that contain 'diff' in their name
-    diff_columns = [col for col in df.columns if "target" in col]
+    diff_columns = [col for col in df.columns if "diff" in col]
 
     # Create a dictionary to store hourly data
     hourly_data = {hour: [] for hour in range(0, 24)}
@@ -720,14 +728,14 @@ def boxplot_time_of_day_error(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_error_boxplot_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_error_boxplot_radio.png"
+    # )
 
 
 def groupby_time_std(df, station, clim_div, metvar):
     # Filter columns that contain 'target' in their name
-    diff_columns = [col for col in df.columns if "target" in col]
+    diff_columns = [col for col in df.columns if "diff" in col]
 
     # Create an empty list to store the aggregated results
     aggregated_results = []
@@ -765,7 +773,9 @@ def groupby_time_std(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_std_error_radio.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_hourly_std_error_persistence.csv"
+    )
     results_df.to_csv(csv_path, index=False)
 
     # Plotting
@@ -803,9 +813,9 @@ def groupby_time_std(df, station, clim_div, metvar):
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_std_error_colored_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/_{metvar}_time_of_day_std_error_colored_radio.png"
+    # )
 
     return aggregated_results
 
@@ -869,9 +879,9 @@ def create_scatterplot(x_column, y_column, fh, metvar, station, clim_div):
 
     # Show the plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_scatter_{fh}_radio.png"
+    # )
 
 
 def met_output(df, full_df, fold, station, test_set_start, test_set_finish, fh, metvar):
@@ -1002,9 +1012,9 @@ def plot_fh_drift(mae_ls, sq_ls, r2_ls, fh, station, clim_div, nwp_model, metvar
 
     # Show plot
     plt.show()
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift_radio.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{station}/{station}_{metvar}_fh_drift_radio.png"
+    # )
 
 
 from sklearn.metrics import r2_score

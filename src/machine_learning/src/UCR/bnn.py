@@ -376,15 +376,15 @@ class ShallowLSTM_seq2seq_multi_task_bnn(nn.Module):
         all_outputs = torch.cat(all_outputs, dim=0)
         # bnn
         mu, log_var = self.bnn(all_outputs)
-        std = torch.exp(0.5 * log_var)
-        samples = []
-        for _ in range(mc_samples=200):
-            eps = torch.randn_like(std)
-            samples.append(mu + eps * std)
+        # std = torch.exp(0.5 * log_var)
+        # samples = []
+        # for _ in range(mc_samples=200):
+        #     eps = torch.randn_like(std)
+        #     samples.append(mu + eps * std)
 
-        all_samples = torch.stack(samples, dim=1)  # (batch, samples, seq_len, sensors)
-        compute_ucr(all_samples, y, alpha=0.90)
-        return ucr
+        # all_samples = torch.stack(samples, dim=1)  # (batch, samples, seq_len, sensors)
+        # compute_ucr_torch(all_samples, y, alpha=0.90)
+        return mu, log_var
 
 
 """

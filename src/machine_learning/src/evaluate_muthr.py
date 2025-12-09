@@ -529,13 +529,13 @@ def main(
     # un_normalize data
     # df_out, mult1 = un_normalize_out.un_normalize(station, metvar, df_out)
     # Build the directory path
-    dir_path = f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}"
+    dir_path = f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}"
 
     # Create the directory if it doesn't exist
     os.makedirs(dir_path, exist_ok=True)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
     # calculate post processing on validation set
@@ -566,22 +566,22 @@ def main(
         }
     )
 
-    if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-    ):
-        df_og_linear = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-        )
-        df_save_linear = pd.concat([df_og_linear, df_save_linear])
+    # if os.path.exists(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    # ):
+    #     df_og_linear = pd.read_csv(
+    #         f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    #     )
+    #     df_save_linear = pd.concat([df_og_linear, df_save_linear])
 
-    df_save_linear.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
-        index=False,
-    )
+    # df_save_linear.to_csv(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+    #     index=False,
+    # )
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
@@ -589,29 +589,29 @@ def main(
 
 
 nwp = "HRRR"
-metvar_ls = ["tp", "t2m", "u_total"]
+metvar_ls = ["tp"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-c = "Central Lakes"
+# c = "Central Lakes"
 
 
-# for c in nysm_clim["climate_division_name"].unique():
-df = nysm_clim[nysm_clim["climate_division_name"] == c]
-stations = df["stid"].unique()
+for c in nysm_clim["climate_division_name"].unique():
+    df = nysm_clim[nysm_clim["climate_division_name"] == c]
+    stations = df["stid"].unique()
 
-for m in metvar_ls:
-    print(m)
-    for f in np.arange(1, 19):
-        print(f)
-        for s in stations:
-            print(s)
-            main(
-                batch_size=int(1000),
-                station=s,
-                num_layers=3,
-                fh=f,
-                clim_div=c,
-                nwp_model=nwp,
-                metvar=m,
-                model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/retry/{c}_{m}.pth",
-            )
-            gc.collect()
+    for m in metvar_ls:
+        print(m)
+        for f in np.arange(1, 19):
+            print(f)
+            for s in stations:
+                print(s)
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    fh=f,
+                    clim_div=c,
+                    nwp_model=nwp,
+                    metvar=m,
+                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/retry/{c}_{m}.pth",
+                )
+                gc.collect()

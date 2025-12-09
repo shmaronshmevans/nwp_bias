@@ -39,7 +39,7 @@ def load_nysm_data(year):
 
 
 def read_data_ny(model, month, year, fh):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/"
+    cleaned_data_path = f"/home/aevans/ai2es2/lstm/{model.upper()}/fh_{fh}/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -61,7 +61,7 @@ def read_data_ny(model, month, year, fh):
 
 
 def read_data_ny_v2(model, month, year, fh):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/"
+    cleaned_data_path = f"/home/aevans/ai2es2/lstm/{model.upper()}/fh_{fh}/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -848,10 +848,11 @@ if __name__ == "__main__":
         print("FH", fh)
         for year in np.arange(2025, 2026):
             print("YEAR: ", year)
-            try:
-                main(str(4).zfill(2), year, model, str(fh).zfill(2))
-            except:
-                continue
+            # try:
+            for m in np.arange(1, 12):
+                main(str(m).zfill(2), year, model, str(fh).zfill(2))
+            # except:
+            #     continue
 
     # # multiprocessing
     """

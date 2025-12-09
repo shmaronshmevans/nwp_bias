@@ -20,12 +20,13 @@ def get_errors(lookup_path, stations, metvar):
         if s not in no_ls:
             for i in np.arange(1, 19):
                 ldf = pd.read_parquet(
-                    f"{lookup_path}/{s}/refitted_{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear_radio.parquet"
+                    f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
                 )
                 ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
-                ldf = ldf[ldf["diff"].abs() > 1]
+                ldf["diff"] = ldf["Model forecast"] - ldf["target_error"]
+                # ldf = ldf[ldf["diff"].abs() > 1]
 
-                met_df = oksm_data.load_nysm_data(gfs=False)
+                met_df = nysm_data.load_nysm_data(gfs=False)
                 met_df = met_df[met_df["station"] == s]
 
                 met_df = met_df.rename(columns={"time_1H": "valid_time"})
@@ -35,7 +36,7 @@ def get_errors(lookup_path, stations, metvar):
 
                 ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
                 met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
-                cols_of_interest = ["Model forecast_fitted", "target_error"]
+                cols_of_interest = ["Model forecast", "target_error"]
                 # for c in ldf.columns:
                 #     if c in (cols_of_interest):
                 #         ldf[c] = ldf[c] * 2
@@ -197,20 +198,18 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 
 ## END OF MAIN
 
-lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/radiometer_output/precip_error"
-metvar_ls = ["tp"]
-nysm_clim = pd.read_csv(
-    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
-)
-clim_divs = nysm_clim["climate_division_name"].unique()
+lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr_v2"
+metvar_ls = ["t2m", "u_total", "tp"]
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+clim_divs = nysm_clim["Climate_division"].unique()
 
 
 if __name__ == "__main__":
     for c in clim_divs:
-        df = nysm_clim[nysm_clim["climate_division_name"] == c]
+        df = nysm_clim[nysm_clim["Climate_division"] == c]
         stations = df["stid"].unique()
-        # no_ls = ["LKPL", "OKCN", "SEMI", "BOWL", "YUKO", "WEB3", "WEBR", "FAIR"]
-        no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        no_ls = ["LKPL", "OKCN", "SEMI", "BOWL", "YUKO", "WEB3", "WEBR", "FAIR"]
+        # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
         stations = [s for s in stations if s not in no_ls]
         for m in metvar_ls:
             func_main(lookup_path, stations, m, c, "HRRR")

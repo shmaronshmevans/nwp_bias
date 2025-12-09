@@ -28,7 +28,7 @@ def main(start_date, end_date, fh):
     """
 
     # Output directory for cleaned data
-    savedir = "/home/aevans/ai2es/cleaned/HRRR/"
+    savedir = "/home/aevans/ai2es2/cleaned/HRRR/"
 
     # Time interval between data points
     delta = timedelta(days=1)
@@ -79,20 +79,21 @@ def main(start_date, end_date, fh):
         # Reverse the order of rows and save the data to a new parquet file
         the_df = the_df.iloc[::-1]
         the_df.to_parquet(
-            f"/home/aevans/ai2es/lstm/HRRR/fh_{fh}/{year}/{month}/{year}{month}{day}_hrrr_fh{fh}.parquet"
+            f"/home/aevans/ai2es2/lstm/HRRR/fh_{fh}/{year}/{month}/{year}{month}{day}_hrrr_fh{fh}.parquet"
         )
 
 
 for i in np.arange(1, 19):
     fh = str(i).zfill(2)
-    # Step 1: Initialize multiprocessing.Pool()
-    pool = mp.Pool(mp.cpu_count())
+    # # Step 1: Initialize multiprocessing.Pool()
+    # pool = mp.Pool(mp.cpu_count())
 
-    # Step 2: Use pool.apply() to execute the main function with specified arguments
-    results = pool.apply(
-        main,
-        args=(datetime(2018, 1, 1, 0, 0, 0), datetime(2025, 3, 31, 23, 59, 59), fh),
-    )
+    # # Step 2: Use pool.apply() to execute the main function with specified arguments
+    # results = pool.apply(
+    #     main,
+    #     args=(datetime(2025, 1, 1, 0, 0, 0), datetime(2025, 11, 30, 23, 59, 59), fh),
+    # )
 
-    # Step 3: Close the multiprocessing pool
-    pool.close()
+    # # Step 3: Close the multiprocessing pool
+    # pool.close()
+    main(datetime(2025, 4, 1, 0, 0, 0), datetime(2025, 11, 30, 23, 59, 59), fh)

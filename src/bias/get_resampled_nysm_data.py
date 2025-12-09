@@ -15,8 +15,8 @@ def get_raw_nysm_data(year):
     avail_months = [int(x.split("/")[-1]) for x in file_dirs]
 
     df_nysm_list = []
-    # for x in range(avail_months[0], avail_months[-1] + 1):
-    for x in ["01", "02", "03", "04"]:
+    for x in range(avail_months[0], avail_months[-1] + 1):
+        # for x in ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]:
         print("month index: ", x)
         ds_nysm_month = xr.open_mfdataset(f"{nysm_path}{str(x).zfill(2)}/*.nc")
         df_nysm_list.append(ds_nysm_month.to_dataframe())
@@ -35,6 +35,7 @@ def get_raw_nysm_data(year):
         altimeter_value, height, temp
     )
 
+    print(df_nysm.reset_index())
     nysm_sites = df_nysm.reset_index()["station"].unique()
 
     return df_nysm, nysm_sites
@@ -171,7 +172,7 @@ def main(year):
     nysm_3H_obs.to_parquet(f"{save_path}nysm_3H_obs_{year}.parquet")
 
 
-years = [str(x) for x in np.arange(2025, 2026)]
+years = [str(x) for x in np.arange(2018, 2025)]
 
 for year in years:
     print(year)
