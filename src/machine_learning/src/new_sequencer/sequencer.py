@@ -355,6 +355,27 @@ class SequenceDatasetMultiTask_v2(Dataset):
         return x, y
 
 
+class ImageCache:
+    def __init__(self, paths, transform=None):
+        self.cache = {}
+
+        for p in set(paths):
+            arr = np.load(p).astype(np.float32)
+
+            if transform:
+                arr = transform(arr)
+
+            if isinstance(arr, torch.Tensor):
+                tensor = arr.detach().cpu()
+            else:
+                tensor = torch.from_numpy(arr)
+
+            self.cache[p] = tensor
+
+    def get(self, path):
+        return self.cache[path]
+
+
 class SequenceDatasetMultiTask(Dataset):
     """Dataset class for multi-task learning with station-specific data."""
 
@@ -381,6 +402,8 @@ class SequenceDatasetMultiTask(Dataset):
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
         self.P_ls = dataframe[image_list_cols].values.tolist()
+        all_images = [p for sub in self.P_ls for p in sub]
+        self.image_cache = ImageCache(all_images, transform)
 
     def __len__(self):
         return self.X.shape[0]
@@ -413,20 +436,23 @@ class SequenceDatasetMultiTask(Dataset):
 
         idx = min(i + self.sequence_length, len(self.P_ls) - 1)
         img_name = self.P_ls[idx]  # This avoids an out-of-range error
-        images = []
-        for img in img_name:
-            # Load the image
-            image = np.load(img).astype(np.float32)
 
-            # Apply transform if available
-            if self.transform:
-                image = self.transform(image)
+        # images = []
+        # for img in img_name:
+        #     # Load the image
+        #     image = np.load(img).astype(np.float32)
 
-            # Convert to tensor and move to device
-            images.append(image.clone().detach().to(torch.float32).to(self.device))
+        #     # Apply transform if available
+        #     if self.transform:
+        #         image = self.transform(image)
 
-        # Stack images into a single tensor
-        images = torch.stack(images)
+        #     # Convert to tensor and move to device
+        #     images.append(image.clone().detach().to(torch.float32).to(self.device))
+
+        # # Stack images into a single tensor
+        # images = torch.stack(images)
+
+        images = torch.stack([self.image_cache.get(p) for p in img_name])
 
         # Expected shape
         expected_shape = (1, 121, 6, 11)

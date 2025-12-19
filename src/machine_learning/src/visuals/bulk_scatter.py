@@ -34,10 +34,27 @@ def main(stations, master_dir, metvar, clim_div):
                 time1 = datetime(2024, 1, 1, 0, 0, 0)
                 time2 = datetime(2024, 12, 31, 23, 59, 59)
                 temp_ = date_filter(temp_, time1, time2)
-                if metvar == "tp":
-                    temp_["Model forecast"] = temp_["Model forecast"] * 1
-                else:
-                    temp_["Model forecast"] = temp_["Model forecast"] * 0.5
+                # if metvar == "tp":
+                #     temp_["Model forecast"] = temp_["Model forecast"] * 1
+                # else:
+                # temp_["Model forecast"] = temp_["Model forecast"] * 0.65
+
+                # # ---- DIAGNOSTIC: large negative LSTM predictions ----
+                # neg_mask = temp_["Model forecast"] > 5
+                # neg_mask_ = temp_["Model forecast"].abs() < 5
+
+                # if neg_mask.any() and neg_mask_.any():
+                #     diag_df = temp_.loc[neg_mask, ["valid_time", "Model forecast"]].copy()
+                #     diag_df["station"] = d
+                #     diag_df["month"] = diag_df["valid_time"].dt.month
+
+                #     out_path = "/home/aevans/nwp_bias/src/machine_learning/notebooks/lstm_pos_outliers.csv"
+
+                #     # Append if file exists, otherwise write header
+                #     if os.path.exists(out_path):
+                #         diag_df.to_pandas().to_csv(out_path, mode="a", header=False, index=False)
+                #     else:
+                #         diag_df.to_pandas().to_csv(out_path, index=False)
 
                 if (
                     "Model forecast" in temp_.columns
@@ -113,15 +130,15 @@ def main(stations, master_dir, metvar, clim_div):
         plt.xlim(-30, 30)
         plt.ylim(-30, 30)
     else:
-        plt.xlim(-10, 10)
-        plt.ylim(-10, 10)
+        plt.xlim(-20, 20)
+        plt.ylim(-20, 20)
     if metvar == "u_total":
         plt.title(f"OKSM:\n HRRR Wind-Error vs LSTM Predictions", fontsize=font_size)
         plt.xlabel("Target (m s$^{-1}$)", fontsize=font_size)
         plt.ylabel("LSTM (m s$^{-1}$)", fontsize=font_size)
     if metvar == "t2m":
         plt.title(
-            f"OKSM:\n HRRR Temperature-Error vs LSTM Predictions", fontsize=font_size
+            f"NYSM:\n HRRR Temperature-Error vs LSTM Predictions", fontsize=font_size
         )
         plt.xlabel("Target (°C)", fontsize=font_size)
         plt.ylabel("LSTM (°C)", fontsize=font_size)
@@ -142,9 +159,9 @@ def main(stations, master_dir, metvar, clim_div):
     plt.tight_layout()
     plt.show()
 
-    plt.savefig(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter_oksm.png"
-    )
+    # plt.savefig(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter_nysm_.png"
+    # )
     # Convert to CPU numpy arrays for easier math (optional if you want to use NumPy)
     x_np = cp.asnumpy(x_cp)
     y_np = cp.asnumpy(y_cp)
@@ -190,7 +207,7 @@ def main(stations, master_dir, metvar, clim_div):
 # Setup
 clim_div = "ALL"
 # metvar_ls = ["u_total", "t2m", "tp"]
-metvar_ls = ["t2m"]
+metvar_ls = ["tp"]
 
 # no_ls = ['HFAL', 'BUFF', 'BELL', 'ELLE', 'TANN', 'WARW', 'MANH']
 
@@ -205,15 +222,15 @@ metvar_ls = ["t2m"]
 
 
 # Load stations
-nysm_clim = cudf.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
+nysm_clim = cudf.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 stations = (
-    nysm_clim[nysm_clim["Climate_division"] == clim_div]["stid"]
+    nysm_clim[nysm_clim["climate_division_name"] == clim_div]["stid"]
     .unique()
     .to_arrow()
     .to_pylist()
 )
 stations = nysm_clim["stid"].unique().to_arrow().to_pylist()
-parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr"
+parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
 
 # Run
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ def get_raw_profiler_data(year, radiometer_data_path):
 
     # Extract the available months from the directory names
     avail_months = [int(x.split("/")[-1]) for x in file_dirs]
-
+    print(avail_months)
     # List to hold DataFrames for each month
     df_nysm_list = []
 

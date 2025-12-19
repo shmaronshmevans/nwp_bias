@@ -23,6 +23,7 @@ def get_errors(lookup_path, stations, metvar):
                     f"{lookup_path}/{s}/{s}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
                 )
                 ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
+                ldf["Model forecast"] = ldf["Model forecast"] * 0.65
                 ldf["diff"] = ldf["Model forecast"] - ldf["target_error"]
                 # ldf = ldf[ldf["diff"].abs() > 1]
 
@@ -198,8 +199,8 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 
 ## END OF MAIN
 
-lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr_v2"
-metvar_ls = ["t2m", "u_total", "tp"]
+lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/oksm_hrrr"
+metvar_ls = ["u_total"]
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
 clim_divs = nysm_clim["Climate_division"].unique()
 

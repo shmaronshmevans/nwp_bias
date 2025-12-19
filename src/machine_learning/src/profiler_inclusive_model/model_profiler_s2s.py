@@ -13,7 +13,7 @@ from profiler_inclusive_model.lstm_encoder_decoder import (
 
 from profiler_inclusive_model.ViT_encoder import VisionTransformer
 
-torch.autograd.set_detect_anomaly(True)
+torch.autograd.set_detect_anomaly(False)
 
 
 class LSTM_Encoder_Decoder_with_ViT(nn.Module):
@@ -117,7 +117,6 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         self.train()
 
         for batch_idx, batch in enumerate(data_loader):
-            torch.cuda.empty_cache()
 
             X, P, y = batch
             X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
@@ -187,7 +186,6 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
-                torch.cuda.empty_cache()
                 X, P, y = batch
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
                 # --- Encoders ---
@@ -234,7 +232,6 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
-                torch.cuda.empty_cache()
                 X, P, y = batch
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
                 # --- Encoders ---
