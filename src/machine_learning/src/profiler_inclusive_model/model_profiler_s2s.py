@@ -117,7 +117,6 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
         self.train()
 
         for batch_idx, batch in enumerate(data_loader):
-
             X, P, y = batch
             X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
             # --- Encoders ---

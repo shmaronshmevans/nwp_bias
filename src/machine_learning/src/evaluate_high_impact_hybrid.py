@@ -133,7 +133,6 @@ def load_hybrid(clim_div, metvar, station, features, image_list_cols, device):
 
 
 def main(clim_div, station, fh, var, time1, time2, save_path):
-
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
@@ -146,9 +145,15 @@ def main(clim_div, station, fh, var, time1, time2, save_path):
     print("::: In Main :::")
 
     # create data for inference
-    lstm_df, features, stations, target_sensor, valid_times, image_list_cols, og_df = (
-        create_data_for_model(station, fh, var, time1, time2, save_path)
-    )
+    (
+        lstm_df,
+        features,
+        stations,
+        target_sensor,
+        valid_times,
+        image_list_cols,
+        og_df,
+    ) = create_data_for_model(station, fh, var, time1, time2, save_path)
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
     print("!! Data Loaders Succesful !!")

@@ -13,10 +13,10 @@ def get_raw_nysm_data(year):
     file_dirs = glob.glob(f"{nysm_path}/*")
     file_dirs.sort()
     avail_months = [int(x.split("/")[-1]) for x in file_dirs]
+    print(avail_months)
 
     df_nysm_list = []
     for x in range(avail_months[0], avail_months[-1] + 1):
-        # for x in ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11"]:
         print("month index: ", x)
         ds_nysm_month = xr.open_mfdataset(f"{nysm_path}{str(x).zfill(2)}/*.nc")
         df_nysm_list.append(ds_nysm_month.to_dataframe())
@@ -172,7 +172,7 @@ def main(year):
     nysm_3H_obs.to_parquet(f"{save_path}nysm_3H_obs_{year}.parquet")
 
 
-years = [str(x) for x in np.arange(2018, 2025)]
+years = [str(x) for x in np.arange(2024, 2026)]
 
 for year in years:
     print(year)

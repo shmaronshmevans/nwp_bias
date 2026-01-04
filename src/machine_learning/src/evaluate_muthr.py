@@ -439,7 +439,6 @@ def main(
     clim_div,
     nwp_model,
     metvar,
-    model_path,
     sequence_length=30,
     target="target_error",
 ):
@@ -458,8 +457,18 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
 
-    (df_train, df_test, df_val, features, stations, target, vt, og_df) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        stations,
+        target,
+        vt,
+        _,
+        og_df,
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
 
     df_eval = pd.concat([df_train, df_val, df_test])
@@ -529,13 +538,15 @@ def main(
     # un_normalize data
     # df_out, mult1 = un_normalize_out.un_normalize(station, metvar, df_out)
     # Build the directory path
-    dir_path = f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}"
+    dir_path = (
+        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_hybrid_compare/{station}"
+    )
 
     # Create the directory if it doesn't exist
     os.makedirs(dir_path, exist_ok=True)
     # Trim valid_time to match the length of df_out
     df_out.to_parquet(
-        f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"{dir_path}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
     # calculate post processing on validation set
@@ -549,7 +560,7 @@ def main(
 
     # Evaluate model output on test set
     time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2025, 3, 15, 23, 59, 0)
+    time4 = datetime(2025, 12, 31, 23, 59, 0)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
     mae2, mse2 = get_performance_metrics(df_evaluate_linear)
@@ -581,7 +592,7 @@ def main(
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
     df_out_new_linear.to_parquet(
-        f"/home/aevans/inference_ai2es_forecast_err/FINAL_OUTPUT/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+        f"{dir_path}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
     )
     gc.collect()
     torch.cuda.empty_cache()
@@ -589,29 +600,26 @@ def main(
 
 
 nwp = "HRRR"
-metvar_ls = ["tp"]
+metvar_ls = ["tp", "t2m", "u_total"]
+nysm_radios = pd.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+)
 nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-# c = "Central Lakes"
 
-
-for c in nysm_clim["climate_division_name"].unique():
-    df = nysm_clim[nysm_clim["climate_division_name"] == c]
-    stations = df["stid"].unique()
-
+for s in nysm_radios["stid"].unique():
+    c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
     for m in metvar_ls:
         print(m)
         for f in np.arange(1, 19):
             print(f)
-            for s in stations:
-                print(s)
-                main(
-                    batch_size=int(1000),
-                    station=s,
-                    num_layers=3,
-                    fh=f,
-                    clim_div=c,
-                    nwp_model=nwp,
-                    metvar=m,
-                    model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp}/retry/{c}_{m}.pth",
-                )
-                gc.collect()
+            print(s)
+            main(
+                batch_size=int(1000),
+                station=s,
+                num_layers=3,
+                fh=f,
+                clim_div=c,
+                nwp_model=nwp,
+                metvar=m,
+            )
+            gc.collect()

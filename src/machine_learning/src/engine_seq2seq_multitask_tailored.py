@@ -266,8 +266,17 @@ def main(
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
 
-    (df_train, df_test, df_val, features, stations, target, vt, _) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        stations,
+        target,
+        vt,
+        _,
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()

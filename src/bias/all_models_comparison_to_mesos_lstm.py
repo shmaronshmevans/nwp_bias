@@ -849,7 +849,7 @@ if __name__ == "__main__":
         for year in np.arange(2025, 2026):
             print("YEAR: ", year)
             # try:
-            for m in np.arange(1, 12):
+            for m in np.arange(11, 13):
                 main(str(m).zfill(2), year, model, str(fh).zfill(2))
             # except:
             #     continue

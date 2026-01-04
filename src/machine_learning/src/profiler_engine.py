@@ -350,6 +350,7 @@ def main(
     print("... completed ...")
     gc.collect()
     torch.cuda.empty_cache()
+    return min(train_loss_ls)
     # End of MAIN
 
 
@@ -362,35 +363,36 @@ nysm_radios = pd.read_csv(
 # # radios = radios[: int(len(radios) * 0.5)]
 # radios = radios[-int(len(radios) * 0.5) :]
 
-radios = ["SUFF", "TANN", "TUPP", "VOOR", "WANT", "WARW", "STON"]
+radios = ["TUPP", "VOOR", "WANT", "WARW", "STON"]
 # radios = ['GABR', 'HFAL', 'JORD', 'MANH', 'ONTA', 'OWEG', 'QUEE']
 
 
-# for r in radios:
+for r in radios:
+    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    filtered = nysm_clim[nysm_clim["stid"] == r]
+    c = filtered["climate_division_name"].iloc[0]
 
-nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-station = "ELLE"
-filtered = nysm_clim[nysm_clim["stid"] == station]
-c = filtered["climate_division_name"].iloc[0]
-
-fh_all = np.arange(1, 19)
-fh = fh_all.copy()
-while len(fh) > 0:
-    fh_r = random.choice(fh)
-    main(
-        batch_size=70,
-        station=station,
-        num_layers=3,
-        epochs=int(1e3),
-        weight_decay=0.0,
-        fh=fh_r,
-        clim_div=c,
-        nwp_model=nwp_model,
-        model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-        metvar=metvar,
-    )
-    gc.collect()
-    fh = fh[fh != fh_r]  # removes used FH by value
+    fh_all = np.arange(1, 19)
+    fh = fh_all.copy()
+    while len(fh) > 0:
+        fh_r = random.choice(fh)
+        train_loss = main(
+            batch_size=70,
+            station=r,
+            num_layers=3,
+            epochs=int(1e3),
+            weight_decay=0.0,
+            fh=fh_r,
+            clim_div=c,
+            nwp_model=nwp_model,
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+            metvar=metvar,
+        )
+        gc.collect()
+        if train_loss > 0.25: #if model hasn't converged
+            fh = fh[fh != fh_r]  # removes used FH by value
+        else: #if model has converged move on
+            break
 
 # for fh_r in [6, 7, 8, 11, 13, 17]:
 #     main(
@@ -406,3 +408,8 @@ while len(fh) > 0:
 #         metvar=metvar,
 #     )
 #     gc.collect()
+
+# '''
+# wind
+# '''
+# ['TUPP', 'GABR', 'SARA', 'ELLE', 'CHAZ']

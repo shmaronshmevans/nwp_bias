@@ -24,15 +24,12 @@ import statistics as st
 
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm_inference,
-)
+from data import create_data_for_lstm_inference, create_data_for_lstm
 
 from UCR import bnn
 
-from seq2seq import encode_decode_multitask, 
+from seq2seq import encode_decode_multitask
 import random
-
 
 
 class SequenceDatasetMultiTask(Dataset):
@@ -189,8 +186,9 @@ def load_lstm(clim_div, metvar, station, features, device):
     if os.path.exists(decoder_path):
         print("Loading Decoder Model")
         model.decoder.load_state_dict(torch.load(decoder_path))
-    
+
     return model
+
 
 def load_bnn(clim_div, metvar, station, features, device, stations, sequence_length):
     decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
@@ -211,7 +209,6 @@ def load_bnn(clim_div, metvar, station, features, device, stations, sequence_len
         input_dim=num_sensors,
     ).to(device)
 
-
     if os.path.exists(encoder_path):
         print("Loading Encoder Model")
         model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
@@ -225,6 +222,7 @@ def load_bnn(clim_div, metvar, station, features, device, stations, sequence_len
         model.bnn.load_state_dict(torch.load(bnn_path), strict=False)
 
     return model
+
 
 def find_shift(ldf):
     """
@@ -280,8 +278,12 @@ def find_shift(ldf):
     shifted = ldf["Model forecast"].shift(shifter).dropna().reset_index(drop=True)
     ldf = ldf.iloc[shifter:].reset_index(drop=True)  # Align ldf rows
     ldf["Model forecast"] = shifted
+    if "Model variance" in ldf.columns:
+        shifted2 = ldf["Model variance"].shift(shifter).dropna().reset_index(drop=True)
+        ldf["Model variance"] = shifted2
 
     return ldf  # Return the modified DataFrame
+
 
 def linear_transform(station, clim_div, metvar, fh, lstm_output):
     # Load CSV using RAPIDS cudf
@@ -312,9 +314,9 @@ def model_out_lstm(
     station,
     og_df,
     test_eval_loader,
+    metvar,
+    fh,
     clim_div=None,
-    metvar=None,
-    fh=None,
 ):
     """
     Executes LSTM predictions on test data, aligns with df_test, renormalizes,
@@ -340,8 +342,7 @@ def model_out_lstm(
     elif n_test < n_preds:
         pad_len = n_preds - n_test
         padding_df = pd.DataFrame(
-            {col: 0 for col in df_test.columns},
-            index=range(pad_len)
+            {col: 0 for col in df_test.columns}, index=range(pad_len)
         )
         df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
@@ -372,7 +373,7 @@ def model_out_lstm(
     # 5. Shift & linear transform
     # --------------------------
     df_out = find_shift(df_out)
-    df_out = linear_transform(station, clim_div, metvar, fh, df_out)
+    # df_out = linear_transform(station, clim_div, metvar, fh, df_out)
 
     # --------------------------
     # 6. Compute diff
@@ -392,7 +393,7 @@ def model_out_bnn(
     device,
     station,
     og_df,
-    test_eval_loader
+    test_eval_loader,
 ):
     """
     Runs BNN prediction (mu, var), aligns to df_test, renormalizes, returns
@@ -407,8 +408,8 @@ def model_out_bnn(
     # In case model returns tensors
     if isinstance(preds, (tuple, list)):
         mu, var = preds
-        mu = mu.detach().cpu().numpy()
-        var = var.detach().cpu().numpy()
+        mu = mu.detach().cpu().numpy().reshape(-1)
+        var = var.detach().cpu().numpy().reshape(-1)
     else:
         raise ValueError("BNN predict() must return (mu, var).")
 
@@ -427,10 +428,9 @@ def model_out_bnn(
     if n_test > n_preds:
         df_test = df_test.iloc[-n_preds:]
     elif n_test < n_preds:
+        print("padding")
         pad_len = n_preds - n_test
-        padding_df = pd.DataFrame(
-            0, index=range(pad_len), columns=df_test.columns
-        )
+        padding_df = pd.DataFrame(0, index=range(pad_len), columns=df_test.columns)
         df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
     # -----------------------
@@ -458,19 +458,29 @@ def model_out_bnn(
 
         # If we're on mu, scale variance as σ² → σ² * std²
         if col == "Model forecast":
-            df_out["Model variance"] = df_out["Model variance"] * (std ** 2)
+            df_out["Model variance"] = df_out["Model variance"] * (std**2)
 
     # -----------------------
     # Optional: shift & transform
     # -----------------------
+    # need to update shift
     df_out = find_shift(df_out)
     # df_out = linear_transform(station, clim_div, metvar, fh, df_out)
 
     return df_out
 
 
-
-def main(clim_div, station, fh, var, time1, time2, save_path):
+def main(
+    clim_div,
+    station,
+    fh,
+    var,
+    time1,
+    time2,
+    save_path,
+    batch_size=int(500),
+    sequence_length=30,
+):
 
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
@@ -482,16 +492,23 @@ def main(clim_div, station, fh, var, time1, time2, save_path):
 
     print(" *********")
     print("::: In Main :::")
+    today_date, today_date_hr = make_dirs.get_time_title(station)
 
-    #create data for inference 
-    lstm_df, features, stations, target_sensor, valid_times, image_list_cols, og_df = create_data_for_lstm_inference.create_data_for_model(station, fh, var, time1, time2, save_path)
+    # create data for inference
+    lstm_df, features, stations, target_sensor, valid_times, _, og_df = (
+        create_data_for_lstm_inference.create_data_for_model(
+            station, fh, var, time1, time2, save_path
+        )
+    )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
     print("!! Data Loaders Succesful !!")
 
-    '''
+    """
     #lstm 
-    '''
+    """
+    for c in lstm_df.columns:
+        print(c)
     print("Evaluating LSTM")
     lstm_dataset = SequenceDatasetMultiTask(
         dataframe=lstm_df,
@@ -500,32 +517,34 @@ def main(clim_div, station, fh, var, time1, time2, save_path):
         sequence_length=30,
         forecast_steps=fh,
         device=device,
-        nwp_model='HRRR',
-        metvar=metvar,
+        nwp_model="HRRR",
+        metvar=var,
     )
     lstm_loader = torch.utils.data.DataLoader(lstm_dataset, **test_kwargs)
 
-    lstm_model = load_lstm(clim_div, metvar, station, features, device)
+    lstm_model = load_lstm(clim_div, var, station, features, device)
 
     lstm_out = model_out_lstm(
         lstm_df,
         lstm_dataset,
         lstm_model,
         batch_size,
-        target,
+        target_sensor,
         features,
         device,
         station,
         og_df,
-        lstm_loader
-        )
+        lstm_loader,
+        var,
+        fh,
+    )
 
-    lstm_out.to_parquet(f'{save_path}/{s}/{s}_{var}_{fh}_lstm_output.parquet')
+    lstm_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_lstm_output.parquet")
 
     print("Evaluating LSTM SUCCESSFUL")
-    '''
+    """
     #bnn
-    '''
+    """
     print("Evaluating BNN")
 
     bnn_dataset = SequenceDatasetMultiTask(
@@ -535,61 +554,59 @@ def main(clim_div, station, fh, var, time1, time2, save_path):
         sequence_length=30,
         forecast_steps=fh,
         device=device,
-        nwp_model='HRRR',
-        metvar=metvar,
+        nwp_model="HRRR",
+        metvar=var,
     )
     bnn_loader = torch.utils.data.DataLoader(bnn_dataset, **test_kwargs)
 
-    bnn_model = load_bnn(clim_div, metvar, station, features, device, stations, sequence_length)
+    bnn_model = load_bnn(
+        clim_div, var, station, features, device, stations, sequence_length
+    )
 
     bnn_out = model_out_bnn(
         lstm_df,
         bnn_dataset,
         bnn_model,
         batch_size,
-        target,
+        target_sensor,
         features,
         device,
         station,
         og_df,
-        bnn_loader
-        )
+        bnn_loader,
+    )
 
-    bnn_out.to_parquet(f'{save_path}/{s}/{s}_{var}_{fh}_bnn_output.parquet')
+    bnn_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_bnn_output.parquet")
 
     print("Evaluating BNN SUCCESSFUL")
-
 
     ### END OF MAIN
 
 
-
-
-
 if __name__ == "__main__":
-    time1 = datetime(2024, 8, 17, 0, 0, 0)
-    time2 = datetime(2024, 8, 19, 23, 59, 59)
-    var = 'tp'
-    save_path = '/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/flash_flooding'
-
+    time1 = datetime(2024, 8, 8, 0, 0, 0)
+    time2 = datetime(2024, 8, 11, 23, 59, 59)
+    var = "u_total"
+    save_path = (
+        "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/wind"
+    )
 
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
-    ## whole nysm
-    # stations = nysm_clim['stid'].unique()
+    # whole nysm
+    # stations = nysm_clim["stid"].unique()
 
-    ## one division
-    c = 'Coastal'
-    nysm_ = nysm_clim[nysm_clim['climate_division_name']==c]
+    # ## one division
+    # c = 'Coastal'
+    # nysm_ = nysm_clim[nysm_clim['climate_division_name']==c]
 
-    # # selection of divisions
-    # use_ls = ["Hudson Valley", "Eastern Plateau", "Mohawk Valley", "Champlain Valley", "Northern Plateau", "St. Lawrence Valley"]
-    # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
+    # selection of divisions
+    use_ls = ["Champlain Valley", "Northern Plateau"]
+    nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
 
     stations = nysm_["stid"].unique()
 
     for s in stations:
-        clim_div = nysm_clim[nysm_clim['stid']==s]['climate_division_name']
-
-        for fh in np.arange(1,19):
-            main(clim_div, s, fh, var, time1, time2, save_path)
+        c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
+        for fh in np.arange(1, 19):
+            main(c, s, fh, var, time1, time2, save_path)

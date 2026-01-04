@@ -261,8 +261,17 @@ def main(
     encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
     bnn_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/bnn/{clim_div}_{metvar}_{station}_bnn.pth"
 
-    (df_train, df_test, df_val, features, stations, target, vt, _) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        stations,
+        target,
+        vt,
+        _,
+    ) = create_data_for_lstm.create_data_for_model(
+        station, fh, today_date, metvar
     )  # to change which model you are matching for you need to chage which
     print("FEATURES", features)
     print()
@@ -446,7 +455,6 @@ stations = stations[9:]
 
 for s in stations:
     for metvar in metvar_ls:
-
         # Filter once for station + metvar
         relevant_files = [f for f in all_files if s in f and metvar in f]
 

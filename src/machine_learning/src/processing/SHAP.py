@@ -190,9 +190,16 @@ def main(encoder_path, decoder_path, station, fh, metvar, seq_len):
 
     today_date, today_date_hr = make_dirs.get_time_title(station)
 
-    (df_train, df_test, df_val, features, stations, target, vt, _) = (
-        create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
-    )
+    (
+        df_train,
+        df_test,
+        df_val,
+        features,
+        stations,
+        target,
+        vt,
+        _,
+    ) = create_data_for_lstm.create_data_for_model(station, fh, today_date, metvar)
     num_sensors = int(len(features))
     hidden_units = int(12 * len(features))
 

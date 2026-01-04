@@ -78,6 +78,8 @@ def main(start_date, end_date, fh):
         make_dirs(year, month, day, fh)
         # Reverse the order of rows and save the data to a new parquet file
         the_df = the_df.iloc[::-1]
+        out_dir = f"/home/aevans/ai2es2/lstm/HRRR/fh_{fh}/{year}/{month}"
+        os.makedirs(out_dir, exist_ok=True)
         the_df.to_parquet(
             f"/home/aevans/ai2es2/lstm/HRRR/fh_{fh}/{year}/{month}/{year}{month}{day}_hrrr_fh{fh}.parquet"
         )
@@ -96,4 +98,4 @@ for i in np.arange(1, 19):
 
     # # Step 3: Close the multiprocessing pool
     # pool.close()
-    main(datetime(2025, 4, 1, 0, 0, 0), datetime(2025, 11, 30, 23, 59, 59), fh)
+    main(datetime(2025, 11, 1, 0, 0, 0), datetime(2025, 12, 31, 23, 59, 59), fh)

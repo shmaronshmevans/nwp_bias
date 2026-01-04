@@ -12,14 +12,18 @@ from evaluate import un_normalize_out
 import os
 import multiprocessing as mp
 
+from sklearn.metrics import mean_squared_error
+
+from sklearn.metrics import r2_score
+
 
 def get_errors(lookup_path, station, metvar):
     for i in np.arange(1, 19):
         ldf = pd.read_parquet(
-            f"{lookup_path}/refitted_{station}_fh{str(i)}_{metvar}_HRRR_ml_output_linear_radio.parquet"
+            f"{lookup_path}/{station}_fh{str(i)}_{metvar}_HRRR_ml_output_linear.parquet"
         )
         ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
-        # ldf["Model forecast"] = ldf["Model forecast"] * 0.5
+        ldf["Model forecast"] = 0
 
         # ldf['Model forecast'] = ldf['Model forecast']*0.6
         # ldf = ldf[abs(ldf['target_error']) > 0.05]
@@ -30,8 +34,8 @@ def get_errors(lookup_path, station, metvar):
 
         met_df = met_df.rename(columns={"time_1H": "valid_time"})
 
-        time1 = datetime(2024, 1, 1, 0, 0, 0)
-        time2 = datetime(2025, 3, 30, 23, 59, 59)
+        time1 = datetime(2023, 1, 1, 0, 0, 0)
+        time2 = datetime(2024, 12, 31, 23, 59, 59)
 
         ldf = error_output_bulk_funcs.date_filter(ldf, time1, time2)
         met_df = error_output_bulk_funcs.date_filter(met_df, time1, time2)
@@ -49,7 +53,7 @@ def get_errors(lookup_path, station, metvar):
     return df, met_df
 
 
-def func_main(path, stations, metvar, clim_div, nwp_model):
+def func_main(path, stations, metvar, nwp_model):
     master_df_ls = []
     # no_ls = ["SEMI", "YUKO", "WEB3", "FAIR"]
     no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
@@ -59,85 +63,109 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
         else:
             # try:
             lookup_path = f"{path}/{s}"
-            error_output_bulk_funcs.make_directory(
-                f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{s}/"
-            )
+            # error_output_bulk_funcs.make_directory(
+            #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{s}/"
+            # )
 
             df, met_df = get_errors(lookup_path, s, metvar)
-            # df = un_normalize_out.un_normalize(s, metvar, df)
 
-            ## plot fh_drift
-            mae_ls = []
-            sq_ls = []
+            master = []
+            f = 1
 
-            val_ls = []
-            abs_ls = []
-            for d in df[f"diff"].values:
-                if abs(d) < 100:
-                    val_ls.append(d**2)
-                    abs_ls.append(abs(d))
+            # mse
+            mse = mean_squared_error(df["target_error"], df["Model forecast"])
+            # r squared
+            r2 = r2_score(df["target_error"], df["Model forecast"])
+            master.append({"station": s, "fh": f, "mse": mse, "r2": max(0, r2)})
 
-            mae_ls.append(st.mean(abs_ls))
-            sq_ls.append(st.mean(val_ls))
+            for f in np.arange(2, 19):
+                # mse
+                mse = mean_squared_error(
+                    df[f"target_error_{f}"], df[f"Model forecast_{f}"]
+                )
+                # r squared
+                r2 = r2_score(df[f"target_error_{f}"], df[f"Model forecast_{f}"])
+                master.append({"station": s, "fh": f, "mse": mse, "r2": max(0, r2)})
 
-            master_df_ls.append([s, st.mean(abs_ls), st.mean(val_ls), 1])
-
-            for i in np.arange(2, 19):
-                val_ls = []
-                abs_ls = []
-                for d in df[f"diff_{i}"].values:
-                    if abs(d) < 100:
-                        val_ls.append(d**2)
-                        abs_ls.append(abs(d))
-                mae_ls.append(st.mean(abs_ls))
-                sq_ls.append(st.mean(val_ls))
-                master_df_ls.append([s, st.mean(abs_ls), st.mean(val_ls), i])
-
-            r2_ls = error_output_bulk_funcs.calculate_r2(df)
-
-            error_output_bulk_funcs.plot_fh_drift(
-                mae_ls, sq_ls, r2_ls, np.arange(1, 19), s, clim_div, nwp_model, metvar
+            master_df = pd.DataFrame(master).sort_values(["station", "fh"])
+            master_df.to_parquet(
+                f"/home/aevans/nwp_bias/src/machine_learning/data/profiler_error/{s}_mse_r_squared_by_fh_persistence.parquet"
             )
 
-            # just plot fh's 1, 6, 12, 18, then bulk_fh
-            ## plot hexbins
-            lstm_vals = []
-            target_vals = []
+            # # df = un_normalize_out.un_normalize(s, metvar, df)
 
-            lstms = df["Model forecast_fitted"].values
-            targs = df["target_error"].values
+            # ## plot fh_drift
+            # mae_ls = []
+            # sq_ls = []
 
-            for m, t in zip(lstms, targs):
-                if abs(m) < 100 and abs(t) < 100:
-                    lstm_vals.append(m)
-                    target_vals.append(t)
+            # val_ls = []
+            # abs_ls = []
+            # for d in df[f"diff"].values:
+            #     if abs(d) < 100:
+            #         val_ls.append(d**2)
+            #         abs_ls.append(abs(d))
 
-            error_output_bulk_funcs.create_scatterplot(
-                target_vals,
-                lstm_vals,
-                1,
-                metvar,
-                s,
-                clim_div,
-            )
+            # mae_ls.append(st.mean(abs_ls))
+            # sq_ls.append(st.mean(val_ls))
 
-            for p in np.arange(2, 19):
-                lstms = df[f"Model forecast_fitted_{p}"].values
-                targs = df[f"target_error_{p}"].values
+            # master_df_ls.append([s, st.mean(abs_ls), st.mean(val_ls), 1])
 
-                for m, t in zip(lstms, targs):
-                    if abs(m) < 100 and abs(t) < 100:
-                        lstm_vals.append(m)
-                        target_vals.append(t)
+            # for i in np.arange(2, 19):
+            #     val_ls = []
+            #     abs_ls = []
+            #     for d in df[f"diff_{i}"].values:
+            #         if abs(d) < 100:
+            #             val_ls.append(d**2)
+            #             abs_ls.append(abs(d))
+            #     mae_ls.append(st.mean(abs_ls))
+            #     sq_ls.append(st.mean(val_ls))
+            #     master_df_ls.append([s, st.mean(abs_ls), st.mean(val_ls), i])
 
-            error_output_bulk_funcs.create_scatterplot(
-                target_vals,
-                lstm_vals,
-                "all",
-                metvar,
-                s,
-                clim_div,
-            )
+            # r2_ls = error_output_bulk_funcs.calculate_r2(df)
+
+            # error_output_bulk_funcs.plot_fh_drift(
+            #     mae_ls, sq_ls, r2_ls, np.arange(1, 19), s, clim_div, nwp_model, metvar
+            # )
+
+            # # just plot fh's 1, 6, 12, 18, then bulk_fh
+            # ## plot hexbins
+            # lstm_vals = []
+            # target_vals = []
+
+            # lstms = df["Model forecast_fitted"].values
+            # targs = df["target_error"].values
+
+            # for m, t in zip(lstms, targs):
+            #     if abs(m) < 100 and abs(t) < 100:
+            #         lstm_vals.append(m)
+            #         target_vals.append(t)
+
+            # error_output_bulk_funcs.create_scatterplot(
+            #     target_vals,
+            #     lstm_vals,
+            #     1,
+            #     metvar,
+            #     s,
+            #     clim_div,
+            # )
+
+            # for p in np.arange(2, 19):
+            #     lstms = df[f"Model forecast_fitted_{p}"].values
+            #     targs = df[f"target_error_{p}"].values
+
+            #     for m, t in zip(lstms, targs):
+            #         if abs(m) < 100 and abs(t) < 100:
+            #             lstm_vals.append(m)
+            #             target_vals.append(t)
+
+            # error_output_bulk_funcs.create_scatterplot(
+            #     target_vals,
+            #     lstm_vals,
+            #     "all",
+            #     metvar,
+            #     s,
+            #     clim_div,
+            # )
         # except:
         #     continue
         # ## plot time_metrics
@@ -236,16 +264,18 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 ## END OF MAIN
 
 
-clim_div = "Champlain Valley"
-lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/radiometer_output/precip_error"
+# lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/radiometer_output/precip_error"
+
+lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
 metvar_ls = ["tp"]
+
 nysm_clim = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
-df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
-stations = df["stid"].unique()
+# df = nysm_clim[nysm_clim["climate_division_name"] == clim_div]
+stations = nysm_clim["stid"].unique()
 print(stations)
 
 if __name__ == "__main__":
     for m in metvar_ls:
-        func_main(lookup_path, stations, m, clim_div, "HRRR")
+        func_main(lookup_path, stations, m, "HRRR")

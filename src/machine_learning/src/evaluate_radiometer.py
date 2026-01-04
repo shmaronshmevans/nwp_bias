@@ -73,14 +73,7 @@ def find_shift(ldf):
 
 
 def model_out(
-    df_test,
-    test_dataset,
-    model,
-    batch_size,
-    target,
-    features,
-    device,
-    station,
+    df_test, test_dataset, model, batch_size, target, features, device, station, og_df
 ):
     test_eval_loader = torch.utils.data.DataLoader(
         test_dataset, batch_size=batch_size, shuffle=False
@@ -111,10 +104,17 @@ def model_out(
     df_out = df_test[[target, ystar_col]]
 
     for c in df_out.columns:
-        vals = df_out[c].values.tolist()
-        mean = st.mean(vals)
-        std = st.pstdev(vals)
-        df_out[c] = df_out[c] * std + mean
+        if c == "target_error_lead_0":
+            print(og_df)
+            vals = og_df["target_error"].values.tolist()
+            mean = st.mean(vals)
+            std = st.pstdev(vals)
+            df_out[c] = df_out[c] * std + mean
+        else:
+            vals = df_out[c].values.tolist()
+            mean = st.mean(vals)
+            std = st.pstdev(vals)
+            df_out[c] = df_out[c] * std + mean
 
     df_out = find_shift(df_out)
 
@@ -292,6 +292,9 @@ def main(
     nwp_model,
     model_path,
     metvar,
+    outpath,
+    time3,
+    time4,
     sequence_length=15,
     target="target_error",
     learning_rate=9e-6,
@@ -322,6 +325,7 @@ def main(
         target,
         vt,
         image_list_cols,
+        og_df,
     ) = create_data_for_lstm.create_data_for_model(
         station,
         fh,
@@ -385,13 +389,19 @@ def main(
         features,
         device,
         station,
+        og_df,
     )
 
     # Trim valid_time to match the length of df_out
-    valid_time = vt[: len(df_out)]
+    valid_time = vt[-len(df_out) :]
     df_out["valid_time"] = valid_time
+    # outpath = '/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output'
+
+    station_dir = f"{outpath}/{station}"
+    os.makedirs(station_dir, exist_ok=True)
+
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og_radio.parquet"
+        f"{station_dir}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og_hybrid.parquet"
     )
 
     # calculate post processing on validation set
@@ -407,44 +417,43 @@ def main(
     df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
     # Evaluate model output on test set
-    time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2024, 12, 31, 23, 59, 0)
+    # time3 = datetime(2024, 1, 1, 0, 0, 0)
+    # time4 = datetime(2025, 12, 31, 23, 59, 0)
+
     df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
     df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
-    # Get performance metrics
-    mae1, mse1 = get_performance_metrics(df_evaluate_quad)
-    mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+    # # Get performance metrics
+    # mae1, mse1 = get_performance_metrics(df_evaluate_quad)
+    # mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
-    # linear save
-    df_save_linear = pd.DataFrame(
-        {
-            "station": [station],
-            "forecast_hour": [fh],
-            "alpha": [multiply],
-            "diff": [diff],
-            "mae": [mae2],
-            "mse": [mse2],
-        }
-    )
+    # # linear save
+    # df_save_linear = pd.DataFrame(
+    #     {
+    #         "station": [station],
+    #         "forecast_hour": [fh],
+    #         "alpha": [multiply],
+    #         "diff": [diff],
+    #         "mae": [mae2],
+    #         "mse": [mse2],
+    #     }
+    # )
 
-    if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-    ):
-        df_og_linear = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-        )
-        df_save_linear = pd.concat([df_og_linear, df_save_linear])
+    os.makedirs(outpath, exist_ok=True)
 
-    df_save_linear.to_csv(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
-        index=False,
-    )
+    # csv_path = f"{outpath}/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
 
-    today_date, today_date_hr = make_dirs.get_time_title(station)
-    df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear_radio.parquet"
-    )
+    # if os.path.exists(csv_path):
+    #     df_og_linear = pd.read_csv(csv_path)
+    #     df_save_linear = pd.concat(
+    #         [df_og_linear, df_save_linear],
+    #         ignore_index=True
+    #     )
+
+    # df_save_linear.to_csv(csv_path, index=False)
+
+    parquet_path = f"{station_dir}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear_hybrid.parquet"
+    df_evaluate_linear.to_parquet(parquet_path)
     gc.collect()
     torch.cuda.empty_cache()
     # END OF MAIN
@@ -456,6 +465,22 @@ nysm_radios = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
 radios = nysm_radios["stid"].unique()
+
+
+# ## one division
+# c = 'Coastal'
+# nysm_ = nysm_clim[nysm_clim['climate_division_name']==c]
+
+# # # selection of divisions
+# # use_ls = ["Hudson Valley", "Eastern Plateau", "Mohawk Valley", "Champlain Valley", "Northern Plateau", "St. Lawrence Valley"]
+# # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
+
+# stations = nysm_["stid"].unique()
+
+
+outpath = "/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output"
+time3 = datetime(2024, 1, 1, 0, 0, 0)
+time4 = datetime(2025, 12, 31, 23, 59, 59)
 
 for r in radios:
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
@@ -474,5 +499,8 @@ for r in radios:
             nwp_model=nwp_model,
             model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
             metvar=metvar,
+            outpath=outpath,
+            time3=time3,
+            time4=time4,
         )
         gc.collect()
