@@ -56,6 +56,12 @@ class SequenceDatasetMultiTask(Dataset):
         self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.valid_time = (
+            pd.to_datetime(dataframe["valid_time"])
+            .astype("datetime64[ns]")
+            .view("int64")
+            .to_numpy()
+        )
 
     def __len__(self):
         return self.X.shape[0]
@@ -68,6 +74,8 @@ class SequenceDatasetMultiTask(Dataset):
             y_end = y_start + self.forecast_steps
             x = self.X[x_start:x_end, :]
             y = self.y[y_start:y_end].unsqueeze(1)
+            vt = self.valid_time[y_start:y_end]
+            vt = torch.from_numpy(vt).long()
 
             # # Check if all elements in the target 'y' are zero
             # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
@@ -84,10 +92,16 @@ class SequenceDatasetMultiTask(Dataset):
                 x = torch.cat((x, _x), 0)
 
             if y.shape[0] < self.forecast_steps:
+                pad = self.forecast_steps - y.shape[0]
                 _y = torch.zeros(
                     (self.forecast_steps - y.shape[0], 1), device=self.device
                 )
                 y = torch.cat((y, _y), 0)
+                # pad vt with sentinel (-1)
+                vt = torch.cat(
+                    [vt, torch.full((pad,), -1, dtype=torch.int64)],
+                    dim=0,
+                )
 
             x[-self.forecast_steps :, -int(4 * 16) :] = x[
                 -int(self.forecast_steps + 1), -int(4 * 16) :
@@ -161,7 +175,7 @@ class SequenceDatasetMultiTask(Dataset):
             x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
-        return x, y
+        return x, y, vt
 
 
 def load_lstm(clim_div, metvar, station, features, device):
@@ -250,7 +264,7 @@ def find_shift(ldf):
         df["Model forecast"] = df["Model forecast"].shift(i).fillna(0)
 
         # Compute the difference between the observed values and shifted forecast
-        df["diff"] = df.iloc[:, 0] - df.iloc[:, 1]
+        df["diff"] = df["target_error"] - df.iloc["Model forecast"]
 
         # Compute mean absolute error (MAE)
         mean = st.mean(abs(df["diff"]))
@@ -326,59 +340,79 @@ def model_out_lstm(
     # --------------------------
     # 1. Run model predictions
     # --------------------------
-    y_hat = model.predict(test_eval_loader).cpu().numpy()[:, -1, 0]
-    print(f"Predictions: {len(y_hat)}, df_test: {len(df_test)}")
+    test_predictions, vt = model.predict(test_eval_loader)
+    test_predictions = test_predictions.cpu().numpy()
+    vt = vt.cpu().numpy()
+
+    # last lead prediction and its matching valid_time
+    pred_last = test_predictions[:, -1, 0]  # (N,)
+    vt_last = vt[:, -1]  # (N,)
+    mask = vt_last != -1
+    vt_last = vt_last[mask]
+    pred_last = pred_last[mask]
+
+    pred_df = pd.DataFrame(
+        {
+            "valid_time": pd.to_datetime(vt_last, unit="ns"),
+            "Model forecast": pred_last,
+        }
+    ).dropna(subset=["valid_time"])
 
     # --------------------------
     # 2. Align df_test length
     # --------------------------
     df_test = df_test.copy()
 
-    n_preds = len(y_hat)
-    n_test = len(df_test)
+    # n_preds = len(y_hat)
+    # n_test = len(df_test)
 
-    if n_test > n_preds:
-        df_test = df_test.iloc[-n_preds:]
-    elif n_test < n_preds:
-        pad_len = n_preds - n_test
-        padding_df = pd.DataFrame(
-            {col: 0 for col in df_test.columns}, index=range(pad_len)
-        )
-        df_test = pd.concat([df_test, padding_df], ignore_index=True)
+    # if n_test > n_preds:
+    #     df_test = df_test.iloc[-n_preds:]
+    # elif n_test < n_preds:
+    #     pad_len = n_preds - n_test
+    #     padding_df = pd.DataFrame(
+    #         {col: 0 for col in df_test.columns}, index=range(pad_len)
+    #     )
+    #     df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
     # --------------------------
     # 3. Attach predictions
     # --------------------------
-    df_test["Model forecast"] = y_hat
+    # df_test["Model forecast"] = y_hat
+
+    df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
+
+    df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    df_out = df_out[[target, "Model forecast", "valid_time"]]
 
     # --------------------------
     # 4. Renormalize columns
     # --------------------------
-    df_out = df_test[[target, "Model forecast"]].copy()
+    # df_out = df_test[["valid_time", target, "Model forecast"]].copy()
 
-    for col in df_out.columns:
+    # for col in df_out.columns:
+    #     if col != "valid_time":
+    #         # target_error_lead_0 uses OG normalization
+    #         if col == "target_error":
+    #             vals = og_df["target_error"].to_numpy()
+    #         else:
+    #             vals = df_out[col].to_numpy()
 
-        # target_error_lead_0 uses OG normalization
-        if col == "target_error":
-            vals = og_df["target_error"].to_numpy()
-        else:
-            vals = df_out[col].to_numpy()
+    #         mean = vals.mean()
+    #         std = vals.std()
 
-        mean = vals.mean()
-        std = vals.std()
-
-        df_out[col] = df_out[col] * std + mean
+    #         df_out[col] = df_out[col] * std + mean
 
     # --------------------------
     # 5. Shift & linear transform
     # --------------------------
-    df_out = find_shift(df_out)
+    # df_out = find_shift(df_out)
     # df_out = linear_transform(station, clim_div, metvar, fh, df_out)
 
-    # --------------------------
-    # 6. Compute diff
-    # --------------------------
-    df_out["diff"] = df_out[target] - df_out["Model forecast"]
+    # # --------------------------
+    # # 6. Compute diff
+    # # --------------------------
+    # df_out["diff"] = df_out[target] - df_out["Model forecast"]
 
     return df_out
 
@@ -401,70 +435,106 @@ def model_out_bnn(
     """
 
     # -----------------------
-    # 1. Run BNN predictions
+    # 1. Run BNN predictions (already last lead for mu/log_var)
     # -----------------------
-    preds = model.predict(test_eval_loader)
+    mu_last, logvar_last, vt = model.predict(
+        test_eval_loader
+    )  # mu_last: (N, V), logvar_last: (N, V), vt: (N, H)
 
-    # In case model returns tensors
-    if isinstance(preds, (tuple, list)):
-        mu, var = preds
-        mu = mu.detach().cpu().numpy().reshape(-1)
-        var = var.detach().cpu().numpy().reshape(-1)
-    else:
-        raise ValueError("BNN predict() must return (mu, var).")
+    mu_last = mu_last.detach().cpu().numpy()  # (N, V)
+    logvar_last = logvar_last.detach().cpu().numpy()  # (N, V)
+    vt = vt.cpu().numpy()  # (N, H) int64 ns, padded with -1
 
-    # mu: [N], var: [N]
-    n_preds = len(mu)
+    # choose variable 0 if single target stored in last dim
+    mu_last = mu_last[:, 0]  # (N,)
+    logvar_last = logvar_last[:, 0]  # (N,)
 
-    print(f"BNN predictions: {n_preds}")
-    print(f"df_test length: {len(df_test)}")
+    # matching valid_time for last lead
+    vt_last = vt[:, -1]  # (N,)
+    mask = vt_last != -1
+
+    vt_last = vt_last[mask]
+    mu_last = mu_last[mask]
+    logvar_last = logvar_last[mask]
+
+    # std from log-variance (clamp optional for stability)
+    # logvar_last = np.clip(logvar_last, -20, 20)
+    std_last = np.exp(0.5 * logvar_last)
+
+    pred_df = pd.DataFrame(
+        {
+            "valid_time": pd.to_datetime(vt_last, unit="ns"),
+            "Model forecast": mu_last,
+            "Model std": std_last,
+        }
+    ).dropna(subset=["valid_time"])
 
     # -----------------------
-    # 2. Align df_test length
+    # 2. Attach outputs
     # -----------------------
     df_test = df_test.copy()
-    n_test = len(df_test)
+    df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
 
-    if n_test > n_preds:
-        df_test = df_test.iloc[-n_preds:]
-    elif n_test < n_preds:
-        print("padding")
-        pad_len = n_preds - n_test
-        padding_df = pd.DataFrame(0, index=range(pad_len), columns=df_test.columns)
-        df_test = pd.concat([df_test, padding_df], ignore_index=True)
+    # avoid _x/_y collisions
+    for c in ["Model forecast", "Model std"]:
+        if c in df_test.columns:
+            df_test = df_test.drop(columns=[c])
+
+    df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    df_out = df_out[[target, "Model forecast", "Model std", "valid_time"]]
+
+    # # -----------------------
+    # # 2. Align df_test length
+    # # -----------------------
+    # df_test = df_test.copy()
+    # n_test = len(df_test)
+
+    # if n_test > n_preds:
+    #     df_test = df_test.iloc[-n_preds:]
+    # elif n_test < n_preds:
+    #     print("padding")
+    #     pad_len = n_preds - n_test
+    #     padding_df = pd.DataFrame(0, index=range(pad_len), columns=df_test.columns)
+    #     df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
     # -----------------------
     # 3. Attach BNN outputs
     # -----------------------
-    df_test["Model forecast"] = mu
-    df_test["Model variance"] = var
+    # # df_test["Model forecast"] = mu
+    # # df_test["Model variance"] = var
+    # df_test = df_test.copy()
+    # df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
 
-    # -----------------------
-    # 4. Renormalize
-    # -----------------------
-    df_out = df_test[[target, "Model forecast", "Model variance"]].copy()
+    # df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    # print(df_out.columns)
+    # df_out = df_out[[target, "Model forecast", "Model std", "valid_time"]]
 
-    # Normalize target & mu using same logic; variance scales by std^2
-    for col in ["Model forecast", target]:
-        if col == "target_error_lead_0":
-            vals = og_df["target_error"].to_numpy()
-        else:
-            vals = df_out[col].to_numpy()
+    # # -----------------------
+    # # 4. Renormalize
+    # # -----------------------
+    # df_out = df_test[["valid_time", target, "Model forecast", "Model variance"]].copy().fillna(0)
 
-        mean = vals.mean()
-        std = vals.std()
+    # # Normalize target & mu using same logic; variance scales by std^2
+    # for col in ["Model forecast", target]:
+    #     if col == "target_error_lead_0":
+    #         vals = og_df["target_error"].to_numpy()
+    #     else:
+    #         vals = df_out[col].to_numpy()
 
-        df_out[col] = df_out[col] * std + mean
+    #     mean = vals.mean()
+    #     std = vals.std()
 
-        # If we're on mu, scale variance as σ² → σ² * std²
-        if col == "Model forecast":
-            df_out["Model variance"] = df_out["Model variance"] * (std**2)
+    #     df_out[col] = df_out[col] * std + mean
+
+    # # If we're on mu, scale variance as σ² → σ² * std²
+    # if col == "Model forecast":
+    #     df_out["Model variance"] = df_out["Model variance"] * (std**2)
 
     # -----------------------
     # Optional: shift & transform
     # -----------------------
     # need to update shift
-    df_out = find_shift(df_out)
+    # df_out = find_shift(df_out)
     # df_out = linear_transform(station, clim_div, metvar, fh, df_out)
 
     return df_out
@@ -584,29 +654,32 @@ def main(
 
 
 if __name__ == "__main__":
-    time1 = datetime(2024, 8, 8, 0, 0, 0)
-    time2 = datetime(2024, 8, 11, 23, 59, 59)
-    var = "u_total"
-    save_path = (
-        "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/wind"
-    )
+    time1 = datetime(2023, 1, 1, 0, 0, 0)
+    time2 = datetime(2025, 12, 31, 23, 59, 59)
+    var_ls = ["tp", "t2m", "u_total"]
+    # var = "u_total"
+    save_path = "/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare"
 
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
     # whole nysm
-    # stations = nysm_clim["stid"].unique()
+    stations = nysm_clim["stid"].unique()
 
     # ## one division
     # c = 'Coastal'
     # nysm_ = nysm_clim[nysm_clim['climate_division_name']==c]
 
-    # selection of divisions
-    use_ls = ["Champlain Valley", "Northern Plateau"]
-    nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
+    # # selection of divisions
+    # use_ls = ["Champlain Valley", "Northern Plateau"]
+    # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
 
-    stations = nysm_["stid"].unique()
-
-    for s in stations:
-        c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
-        for fh in np.arange(1, 19):
-            main(c, s, fh, var, time1, time2, save_path)
+    # stations = nysm_["stid"].unique()
+    for v in var_ls:
+        for s in stations:
+            # try:
+            c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
+            for fh in np.arange(1, 19):
+                main(c, s, fh, v, time1, time2, save_path)
+        # except:
+        #     print(f"{s}_failed... CONTINUE")
+        #     continue

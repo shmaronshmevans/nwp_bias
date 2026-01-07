@@ -64,6 +64,12 @@ class SequenceDatasetMultiTask(Dataset):
         self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.valid_time = (
+            pd.to_datetime(dataframe["valid_time"])
+            .astype("datetime64[ns]")
+            .view("int64")
+            .to_numpy()
+        )
 
     def __len__(self):
         return self.X.shape[0]
@@ -76,6 +82,8 @@ class SequenceDatasetMultiTask(Dataset):
             y_end = y_start + self.forecast_steps
             x = self.X[x_start:x_end, :]
             y = self.y[y_start:y_end].unsqueeze(1)
+            vt = self.valid_time[y_start:y_end]
+            vt = torch.from_numpy(vt).long()
 
             # # Check if all elements in the target 'y' are zero
             # if self.metvar == 'tp' and torch.all(y == 0) and torch.rand(1).item() < 0.5:
@@ -92,10 +100,17 @@ class SequenceDatasetMultiTask(Dataset):
                 x = torch.cat((x, _x), 0)
 
             if y.shape[0] < self.forecast_steps:
+                pad = self.forecast_steps - y.shape[0]
                 _y = torch.zeros(
                     (self.forecast_steps - y.shape[0], 1), device=self.device
                 )
                 y = torch.cat((y, _y), 0)
+
+                # pad vt with sentinel (-1)
+                vt = torch.cat(
+                    [vt, torch.full((pad,), -1, dtype=torch.int64)],
+                    dim=0,
+                )
 
             x[-self.forecast_steps :, -int(4 * 16) :] = x[
                 -int(self.forecast_steps + 1), -int(4 * 16) :
@@ -169,7 +184,7 @@ class SequenceDatasetMultiTask(Dataset):
             x[-int((self.forecast_steps + 2) // 3) :, -int(4 * 16) :] = x[
                 -(int((self.forecast_steps + 2) // 3) + 1), -int(4 * 16) :
             ].clone()
-        return x, y
+        return x, y, vt
 
 
 def find_shift(ldf):
@@ -246,45 +261,69 @@ def model_out(
     )
 
     ystar_col = "Model forecast"
-    test_predictions = model.predict(test_eval_loader).cpu().numpy()
+    test_predictions, vt = model.predict(test_eval_loader)
+    test_predictions = test_predictions.cpu().numpy()
+    vt = vt.cpu().numpy()
+    # vt = vt.cpu().numpy()
 
-    print(f"Length of test DataLoader: {len(test_predictions)}")
-    print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
+    # print(f"Length of test DataLoader: {len(test_predictions)}")
+    # print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
 
-    # Trim/pad the DataFrames to match the DataLoader lengths if necessary
-    if len(df_test.iloc[:, 0]) > len(test_predictions):
-        print("Trimming Dataframe")
-        df_test = df_test.iloc[-len(test_predictions) :]
-    # Check if df_test is shorter than test_predictions
-    if len(df_test) < len(test_predictions):
-        padding_length = len(test_predictions) - len(df_test)
-        # Create a DataFrame of zeros with the same columns
-        padding_df = pd.DataFrame(
-            0, index=range(padding_length), columns=df_test.columns
-        )
-        # Concatenate the original DataFrame with the padding
-        df_test = pd.concat([df_test, padding_df], ignore_index=True)
+    # # Trim/pad the DataFrames to match the DataLoader lengths if necessary
+    # if len(df_test.iloc[:, 0]) > len(test_predictions):
+    #     print("Trimming Dataframe")
+    #     df_test = df_test.iloc[-len(test_predictions) :]
+    # # Check if df_test is shorter than test_predictions
+    # if len(df_test) < len(test_predictions):
+    #     padding_length = len(test_predictions) - len(df_test)
+    #     # Create a DataFrame of zeros with the same columns
+    #     padding_df = pd.DataFrame(
+    #         0, index=range(padding_length), columns=df_test.columns
+    #     )
+    #     # Concatenate the original DataFrame with the padding
+    #     df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
-    df_test[ystar_col] = test_predictions[:, -1, 0]
+    # last lead prediction and its matching valid_time
+    pred_last = test_predictions[:, -1, 0]  # (N,)
+    vt_last = vt[:, -1]  # (N,)
+    mask = vt_last != -1
+    vt_last = vt_last[mask]
+    pred_last = pred_last[mask]
 
-    df_out = df_test[[target, ystar_col]]
+    pred_df = pd.DataFrame(
+        {
+            "valid_time": pd.to_datetime(vt_last, unit="ns"),
+            ystar_col: pred_last,
+        }
+    ).dropna(subset=["valid_time"])
+    print(pred_df)
 
-    for c in df_out.columns:
-        if c == "target_error_lead_0":
-            print(og_df)
-            vals = og_df["target_error"].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
-        else:
-            vals = df_out[c].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
+    # df_test[ystar_col] = test_predictions[:, -1, 0]
 
-    df_out = find_shift(df_out)
+    df_test = df_test.copy()
+    df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
 
-    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
+    df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    print(df_out.columns)
+    df_out = df_out[[target, ystar_col, "valid_time"]]
+
+    # for c in df_out.columns:
+    #     if c != 'valid_time':
+    #         if c == "target_error_lead_0":
+    #             print(og_df)
+    #             vals = og_df["target_error"].values.tolist()
+    #             mean = st.mean(vals)
+    #             std = st.pstdev(vals)
+    #             df_out[c] = df_out[c] * std + mean
+    #         else:
+    #             vals = df_out[c].values.tolist()
+    #             mean = st.mean(vals)
+    #             std = st.pstdev(vals)
+    #             df_out[c] = df_out[c] * std + mean
+
+    # df_out = find_shift(df_out)
+
+    # df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
     return df_out
 
 
@@ -473,6 +512,7 @@ def main(
 
     df_eval = pd.concat([df_train, df_val, df_test])
     df_eval.dropna(inplace=True)
+    print(df_eval.columns)
 
     test_dataset = SequenceDatasetMultiTask(
         dataframe=df_eval,
@@ -533,8 +573,8 @@ def main(
         og_df,
     )
 
-    valid_time = vt[-len(df_out) :]
-    df_out["valid_time"] = valid_time
+    # valid_time = vt[-len(df_out) :]
+    # df_out["valid_time"] = valid_time
     # un_normalize data
     # df_out, mult1 = un_normalize_out.un_normalize(station, metvar, df_out)
     # Build the directory path
@@ -549,53 +589,53 @@ def main(
         f"{dir_path}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
-    # calculate post processing on validation set
-    time1 = datetime(2023, 1, 1, 0, 0, 0)
-    time2 = datetime(2023, 12, 31, 23, 59, 0)
-    df_calc = date_filter(df_out, time1, time2)
-    df_calc, diff = refit(df_calc)
+    # # calculate post processing on validation set
+    # time1 = datetime(2023, 1, 1, 0, 0, 0)
+    # time2 = datetime(2023, 12, 31, 23, 59, 0)
+    # df_calc = date_filter(df_out, time1, time2)
+    # df_calc, diff = refit(df_calc)
 
-    # # linear fit
-    df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
+    # # # linear fit
+    # df_out_new_linear, multiply, diff = linear_fit(df_calc, df_out, diff)
 
-    # Evaluate model output on test set
-    time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2025, 12, 31, 23, 59, 0)
-    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
+    # # Evaluate model output on test set
+    # time3 = datetime(2024, 1, 1, 0, 0, 0)
+    # time4 = datetime(2025, 12, 31, 23, 59, 0)
+    # df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
-    mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+    # mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
-    # linear save
-    df_save_linear = pd.DataFrame(
-        {
-            "station": [station],
-            "forecast_hour": [fh],
-            "alpha": [multiply],
-            "diff": [diff],
-            "mae": [mae2],
-            "mse": [mse2],
-        }
-    )
-
-    # if os.path.exists(
-    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-    # ):
-    #     df_og_linear = pd.read_csv(
-    #         f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-    #     )
-    #     df_save_linear = pd.concat([df_og_linear, df_save_linear])
-
-    # df_save_linear.to_csv(
-    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
-    #     index=False,
+    # # linear save
+    # df_save_linear = pd.DataFrame(
+    #     {
+    #         "station": [station],
+    #         "forecast_hour": [fh],
+    #         "alpha": [multiply],
+    #         "diff": [diff],
+    #         "mae": [mae2],
+    #         "mse": [mse2],
+    #     }
     # )
 
-    today_date, today_date_hr = make_dirs.get_time_title(station)
-    df_out_new_linear.to_parquet(
-        f"{dir_path}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
-    )
-    gc.collect()
-    torch.cuda.empty_cache()
+    # # if os.path.exists(
+    # #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    # # ):
+    # #     df_og_linear = pd.read_csv(
+    # #         f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    # #     )
+    # #     df_save_linear = pd.concat([df_og_linear, df_save_linear])
+
+    # # df_save_linear.to_csv(
+    # #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+    # #     index=False,
+    # # )
+
+    # today_date, today_date_hr = make_dirs.get_time_title(station)
+    # df_out_new_linear.to_parquet(
+    #     f"{dir_path}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+    # )
+    # gc.collect()
+    # torch.cuda.empty_cache()
     # END OF MAIN
 
 

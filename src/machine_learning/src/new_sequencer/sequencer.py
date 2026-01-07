@@ -404,6 +404,12 @@ class SequenceDatasetMultiTask(Dataset):
         self.P_ls = dataframe[image_list_cols].values.tolist()
         all_images = [p for sub in self.P_ls for p in sub]
         self.image_cache = ImageCache(all_images, transform)
+        self.valid_time = (
+            pd.to_datetime(dataframe["valid_time"])
+            .astype("datetime64[ns]")
+            .view("int64")
+            .to_numpy()
+        )
 
     def __len__(self):
         return self.X.shape[0]
@@ -415,6 +421,8 @@ class SequenceDatasetMultiTask(Dataset):
         y_end = y_start + self.forecast_steps
         x = self.X[x_start:x_end, :]
         y = self.y[y_start:y_end].unsqueeze(1)
+        vt = self.valid_time[y_start:y_end]
+        vt = torch.from_numpy(vt).long()
 
         if x.shape[0] < (self.sequence_length + self.forecast_steps):
             _x = torch.zeros(
@@ -427,8 +435,13 @@ class SequenceDatasetMultiTask(Dataset):
             x = torch.cat((x, _x), 0)
 
         if y.shape[0] < self.forecast_steps:
+            pad = self.forecast_steps - y.shape[0]
             _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
             y = torch.cat((y, _y), 0)
+            vt = torch.cat(
+                [vt, torch.full((pad,), -1, dtype=torch.int64)],
+                dim=0,
+            )
 
         x[-self.forecast_steps :, -int(4 * 16) :] = x[
             -int(self.forecast_steps + 1), -int(4 * 16) :
@@ -471,4 +484,4 @@ class SequenceDatasetMultiTask(Dataset):
                 images, (0, padding[0], 0, padding[1], 0, padding[2], 0, padding[3])
             )
 
-        return x, images, y
+        return x, images, y, vt

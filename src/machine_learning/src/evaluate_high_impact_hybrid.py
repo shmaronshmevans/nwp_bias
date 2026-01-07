@@ -11,7 +11,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
 
-
 from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import StepLR
@@ -24,75 +23,44 @@ import statistics as st
 
 from processing import make_dirs
 
-from data import (
-    create_data_for_lstm,
-)
+from data import create_data_for_lstm, create_data_for_lstm_inference
 
 from evaluate import un_normalize_out
 
 from seq2seq import encode_decode_multitask
 from seq2seq import eval_seq2seq
+from new_sequencer import sequencer
+from profiler_inclusive_model import model_profiler_s2s
 import random
 
 
-def load_lstm(clim_div, metvar, station, features, device):
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
+def find_shift(ldf):
+    fh_s = []
+    mean_s_ls = []
+    mean_abs_ls = []
+    for i in np.arange(1, 60):
+        df = ldf.copy()
+        df["Model forecast"] = df["Model forecast"].shift(i).fillna(0)
+        df["diff"] = df.iloc[:, 0] - df.iloc[:, 1]
+        mean = st.mean(abs(df["diff"]))
+        mean_s = st.mean(df["diff"] ** 2)
+        fh_s.append(i)
+        mean_s_ls.append(mean_s)
+        mean_abs_ls.append(mean)
 
-    num_sensors = int(len(features))
-    hidden_units = int(12 * len(features))
+    results_df = pd.DataFrame(
+        {"fh_s": fh_s, "mean_s_ls": mean_s_ls, "mean_abs_ls": mean_abs_ls}
+    )
+    # Get the row with the smallest mean squared error
+    best_fit = results_df.nsmallest(1, "mean_s_ls")
+    shifter = best_fit["fh_s"].values[0]
+    print("Shifting ", shifter)
 
-    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
-        num_sensors=num_sensors,
-        hidden_units=hidden_units,
-        num_layers=3,
-        mlp_units=1500,
-        device=device,
-        num_stations=len(stations),
-    ).to(device)
-
-    if os.path.exists(encoder_path):
-        print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(f"{encoder_path}"), strict=False)
-    if os.path.exists(decoder_path):
-        print("Loading Decoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path))
-
-    return model
-
-
-def load_bnn(clim_div, metvar, station, features, device, stations, sequence_length):
-    decoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_decoder.pth"
-    encoder_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/preserves/{clim_div}_{metvar}_{station}_encoder.pth"
-    bnn_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/bnn/{clim_div}_{metvar}_{station}_bnn.pth"
-
-    num_sensors = int(len(features))
-    hidden_units = int(12 * len(features))
-
-    model = bnn.ShallowLSTM_seq2seq_multi_task_bnn(
-        num_sensors=num_sensors,
-        hidden_units=hidden_units,
-        num_layers=3,
-        mlp_units=1500,
-        device=device,
-        num_stations=len(stations),
-        seq_len=sequence_length,
-        input_dim=num_sensors,
-    ).to(device)
-
-    if os.path.exists(encoder_path):
-        print("Loading Encoder Model")
-        model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
-
-    if os.path.exists(decoder_path):
-        print("Loading Decoder Model")
-        model.decoder.load_state_dict(torch.load(decoder_path), strict=False)
-
-    if os.path.exists(bnn_path):
-        print("Loading Decoder Model")
-        model.bnn.load_state_dict(torch.load(bnn_path), strict=False)
-
-    return model
+    # Apply the optimal shift to the "Model forecast" column, filling NaNs with -999
+    shifted = ldf["Model forecast"].shift(shifter).dropna().reset_index(drop=True)
+    ldf = ldf.iloc[shifter:].reset_index(drop=True)  # Align ldf rows
+    ldf["Model forecast"] = shifted
+    return ldf
 
 
 def load_hybrid(clim_div, metvar, station, features, image_list_cols, device):
@@ -132,7 +100,58 @@ def load_hybrid(clim_div, metvar, station, features, image_list_cols, device):
     return model
 
 
-def main(clim_div, station, fh, var, time1, time2, save_path):
+def model_out(
+    df_test, test_dataset, model, batch_size, target, features, device, station, og_df
+):
+    test_eval_loader = torch.utils.data.DataLoader(
+        test_dataset, batch_size=batch_size, shuffle=False
+    )
+
+    ystar_col = "Model forecast"
+    test_predictions = model.predict(test_eval_loader).cpu().numpy()
+
+    print(f"Length of test DataLoader: {len(test_predictions)}")
+    print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
+
+    # Trim the DataFrames to match the DataLoader lengths if necessary
+    if len(df_test.iloc[:, 0]) > len(test_predictions):
+        print("Trimming Dataframe")
+        df_test = df_test.iloc[-len(test_predictions) :]
+    # Check if df_test is shorter than test_predictions
+    if len(df_test) < len(test_predictions):
+        padding_length = len(test_predictions) - len(df_test)
+        # Create a DataFrame of zeros with the same columns
+        padding_df = pd.DataFrame(
+            0, index=range(padding_length), columns=df_test.columns
+        )
+        # Concatenate the original DataFrame with the padding
+        df_test = pd.concat([df_test, padding_df], ignore_index=True)
+
+    df_test[ystar_col] = test_predictions[:, -1, 0]
+
+    df_out = df_test[["valid_time", target, ystar_col]]
+
+    for c in df_out.columns:
+        if c != "valid_time":
+            if c == "target_error_lead_0":
+                print(og_df)
+                vals = og_df["target_error"].values.tolist()
+                mean = st.mean(vals)
+                std = st.pstdev(vals)
+                df_out[c] = df_out[c] * std + mean
+            else:
+                vals = df_out[c].values.tolist()
+                mean = st.mean(vals)
+                std = st.pstdev(vals)
+                df_out[c] = df_out[c] * std + mean
+
+    # df_out = find_shift(df_out)
+
+    # df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
+    return df_out
+
+
+def main(clim_div, station, fh, var, time1, time2, save_path, batch_size=50):
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
@@ -145,107 +164,94 @@ def main(clim_div, station, fh, var, time1, time2, save_path):
     print("::: In Main :::")
 
     # create data for inference
-    (
-        lstm_df,
-        features,
-        stations,
-        target_sensor,
-        valid_times,
-        image_list_cols,
-        og_df,
-    ) = create_data_for_model(station, fh, var, time1, time2, save_path)
+    # create data for inference
+    lstm_df, features, stations, target_sensor, valid_times, image_list_cols, og_df = (
+        create_data_for_lstm_inference.create_data_for_model(
+            station, fh, var, time1, time2, save_path
+        )
+    )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
     print("!! Data Loaders Succesful !!")
 
     """
-    #lstm 
-    """
-    lstm_dataset = SequenceDatasetMultiTask(
-        dataframe=lstm_df,
-        target=target_sensor,
-        features=features,
-        sequence_length=30,
-        forecast_steps=fh,
-        device=device,
-        nwp_model="HRRR",
-        metvar=metvar,
-    )
-    test_loader = torch.utils.data.DataLoader(lstm_dataset, **test_kwargs)
-
-    lstm_model = load_lstm(clim_div, metvar, station, features, device)
-
-    lstm_out = model_out_lstm(
-        lstm_df,
-        lstm_dataset,
-        lstm_model,
-        batch_size,
-        target,
-        features,
-        device,
-        station,
-        og_df,
-    )
-
-    # '''
-    # #bnn
-    # '''
-
-    # bnn_dataset = SequenceDatasetMultiTask(
-    #     dataframe=lstm_df,
-    #     target=target_sensor,
-    #     features=features,
-    #     sequence_length=30,
-    #     forecast_steps=fh,
-    #     device=device,
-    #     nwp_model='HRRR',
-    #     metvar=metvar,
-    # )
-    # test_loader = torch.utils.data.DataLoader(bnn_dataset, **test_kwargs)
-
-    # bnn_model = load_bnn(clim_div, metvar, station, features, device, stations, sequence_length)
-
-    # bnn_out = model_out_bnn(
-    #     lstm_df,
-    #     bnn_dataset,
-    #     bnn_model,
-    #     batch_size,
-    #     target,
-    #     features,
-    #     device,
-    #     station,
-    #     og_df,
-    #     )
-
-    """
     #hybrid
     """
-    radiometer_ls = []
-    if station in radiometer_ls:
-        hybrid_dataset = SequenceDatasetMultiTask(
+    # precip
+    radiometer_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+
+    if station not in radiometer_ls:
+        hybrid_dataset = sequencer.SequenceDatasetMultiTask(
             dataframe=lstm_df,
             target=target_sensor,
             features=features,
             sequence_length=30,
             forecast_steps=fh,
             device=device,
-            nwp_model="HRRR",
-            metvar=metvar,
+            metvar=var,
+            image_list_cols=image_list_cols,
         )
         test_loader = torch.utils.data.DataLoader(hybrid_dataset, **test_kwargs)
 
         hybrid_model = load_hybrid(
-            clim_div, metvar, station, features, image_list_cols, device
+            clim_div, var, station, features, image_list_cols, device
         )
 
-        hybrid_out = model_out_hybrid(
+        hybrid_out = model_out(
             lstm_df,
             hybrid_dataset,
             hybrid_model,
             batch_size,
-            target,
+            target_sensor,
             features,
             device,
             station,
             og_df,
         )
+
+        hybrid_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_hybrid_output.parquet")
+
+        print("Evaluating Hybrid Succesful")
+
+
+if __name__ == "__main__":
+    time1 = datetime(2024, 11, 28, 0, 0, 0)
+    time2 = datetime(2024, 12, 13, 23, 59, 59)
+    var = "tp"
+    save_path = "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/lake_effect"
+    no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+    nysm_radios = pd.read_csv(
+        "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+    )
+    radios = nysm_radios["stid"].unique()
+
+    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    # # whole nysm
+    # stations = nysm_clim["stid"].unique()
+
+    # ## one division
+    # c = 'Coastal'
+    # nysm_ = nysm_clim[nysm_clim['climate_division_name']==c]
+
+    # selection of divisions
+    use_ls = [
+        "Great Lakes",
+        "Central Lakes",
+        "Western Plateau",
+        "Northern Plateau",
+        "St. Lawrence Valley",
+    ]
+    nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
+
+    stations = nysm_["stid"].unique()
+
+    for s in [s for s in radios if s in stations and s not in no_ls]:
+        print(s)
+        c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
+        try:
+            for fh in np.arange(1, 19):
+                print(fh)
+                main(c, s, fh, var, time1, time2, save_path)
+        except:
+            print(f"Failed {s}... continued")
+            continue

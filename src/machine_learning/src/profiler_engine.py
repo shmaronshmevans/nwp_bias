@@ -363,8 +363,8 @@ nysm_radios = pd.read_csv(
 # # radios = radios[: int(len(radios) * 0.5)]
 # radios = radios[-int(len(radios) * 0.5) :]
 
-radios = ["TUPP", "VOOR", "WANT", "WARW", "STON"]
-# radios = ['GABR', 'HFAL', 'JORD', 'MANH', 'ONTA', 'OWEG', 'QUEE']
+# radios = ["VOOR", "WANT", "WARW", "STON", "QUEE"]
+radios = ["GABR", "HFAL", "JORD", "MANH", "ONTA", "OWEG"]
 
 
 for r in radios:
@@ -389,15 +389,13 @@ for r in radios:
             metvar=metvar,
         )
         gc.collect()
-        if train_loss > 0.25: #if model hasn't converged
-            fh = fh[fh != fh_r]  # removes used FH by value
-        else: #if model has converged move on
-            break
+        fh = fh[fh != fh_r]  # removes used FH by value
 
-# for fh_r in [6, 7, 8, 11, 13, 17]:
+# for fh_r in [2, 10, 11, 12, 15, 16, 17, 18]:
+# # for fh_r in np.arange(14,19):
 #     main(
 #         batch_size=70,
-#         station="BELL",
+#         station="TUPP",
 #         num_layers=3,
 #         epochs=int(1e3),
 #         weight_decay=0.0,

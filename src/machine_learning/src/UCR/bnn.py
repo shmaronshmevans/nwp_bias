@@ -354,10 +354,11 @@ class ShallowLSTM_seq2seq_multi_task_bnn(nn.Module):
     def predict(self, data_loader):
         num_batches = len(data_loader)
         all_outputs = []
+        all_valid_times = []
         self.eval()
 
         with torch.no_grad():
-            for batch_idx, (X, y) in enumerate(data_loader):
+            for batch_idx, (X, y, v) in enumerate(data_loader):
                 X, y = X.to(self.device), y.to(self.device)
 
                 encoder_hidden = self.encoder(X)
@@ -373,18 +374,13 @@ class ShallowLSTM_seq2seq_multi_task_bnn(nn.Module):
                     decoder_input = decoder_output
 
                 all_outputs.append(outputs)
+                all_valid_times.append(v)
         all_outputs = torch.cat(all_outputs, dim=0)
+        valid_times = torch.cat(all_valid_times, axis=0)  # (N, H)
         # bnn
         mu, log_var = self.bnn(all_outputs)
-        # std = torch.exp(0.5 * log_var)
-        # samples = []
-        # for _ in range(mc_samples=200):
-        #     eps = torch.randn_like(std)
-        #     samples.append(mu + eps * std)
 
-        # all_samples = torch.stack(samples, dim=1)  # (batch, samples, seq_len, sensors)
-        # compute_ucr_torch(all_samples, y, alpha=0.90)
-        return mu, log_var
+        return mu[:, -1, :], log_var[:, -1, :], valid_times
 
 
 """

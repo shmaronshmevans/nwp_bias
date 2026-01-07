@@ -227,11 +227,12 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
     def predict(self, data_loader):
         num_batches = len(data_loader)
         all_outputs = []
+        all_valid_times = []
         self.eval()
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(data_loader):
-                X, P, y = batch
+                X, P, y, v = batch
                 X, P, y = X.to(self.device), P.to(self.device), y.to(self.device)
                 # --- Encoders ---
                 encoder_hidden = self.encoder(X)
@@ -265,6 +266,8 @@ class LSTM_Encoder_Decoder_with_ViT(nn.Module):
                     decoder_input = decoder_output
 
                 all_outputs.append(outputs)
+                all_valid_times.append(v)
 
         all_outputs = torch.cat(all_outputs, dim=0)
-        return all_outputs
+        valid_times = torch.cat(all_valid_times, axis=0)  # (N, H)
+        return all_outputs, valid_times

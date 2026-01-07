@@ -80,45 +80,69 @@ def model_out(
     )
 
     ystar_col = "Model forecast"
-    test_predictions = model.predict(test_eval_loader).cpu().numpy()
+    test_predictions, vt = model.predict(test_eval_loader)
+    test_predictions = test_predictions.cpu().numpy()
+    vt = vt.cpu().numpy()
 
-    print(f"Length of test DataLoader: {len(test_predictions)}")
-    print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
+    # print(f"Length of test DataLoader: {len(test_predictions)}")
+    # print(f"Length of df_test: {len(df_test.iloc[:, 0])}")
 
-    # Trim the DataFrames to match the DataLoader lengths if necessary
-    if len(df_test.iloc[:, 0]) > len(test_predictions):
-        print("Trimming Dataframe")
-        df_test = df_test.iloc[-len(test_predictions) :]
-    # Check if df_test is shorter than test_predictions
-    if len(df_test) < len(test_predictions):
-        padding_length = len(test_predictions) - len(df_test)
-        # Create a DataFrame of zeros with the same columns
-        padding_df = pd.DataFrame(
-            0, index=range(padding_length), columns=df_test.columns
-        )
-        # Concatenate the original DataFrame with the padding
-        df_test = pd.concat([df_test, padding_df], ignore_index=True)
+    # # Trim the DataFrames to match the DataLoader lengths if necessary
+    # if len(df_test.iloc[:, 0]) > len(test_predictions):
+    #     print("Trimming Dataframe")
+    #     df_test = df_test.iloc[-len(test_predictions) :]
+    # # Check if df_test is shorter than test_predictions
+    # if len(df_test) < len(test_predictions):
+    #     padding_length = len(test_predictions) - len(df_test)
+    #     # Create a DataFrame of zeros with the same columns
+    #     padding_df = pd.DataFrame(
+    #         0, index=range(padding_length), columns=df_test.columns
+    #     )
+    #     # Concatenate the original DataFrame with the padding
+    #     df_test = pd.concat([df_test, padding_df], ignore_index=True)
 
-    df_test[ystar_col] = test_predictions[:, -1, 0]
+    # df_test[ystar_col] = test_predictions[:, -1, 0]
 
-    df_out = df_test[[target, ystar_col]]
+    # df_out = df_test[[target, ystar_col]]
 
-    for c in df_out.columns:
-        if c == "target_error_lead_0":
-            print(og_df)
-            vals = og_df["target_error"].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
-        else:
-            vals = df_out[c].values.tolist()
-            mean = st.mean(vals)
-            std = st.pstdev(vals)
-            df_out[c] = df_out[c] * std + mean
+    pred_last = test_predictions[:, -1, 0]  # (N,)
+    vt_last = vt[:, -1]  # (N,)
+    mask = vt_last != -1
+    vt_last = vt_last[mask]
+    pred_last = pred_last[mask]
 
-    df_out = find_shift(df_out)
+    pred_df = pd.DataFrame(
+        {
+            "valid_time": pd.to_datetime(vt_last, unit="ns"),
+            ystar_col: pred_last,
+        }
+    ).dropna(subset=["valid_time"])
 
-    df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
+    # df_test[ystar_col] = test_predictions[:, -1, 0]
+
+    df_test = df_test.copy()
+    df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
+
+    df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    df_out = df_out[[target, ystar_col, "valid_time"]]
+    print(df_out)
+
+    # for c in df_out.columns:
+    #     if c == "target_error_lead_0":
+    #         print(og_df)
+    #         vals = og_df["target_error"].values.tolist()
+    #         mean = st.mean(vals)
+    #         std = st.pstdev(vals)
+    #         df_out[c] = df_out[c] * std + mean
+    #     else:
+    #         vals = df_out[c].values.tolist()
+    #         mean = st.mean(vals)
+    #         std = st.pstdev(vals)
+    #         df_out[c] = df_out[c] * std + mean
+
+    # df_out = find_shift(df_out)
+
+    # df_out["diff"] = df_out.iloc[:, 0] - df_out.iloc[:, 1]
     return df_out
 
 
@@ -393,8 +417,8 @@ def main(
     )
 
     # Trim valid_time to match the length of df_out
-    valid_time = vt[-len(df_out) :]
-    df_out["valid_time"] = valid_time
+    # valid_time = vt[-len(df_out) :]
+    # df_out["valid_time"] = valid_time
     # outpath = '/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output'
 
     station_dir = f"{outpath}/{station}"
@@ -404,58 +428,58 @@ def main(
         f"{station_dir}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og_hybrid.parquet"
     )
 
-    # calculate post processing on validation set
-    time1 = datetime(2023, 1, 1, 0, 0, 0)
-    time2 = datetime(2023, 12, 31, 23, 59, 0)
-    df_calc = date_filter(df_out, time1, time2)
-    df_calc, diff = refit(df_calc)
+    # # calculate post processing on validation set
+    # time1 = datetime(2023, 1, 1, 0, 0, 0)
+    # time2 = datetime(2023, 12, 31, 23, 59, 0)
+    # df_calc = date_filter(df_out, time1, time2)
+    # df_calc, diff = refit(df_calc)
 
-    # quadratic fit
-    df_out_new_quad, quad_fit = quadratic_fit(df_calc, df_out, diff)
+    # # quadratic fit
+    # df_out_new_quad, quad_fit = quadratic_fit(df_calc, df_out, diff)
 
-    # # linear fit
-    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
+    # # # linear fit
+    # df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
-    # Evaluate model output on test set
-    # time3 = datetime(2024, 1, 1, 0, 0, 0)
-    # time4 = datetime(2025, 12, 31, 23, 59, 0)
+    # # Evaluate model output on test set
+    # # time3 = datetime(2024, 1, 1, 0, 0, 0)
+    # # time4 = datetime(2025, 12, 31, 23, 59, 0)
 
-    df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
-    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
+    # df_evaluate_quad = date_filter(df_out_new_quad, time3, time4)
+    # df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
-    # # Get performance metrics
-    # mae1, mse1 = get_performance_metrics(df_evaluate_quad)
-    # mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+    # # # Get performance metrics
+    # # mae1, mse1 = get_performance_metrics(df_evaluate_quad)
+    # # mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
-    # # linear save
-    # df_save_linear = pd.DataFrame(
-    #     {
-    #         "station": [station],
-    #         "forecast_hour": [fh],
-    #         "alpha": [multiply],
-    #         "diff": [diff],
-    #         "mae": [mae2],
-    #         "mse": [mse2],
-    #     }
-    # )
+    # # # linear save
+    # # df_save_linear = pd.DataFrame(
+    # #     {
+    # #         "station": [station],
+    # #         "forecast_hour": [fh],
+    # #         "alpha": [multiply],
+    # #         "diff": [diff],
+    # #         "mae": [mae2],
+    # #         "mse": [mse2],
+    # #     }
+    # # )
 
-    os.makedirs(outpath, exist_ok=True)
+    # os.makedirs(outpath, exist_ok=True)
 
-    # csv_path = f"{outpath}/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    # # csv_path = f"{outpath}/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
 
-    # if os.path.exists(csv_path):
-    #     df_og_linear = pd.read_csv(csv_path)
-    #     df_save_linear = pd.concat(
-    #         [df_og_linear, df_save_linear],
-    #         ignore_index=True
-    #     )
+    # # if os.path.exists(csv_path):
+    # #     df_og_linear = pd.read_csv(csv_path)
+    # #     df_save_linear = pd.concat(
+    # #         [df_og_linear, df_save_linear],
+    # #         ignore_index=True
+    # #     )
 
-    # df_save_linear.to_csv(csv_path, index=False)
+    # # df_save_linear.to_csv(csv_path, index=False)
 
-    parquet_path = f"{station_dir}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear_hybrid.parquet"
-    df_evaluate_linear.to_parquet(parquet_path)
-    gc.collect()
-    torch.cuda.empty_cache()
+    # parquet_path = f"{station_dir}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear_hybrid.parquet"
+    # df_evaluate_linear.to_parquet(parquet_path)
+    # gc.collect()
+    # torch.cuda.empty_cache()
     # END OF MAIN
 
 
@@ -479,8 +503,9 @@ radios = nysm_radios["stid"].unique()
 
 
 outpath = "/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output"
-time3 = datetime(2024, 1, 1, 0, 0, 0)
+time3 = datetime(2023, 1, 1, 0, 0, 0)
 time4 = datetime(2025, 12, 31, 23, 59, 59)
+# [r for r in radios if r in stations]:
 
 for r in radios:
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
