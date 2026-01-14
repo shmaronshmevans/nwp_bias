@@ -165,10 +165,16 @@ def main(clim_div, station, fh, var, time1, time2, save_path, batch_size=50):
 
     # create data for inference
     # create data for inference
-    lstm_df, features, stations, target_sensor, valid_times, image_list_cols, og_df = (
-        create_data_for_lstm_inference.create_data_for_model(
-            station, fh, var, time1, time2, save_path
-        )
+    (
+        lstm_df,
+        features,
+        stations,
+        target_sensor,
+        valid_times,
+        image_list_cols,
+        og_df,
+    ) = create_data_for_lstm_inference.create_data_for_model(
+        station, fh, var, time1, time2, save_path
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}

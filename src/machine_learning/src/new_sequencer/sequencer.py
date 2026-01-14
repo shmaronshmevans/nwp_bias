@@ -484,4 +484,4 @@ class SequenceDatasetMultiTask(Dataset):
                 images, (0, padding[0], 0, padding[1], 0, padding[2], 0, padding[3])
             )
 
-        return x, images, y, vt
+        return x, images, y

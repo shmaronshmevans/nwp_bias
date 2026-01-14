@@ -551,7 +551,6 @@ def main(
     batch_size=int(500),
     sequence_length=30,
 ):
-
     print("Am I using GPUS ???", torch.cuda.is_available())
     print("Number of gpus: ", torch.cuda.device_count())
 
@@ -565,10 +564,16 @@ def main(
     today_date, today_date_hr = make_dirs.get_time_title(station)
 
     # create data for inference
-    lstm_df, features, stations, target_sensor, valid_times, _, og_df = (
-        create_data_for_lstm_inference.create_data_for_model(
-            station, fh, var, time1, time2, save_path
-        )
+    (
+        lstm_df,
+        features,
+        stations,
+        target_sensor,
+        valid_times,
+        _,
+        og_df,
+    ) = create_data_for_lstm_inference.create_data_for_model(
+        station, fh, var, time1, time2, save_path
     )
 
     test_kwargs = {"batch_size": batch_size, "pin_memory": False, "shuffle": False}
