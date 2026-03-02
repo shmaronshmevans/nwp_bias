@@ -102,7 +102,7 @@ def load_nysm_data(nysm_var, station):
     # Concatenate data from different years into a single DataFrame.
     nysm_1H_obs = pd.concat(nysm_1H)
 
-    nysm_1H_obs.fillna(-999, inplace=True)
+    nysm_1H_obs.fillna(0, inplace=True)
     return nysm_1H_obs
 
 
@@ -142,7 +142,7 @@ def read_hrrr_data(fh, hrrr_var, station):
 
     # concatenate dataframes for each model
     hrrr_fcast_and_error_df = pd.concat(hrrr_fcast_and_error)
-    hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.reset_index().fillna(-999)
+    hrrr_fcast_and_error_df = hrrr_fcast_and_error_df.reset_index().fillna(0)
 
     # return dataframes for each model
     return hrrr_fcast_and_error_df
@@ -156,6 +156,10 @@ def get_og_df(fh, hrrr_var, nysm_var, station):
     final_df.dropna(inplace=True)
 
     final_df["target_error"] = final_df[hrrr_var] - final_df[nysm_var]
+
+    # if hrrr_var != 'tp':
+    #     # Drop rows where |target_error| > 20
+    #     final_df = final_df[final_df["target_error"].abs() <= 20]
     return final_df
 
 
@@ -184,7 +188,7 @@ def linear_fit_data(df, hrrr_var):
         # optionally, you can update the column in the dataframe:
         df["Model forecast"] = predicted_Y
     else:
-        df["Model forecast"] = df["Model forecast"] * 0.05
+        df["Model forecast"] = df["Model forecast"] * 1
 
     return df, slope, intercept
 
@@ -237,7 +241,7 @@ def refit_output(df):
     return df
 
 
-def outlier_fit(df, hrrr_var, max=15):
+def outlier_fit(df, hrrr_var, maxy=3):
     # Assuming df is your DataFrame and 'column_name' is the column you're interested in
     if hrrr_var == "tp":
         df_ = df[~np.isclose(df["target_error"], 0.0)]
@@ -259,7 +263,7 @@ def outlier_fit(df, hrrr_var, max=15):
             _,
         ) = df_.loc[i].values
         alpha = abs(target / lstm_val)
-        if alpha > max:
+        if alpha > maxy:
             continue
         else:
             alphas.append(alpha)
@@ -289,7 +293,7 @@ def calibration(og_df, model_df, hrrr_var):
     # refit back to 0
     df_, diff = refit(df)
     df1 = refit_output(df_)
-    if slope > 3:
+    if slope > 5:
         df_out = df1.copy()
     else:
         try:
@@ -297,14 +301,14 @@ def calibration(og_df, model_df, hrrr_var):
             df_out, multiply = outlier_fit(df1, hrrr_var)
             print(multiply)
         except:
-            df_out, multiply = outlier_fit(df1, hrrr_var, max=75)
+            df_out, multiply = outlier_fit(df1, hrrr_var, maxy=75)
 
     return df_out
 
 
 def date_filter(ldf):
-    time1 = datetime(2024, 5, 1, 0, 0, 0)
-    time2 = datetime(2024, 5, 15, 23, 59, 59)
+    time1 = datetime(2023, 1, 1, 0, 0, 0)
+    time2 = datetime(2025, 12, 31, 23, 59, 59)
     ldf = ldf[ldf["valid_time"] > time1]
     ldf = ldf[ldf["valid_time"] < time2]
 
@@ -331,6 +335,7 @@ def main(directory, var, nysm_var, model_type):
                 df.fillna(0, inplace=True)
 
                 og_df = get_og_df(fh, var, nysm_var, s)
+                # og_df = date_filter(og_df)
                 df = calibration(og_df, df, var)
 
                 while shift != 0:
@@ -351,7 +356,7 @@ if __name__ == "__main__":
     # (directory, var, nysm_var, model_type)
     main(
         "/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare",
-        "tp",
-        "precip_total",
+        "t2m",
+        "tair",
         "bnn",
     )

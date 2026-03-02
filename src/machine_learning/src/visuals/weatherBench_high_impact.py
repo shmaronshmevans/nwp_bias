@@ -64,7 +64,7 @@ def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
     )
     ax0.set_yticks([0])
     ax0.set_yticklabels(["HRRR"], fontsize=FS)
-    ax0.set_title(f"HRRR {metric_label} (absolute)", fontsize=FS)
+    ax0.set_title(f"HRRR {metric_label}", fontsize=FS)
 
     cbar0 = fig.colorbar(im0, ax=ax0, fraction=0.03, pad=0.02)
     cbar0.set_label(metric_label, fontsize=FS)
@@ -337,19 +337,18 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
                     f"/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output/{station}/"
                     f"refitted_{station}_fh{fh}_{hrrr_var}_HRRR_ml_output_og_hybrid.parquet"
                 )
-                print(hybrid_path)
 
                 hybrid_df = None
                 hybrid_error = np.nan
 
                 if hybrid_path.exists():
-                    print(f"{station} Hybrid Model !!")
                     hybrid_df = pd.read_parquet(hybrid_path)
                     hybrid_df = date_filter(hybrid_df, time1, time2)
                     print(hybrid_df)
                     hybrid_error = root_mean_squared_error(
                         hybrid_df["Model forecast"], hybrid_df["target_error"]
                     )
+                    print(hybrid_error)
 
                 # -----------------------
                 # Combined ensemble (use what exists)
@@ -363,6 +362,7 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
                     ),
                 ]
                 model_cols = ["lstm", "bnn"]
+                # model_cols = ["lstm"]
 
                 if hybrid_df is not None:
                     model_series.insert(
@@ -390,7 +390,7 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
                 ensemble_error = root_mean_squared_error(
                     ensemble["combined"], ensemble["target_error"]
                 )
-
+                # print(station, fh, target_error, hybrid_error, lstm_error, bnn_error, ensemble_error)
                 # append
                 final_ls.append(
                     {
@@ -411,46 +411,23 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
     print("station")
     print(station_df)
 
-    final_df = pd.DataFrame(
-        data=-999.0,
-        index=np.arange(1, 19),
-        columns=["hrrr", "lstm", "bnn", "hybrid", "combined"],
+    station_df_clean = station_df.replace(-999, np.nan)
+
+    final_df = (
+        station_df_clean.groupby("fh")[["hrrr", "lstm", "bnn", "hybrid", "combined"]]
+        .mean()
+        .reindex(np.arange(1, 19))
+        .fillna(-999)
     )
+    # final_df = (
+    #     station_df_clean
+    #     .groupby("fh")[["hrrr", "lstm", "hybrid", "combined"]]
+    #     .mean()
+    #     .reindex(np.arange(1, 19))
+    #     .fillna(-999)
+    # )
 
     final_df.index.name = "fh"
-
-    hrrr = []
-    lstm = []
-    bnn = []
-    hybrid = []
-    combined = []
-
-    for fh in np.arange(1, 19):
-        temp = station_df[station_df["fh"] == fh].replace(-999, np.nan)
-
-        hrrr.append(temp["hrrr"].iloc[0])
-        lstm.append(temp["lstm"].iloc[0])
-        bnn.append(temp["bnn"].iloc[0])
-        hybrid.append(temp["hybrid"].iloc[0])
-        combined.append(temp["combined"].iloc[0])
-
-    list_df = pd.DataFrame(
-        {
-            "hrrr": hrrr,
-            "lstm": lstm,
-            "bnn": bnn,
-            "hybrid": hybrid,
-            "combined": combined,
-        },
-        index=np.arange(1, 19),
-    )
-
-    list_df.index.name = "fh"
-
-    df1 = final_df.replace(-999, np.nan)
-    df2 = list_df.replace(-999, np.nan)
-
-    final_df = pd.concat([df1, df2]).groupby(level=0).mean()
     final_df.fillna(-999, inplace=True)
 
     weatherBench_raw(final_df, title, path)
@@ -458,32 +435,53 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
 
 
 if __name__ == "__main__":
-    nysm_var = "precip_total"
-    hrrr_var = "tp"
-    time1 = datetime(2024, 8, 17, 0, 0, 0)
-    time2 = datetime(2024, 8, 20, 23, 59, 59)
-    title = "Flash Flooding"
-    path = "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/flash_flooding"
+    nysm_var = "tair"
+    hrrr_var = "t2m"
+    time1 = datetime(2025, 6, 21, 0, 0, 0)
+    time2 = datetime(2025, 6, 25, 23, 59, 59)
+    title = "Extreme Heatwave"
+    path = (
+        "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/heat"
+    )
 
-    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    # nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
-    ## whole nysm
-    # stations = nysm_clim['stid'].unique()
+    nysm_clim = pd.read_csv(
+        "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+    )
 
-    # one division
-    c = "Coastal"
-    nysm_ = nysm_clim[nysm_clim["climate_division_name"] == c]
+    # whole nysm
+    stations = nysm_clim["stid"].unique()
+    # #precip
+    # stations = [
+    # s
+    # for s in stations
+    # if s not in ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+    # ]
+
+    # temp_ls
+    stations = [
+        r
+        for r in stations
+        if r
+        not in ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
+    ]
+
+    # # one division
+    # c = "Coastal"
+    # nysm_ = nysm_clim[nysm_clim["climate_division_name"] == c]
 
     # # # # selection of divisions
     # use_ls = [
-    #     "Great Lakes",
-    #     "Western Plateau",
-    #     "Central Lakes",
+    #     "Hudson Valley",
+    #     "Eastern Plateau",
+    #     "Mohawk Valley",
     #     "St. Lawrence Valley",
     #     "Northern Plateau",
+    #     "Champlain Valley",
     # ]
     # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
 
-    stations = nysm_["stid"].unique()
+    # stations = nysm_["stid"].unique()
 
     main(stations, time1, time2, nysm_var, hrrr_var, title, path)

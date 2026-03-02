@@ -51,7 +51,10 @@ def compute_error_metrics_by_climate_division(
         master_df_ls = []
         filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
-        no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        # #precip
+        # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        # t2m
+        no_ls = ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
         stations = [s for s in stations if s not in no_ls]
 
         for s in stations:
@@ -59,11 +62,12 @@ def compute_error_metrics_by_climate_division(
             if not os.path.isdir(station_dir):
                 continue
 
-            file_pattern = os.path.join(station_dir, f"{s}_fh*_*.parquet")
+            file_pattern = os.path.join(station_dir, f"*{s}_fh*_*.parquet")
+
             all_files = [
                 f
                 for f in glob.glob(file_pattern)
-                if f"{metvar}_" in f and "linear" in f and "normal" not in f
+                if f"{metvar}_" in f and "refitted" in f and "normal" not in f
             ]
 
             for file_path in all_files:
@@ -290,10 +294,10 @@ def confusion_matrix_create(
     plt.close()
 
 
-for m in ["tp"]:
+for m in ["t2m"]:
     compute_error_metrics_by_climate_division(
         nysm_csv_path="/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv",
-        base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
+        base_dir="/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output",
         metvar=m,
         output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
         filter_col="target_error",
@@ -305,7 +309,7 @@ for m in ["tp"]:
     if m == "tp":
         confusion_matrix_create(
             nysm_csv_path="/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv",
-            base_dir="/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr",
+            base_dir="/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output",
             metvar="tp",
             output_root="/home/aevans/nwp_bias/src/machine_learning/data/error_visuals",
             filter_col="target_error",

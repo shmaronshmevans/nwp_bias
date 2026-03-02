@@ -34,8 +34,7 @@ def get_raw_profiler_data(year, radiometer_data_path):
     df_nysm_list = []
 
     # Loop through the available months and process each
-    # for x in range(avail_months[0], avail_months[-1] + 1):
-    for x in ["11", "12"]:
+    for x in range(avail_months[0], avail_months[-1] + 1):
         print("month index: ", x)
         # Open multiple NetCDF files for the current month and convert to DataFrame
         try:

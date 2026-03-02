@@ -484,7 +484,7 @@ def main(
 
 
 nwp_model = "HRRR"
-metvar = "tp"
+metvar = "t2m"
 nysm_radios = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
@@ -508,6 +508,7 @@ time4 = datetime(2025, 12, 31, 23, 59, 59)
 # [r for r in radios if r in stations]:
 
 for r in radios:
+    print(r)
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
     station = r
     filtered = nysm_clim[nysm_clim["stid"] == station]

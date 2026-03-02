@@ -251,7 +251,7 @@ def groupby_month_total(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_persistence.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_persistence_lstm.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -333,7 +333,7 @@ def groupby_month_std(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_std_persistence.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_std_persistence_lstm.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -416,7 +416,7 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_abs_persistence.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_abs_persistence_lstm.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -553,7 +553,7 @@ def groupby_time_abs(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_hourly_abs_error_persistence.csv"
+        out_dir, f"{station}_{metvar}_hourly_abs_error_persistence_lstm.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -639,7 +639,9 @@ def groupby_time(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_error_persistence.csv")
+    csv_path = os.path.join(
+        out_dir, f"{station}_{metvar}_hourly_error_persistence_lstm.csv"
+    )
     results_df.to_csv(csv_path, index=False)
     # Plotting
 
@@ -774,7 +776,7 @@ def groupby_time_std(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_hourly_std_error_persistence.csv"
+        out_dir, f"{station}_{metvar}_hourly_std_error_persistence_lstm.csv"
     )
     results_df.to_csv(csv_path, index=False)
 

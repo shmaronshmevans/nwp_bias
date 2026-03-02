@@ -18,21 +18,25 @@ def date_filter(ldf, time1, time2):
 def main(stations, master_dir, metvar, clim_div):
     x_column = []
     y_column = []
-    # no_ls = ['SEMI', 'YUKO', "WEB3", "FAIR"]
-    no_ls = []
+    # precip
+    # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+    # t2m
+    no_ls = ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
+
+    # no_ls = []
 
     dirs = [d for d in os.listdir(master_dir) if d in stations and d not in no_ls]
 
     for d in dirs:
         files = os.listdir(f"{master_dir}/{d}")
-        files = [f for f in files if "linear" in f and "normal" not in f]
+        files = [f for f in files if "refitted" in f and f not in no_ls]
         files = [f for f in files if metvar in f]
         for f in files:
             try:
                 temp_ = cudf.read_parquet(f"{master_dir}/{d}/{f}")
                 temp_ = temp_.rename(columns={"target_error_lead_0": "target_error"})
-                time1 = datetime(2024, 1, 1, 0, 0, 0)
-                time2 = datetime(2024, 12, 31, 23, 59, 59)
+                time1 = datetime(2023, 1, 1, 0, 0, 0)
+                time2 = datetime(2025, 12, 31, 23, 59, 59)
                 temp_ = date_filter(temp_, time1, time2)
                 # if metvar == "tp":
                 #     temp_["Model forecast"] = temp_["Model forecast"] * 1
@@ -127,27 +131,25 @@ def main(stations, master_dir, metvar, clim_div):
     cbar.set_label("Point Density", fontsize=font_size)
 
     if metvar == "tp":
-        plt.xlim(-30, 30)
-        plt.ylim(-30, 30)
+        plt.xlim(-100, 150)
+        plt.ylim(-100, 150)
     else:
         plt.xlim(-20, 20)
         plt.ylim(-20, 20)
     if metvar == "u_total":
         plt.title(f"OKSM:\n HRRR Wind-Error vs LSTM Predictions", fontsize=font_size)
         plt.xlabel("Target (m s$^{-1}$)", fontsize=font_size)
-        plt.ylabel("LSTM (m s$^{-1}$)", fontsize=font_size)
+        plt.ylabel("Hybrid (m s$^{-1}$)", fontsize=font_size)
     if metvar == "t2m":
         plt.title(
-            f"NYSM:\n HRRR Temperature-Error vs LSTM Predictions", fontsize=font_size
+            f"NYSM:\n HRRR Temperature-Error vs Hybrid Predictions", fontsize=font_size
         )
         plt.xlabel("Target (°C)", fontsize=font_size)
-        plt.ylabel("LSTM (°C)", fontsize=font_size)
+        plt.ylabel("Hybrid (°C)", fontsize=font_size)
     if metvar == "tp":
-        plt.title(
-            f"OKSM:\n HRRR Precipitation Error vs LSTM Predictions", fontsize=font_size
-        )
+        plt.title(f"HRRR Precipitation Error vs Hybrid Predictions", fontsize=font_size)
         plt.xlabel("Target (mm hr$^{-1}$)", fontsize=font_size)
-        plt.ylabel("LSTM (mm hr$^{-1}$)", fontsize=font_size)
+        plt.ylabel("Hybrid (mm hr$^{-1}$)", fontsize=font_size)
     plt.xticks(fontsize=font_size)
     plt.yticks(fontsize=font_size)
     plt.grid(True, linestyle="--", alpha=0.6)
@@ -159,9 +161,9 @@ def main(stations, master_dir, metvar, clim_div):
     plt.tight_layout()
     plt.show()
 
-    # plt.savefig(
-    #     f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter_nysm_.png"
-    # )
+    plt.savefig(
+        f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/{clim_div}/{clim_div}_{metvar}_scatter_nysm_hybrid.png"
+    )
     # Convert to CPU numpy arrays for easier math (optional if you want to use NumPy)
     x_np = cp.asnumpy(x_cp)
     y_np = cp.asnumpy(y_cp)
@@ -207,7 +209,7 @@ def main(stations, master_dir, metvar, clim_div):
 # Setup
 clim_div = "ALL"
 # metvar_ls = ["u_total", "t2m", "tp"]
-metvar_ls = ["tp"]
+metvar_ls = ["t2m"]
 
 # no_ls = ['HFAL', 'BUFF', 'BELL', 'ELLE', 'TANN', 'WARW', 'MANH']
 
@@ -222,15 +224,19 @@ metvar_ls = ["tp"]
 
 
 # Load stations
-nysm_clim = cudf.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
-stations = (
-    nysm_clim[nysm_clim["climate_division_name"] == clim_div]["stid"]
-    .unique()
-    .to_arrow()
-    .to_pylist()
+# nysm_clim = cudf.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+# stations = (
+#     nysm_clim[nysm_clim["climate_division_name"] == clim_div]["stid"]
+#     .unique()
+#     .to_arrow()
+#     .to_pylist()
+# )
+
+nysm_radios = cudf.read_csv(
+    "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
-stations = nysm_clim["stid"].unique().to_arrow().to_pylist()
-parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/nysm_hrrr_v2"
+stations = nysm_radios["stid"].unique().to_arrow().to_pylist()
+parent_dir = "/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output"
 
 # Run
 if __name__ == "__main__":

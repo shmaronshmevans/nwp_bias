@@ -158,7 +158,7 @@ def main(
     ):
         vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth"
     else:
-        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/tp_{station}_vit.pth"
+        vit_path = f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/HRRR/radiometer/t2m_{station}_vit.pth"
 
     (
         df_train,
@@ -290,6 +290,10 @@ def main(
     init_start_event.record()
     train_loss_ls = []
     test_loss_ls = []
+    lstm_e_states = None
+    lstm_d_states = None
+    vit_states = None
+    shield = True
     for ix_epoch in range(1, epochs + 1):
         gc.collect()
         train_loss = model.train_model(
@@ -314,19 +318,39 @@ def main(
         experiment.log_metric("val_loss", test_loss)
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
-        if ix_epoch > 20:
+        if ix_epoch > 15:
             if test_loss <= min(test_loss_ls):
-                print(f"Saving Model Weights... EPOCH {ix_epoch}")
-                print()
-                save_model_weights(
-                    model,
-                    encoder_path,
-                    f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth",
-                    decoder_path,
-                )
-                save_model = False
+                if ix_epoch % 10 == 0:
+                    print(f"Saving Model Weights... EPOCH {ix_epoch}")
+                    print()
+                    save_model_weights(
+                        model,
+                        encoder_path,
+                        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth",
+                        decoder_path,
+                    )
+                    save_model = False
+                    shield = True
+                else:
+                    print("Checkpoint Reached...")
+                    lstm_e_states = model.encoder.state_dict()
+                    lstm_d_states = model.decoder.state_dict()
+                    vit_states = model.ViT.state_dict()
+                    shield = False
             if early_stopper.early_stop(test_loss):
                 print(f"Early stopping at epoch {ix_epoch}")
+                if lstm_e_states is not None and shield == False:
+                    torch.save(lstm_e_states, encoder_path)
+                    torch.save(
+                        vit_states,
+                        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{metvar}_{station}_vit.pth",
+                    )
+                    torch.save(lstm_d_states, decoder_path)
+                    print("!!! Model Saved !!!")
+                    save_model = False
+                else:
+                    print("WARNING: Early stop without model save")
+                # break training
                 break
 
     init_end_event.record()
@@ -335,6 +359,7 @@ def main(
         # datetime object containing current date and time
         now = datetime.now()
         print("now =", now)
+        print("...Saving full model run...")
         states = model.state_dict()
         torch.save(model.encoder.state_dict(), f"{encoder_path}")
         torch.save(
@@ -355,17 +380,18 @@ def main(
 
 
 nwp_model = "HRRR"
-metvar = "t2m"
+metvar = "u_total"
 nysm_radios = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
-# radios = nysm_radios["stid"].unique()
-# # radios = radios[: int(len(radios) * 0.5)]
+radios = nysm_radios["stid"].unique()
+
+radios = radios[: int(len(radios) * 0.5)]
 # radios = radios[-int(len(radios) * 0.5) :]
 
-# radios = ["VOOR", "WANT", "WARW", "STON", "QUEE"]
-radios = ["GABR", "HFAL", "JORD", "MANH", "ONTA", "OWEG"]
+windy = ["TUPP", "GABR", "SARA", "ELLE", "CHAZ"]
 
+radios = [r for r in radios if r not in windy]
 
 for r in radios:
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
@@ -374,13 +400,12 @@ for r in radios:
 
     fh_all = np.arange(1, 19)
     fh = fh_all.copy()
-    while len(fh) > 0:
-        fh_r = random.choice(fh)
+    for fh_r in [1, 6, 12, 18]:
         train_loss = main(
-            batch_size=70,
+            batch_size=85,
             station=r,
             num_layers=3,
-            epochs=int(1e3),
+            epochs=int(1e2),
             weight_decay=0.0,
             fh=fh_r,
             clim_div=c,
@@ -389,25 +414,20 @@ for r in radios:
             metvar=metvar,
         )
         gc.collect()
-        fh = fh[fh != fh_r]  # removes used FH by value
-
-# for fh_r in [2, 10, 11, 12, 15, 16, 17, 18]:
-# # for fh_r in np.arange(14,19):
-#     main(
-#         batch_size=70,
-#         station="TUPP",
-#         num_layers=3,
-#         epochs=int(1e3),
-#         weight_decay=0.0,
-#         fh=fh_r,
-#         clim_div=c,
-#         nwp_model=nwp_model,
-#         model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
-#         metvar=metvar,
-#     )
-#     gc.collect()
-
-# '''
-# wind
-# '''
-# ['TUPP', 'GABR', 'SARA', 'ELLE', 'CHAZ']
+        fh = fh[fh != fh_r]
+    while len(fh) > 3:
+        fh_r = random.choice(fh)
+        train_loss = main(
+            batch_size=85,
+            station=r,
+            num_layers=3,
+            epochs=int(1e2),
+            weight_decay=0.0,
+            fh=fh_r,
+            clim_div=c,
+            nwp_model=nwp_model,
+            model_path=f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/radiometer/{c}_{metvar}.pth",
+            metvar=metvar,
+        )
+        gc.collect()
+        fh = fh[fh != fh_r]
