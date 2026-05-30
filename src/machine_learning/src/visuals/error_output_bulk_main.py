@@ -26,7 +26,7 @@ def get_errors(lookup_path, stations, metvar):
                     f"{lookup_path}/{s}/refitted_{s}_{metvar}_{i}_lstm_output.parquet"
                 )
                 ldf = ldf.rename(columns={"target_error_lead_0": "target_error"})
-                ldf["Model forecast"] = 0.0
+                # ldf["Model forecast"] = 0.0
                 ldf["diff"] = ldf["Model forecast"] - ldf["target_error"]
                 # ldf = ldf[ldf["diff"].abs() > 1]
 
@@ -209,7 +209,7 @@ def func_main(path, stations, metvar, clim_div, nwp_model):
 ## END OF MAIN
 
 lookup_path = "/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare"
-metvar_ls = ["t2m"]
+metvar_ls = ["u_total"]
 nysm_clim = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
@@ -225,7 +225,7 @@ if __name__ == "__main__":
         # #tp
         # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
         # t2m
-        no_ls = ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
+        no_ls = ["QUEE", "CHAZ", "ELLE", "BKLN"]
         stations = [s for s in stations if s not in no_ls]
         for m in metvar_ls:
             func_main(lookup_path, stations, m, c, "HRRR")

@@ -22,8 +22,8 @@ def main(stations, master_dir, metvar, clim_div):
     # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
     # t2m
     no_ls = ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
-
-    # no_ls = []
+    # wind
+    no_ls = ["QUEE", "CHAZ", "ELLE", "BKLN"]
 
     dirs = [d for d in os.listdir(master_dir) if d in stations and d not in no_ls]
 
@@ -137,7 +137,7 @@ def main(stations, master_dir, metvar, clim_div):
         plt.xlim(-20, 20)
         plt.ylim(-20, 20)
     if metvar == "u_total":
-        plt.title(f"OKSM:\n HRRR Wind-Error vs LSTM Predictions", fontsize=font_size)
+        plt.title(f"NYSM:\n HRRR Wind-Error vs Hybrid Predictions", fontsize=font_size)
         plt.xlabel("Target (m s$^{-1}$)", fontsize=font_size)
         plt.ylabel("Hybrid (m s$^{-1}$)", fontsize=font_size)
     if metvar == "t2m":
@@ -209,7 +209,7 @@ def main(stations, master_dir, metvar, clim_div):
 # Setup
 clim_div = "ALL"
 # metvar_ls = ["u_total", "t2m", "tp"]
-metvar_ls = ["t2m"]
+metvar_ls = ["u_total"]
 
 # no_ls = ['HFAL', 'BUFF', 'BELL', 'ELLE', 'TANN', 'WARW', 'MANH']
 

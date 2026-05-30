@@ -484,7 +484,7 @@ def main(
 
 
 nwp_model = "HRRR"
-metvar = "t2m"
+metvar = "u_total"
 nysm_radios = pd.read_csv(
     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
 )
@@ -506,6 +506,7 @@ outpath = "/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output"
 time3 = datetime(2023, 1, 1, 0, 0, 0)
 time4 = datetime(2025, 12, 31, 23, 59, 59)
 # [r for r in radios if r in stations]:
+# windy = ["TUPP", "GABR", "SARA", "ELLE", "CHAZ"]
 
 for r in radios:
     print(r)

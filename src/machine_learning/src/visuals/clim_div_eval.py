@@ -54,7 +54,7 @@ def compute_error_metrics_by_climate_division(
         # #precip
         # no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
         # t2m
-        no_ls = ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
+        no_ls = ["QUEE", "CHAZ", "ELLE", "BKLN"]
         stations = [s for s in stations if s not in no_ls]
 
         for s in stations:
@@ -179,7 +179,7 @@ def confusion_matrix_create(
     for c in clim_divs:
         filtered = df[df["climate_division_name"] == c]
         stations = filtered["stid"].unique()
-        no_ls = ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
+        no_ls = ["QUEE", "CHAZ", "ELLE", "BKLN"]
         stations = [s for s in stations if s not in no_ls]
 
         for s in stations:
@@ -294,7 +294,7 @@ def confusion_matrix_create(
     plt.close()
 
 
-for m in ["t2m"]:
+for m in ["u_total"]:
     compute_error_metrics_by_climate_division(
         nysm_csv_path="/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv",
         base_dir="/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output",

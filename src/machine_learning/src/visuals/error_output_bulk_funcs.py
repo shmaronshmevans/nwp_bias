@@ -251,7 +251,7 @@ def groupby_month_total(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_persistence_lstm.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_persistence.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -333,7 +333,7 @@ def groupby_month_std(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_std_persistence_lstm.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_std_persistence.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -416,7 +416,7 @@ def groupby_abs_month_total(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_monthly_error_abs_persistence_lstm.csv"
+        out_dir, f"{station}_{metvar}_monthly_error_abs_persistence.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -553,7 +553,7 @@ def groupby_time_abs(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_hourly_abs_error_persistence_lstm.csv"
+        out_dir, f"{station}_{metvar}_hourly_abs_error_persistence.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -639,9 +639,7 @@ def groupby_time(df, station, clim_div, metvar):
     os.makedirs(out_dir, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_hourly_error_persistence_lstm.csv"
-    )
+    csv_path = os.path.join(out_dir, f"{station}_{metvar}_hourly_error_persistence.csv")
     results_df.to_csv(csv_path, index=False)
     # Plotting
 
@@ -776,7 +774,7 @@ def groupby_time_std(df, station, clim_div, metvar):
 
     # Save DataFrame to CSV
     csv_path = os.path.join(
-        out_dir, f"{station}_{metvar}_hourly_std_error_persistence_lstm.csv"
+        out_dir, f"{station}_{metvar}_hourly_std_error_persistence.csv"
     )
     results_df.to_csv(csv_path, index=False)
 
@@ -1054,3 +1052,52 @@ def calculate_r2(df):
             r2_ls.append(0)
 
     return r2_ls
+
+
+def rmse_by_forecast_hour(df, station, clim_div, metvar):
+    """
+    Calculate RMSE for each forecast hour (diff columns) and save to CSV.
+
+    Returns:
+        results_df (pd.DataFrame)
+    """
+
+    # Get diff columns (assumed to represent forecast hours)
+    diff_columns = sorted(
+        [col for col in df.columns if "diff" in col],
+        key=lambda x: (len(x), x),
+    )
+
+    forecast_hours = []
+    rmse_values = []
+
+    for i, col in enumerate(diff_columns):
+        vals = df.loc[df[col].abs() < 100, col].dropna()
+
+        if len(vals) > 0:
+            rmse = np.sqrt(np.mean(np.square(vals)))
+            rmse_values.append(rmse)
+
+            # Extract FH number if present (e.g., diff_lead_3 → 3)
+            match = re.search(r"(\d+)$", col)
+            if match:
+                forecast_hours.append(int(match.group(1)))
+            else:
+                forecast_hours.append(i)
+
+    # Build DataFrame
+    results_df = pd.DataFrame(
+        {"Forecast_Hour": forecast_hours, "RMSE": rmse_values}
+    ).sort_values("Forecast_Hour")
+
+    # Save to CSV (same structure as your other functions)
+    out_dir = f"/home/aevans/nwp_bias/src/machine_learning/data/error_visuals/dataframes/{clim_div}"
+    os.makedirs(out_dir, exist_ok=True)
+
+    csv_path = os.path.join(
+        out_dir,
+        f"{station}_{metvar}_forecast_hour_rmse_lstm_hrrr.csv",
+    )
+    results_df.to_csv(csv_path, index=False)
+
+    return results_df

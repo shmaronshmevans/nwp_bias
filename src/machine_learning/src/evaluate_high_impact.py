@@ -437,17 +437,23 @@ def model_out_bnn(
     # -----------------------
     # 1. Run BNN predictions (already last lead for mu/log_var)
     # -----------------------
-    mu_last, logvar_last, vt = model.predict(
-        test_eval_loader
-    )  # mu_last: (N, V), logvar_last: (N, V), vt: (N, H)
+    # mu_last, logvar_last, vt = model.predict_mc(
+    #     test_eval_loader
+    # )  # mu_last: (N, V), logvar_last: (N, V), vt: (N, H)
+    mu_last, alea_std, epi_std, vt = model.predict_mc(test_eval_loader)
 
     mu_last = mu_last.detach().cpu().numpy()  # (N, V)
-    logvar_last = logvar_last.detach().cpu().numpy()  # (N, V)
+    # logvar_last = logvar_last.detach().cpu().numpy()  # (N, V)
     vt = vt.cpu().numpy()  # (N, H) int64 ns, padded with -1
+
+    alea_std = alea_std.detach().cpu().numpy()
+    epi_std = epi_std.detach().cpu().numpy()
 
     # choose variable 0 if single target stored in last dim
     mu_last = mu_last[:, 0]  # (N,)
-    logvar_last = logvar_last[:, 0]  # (N,)
+    # logvar_last = logvar_last[:, 0]  # (N,)
+    alea_std = alea_std[:, 0]
+    epi_std = epi_std[:, 0]
 
     # matching valid_time for last lead
     vt_last = vt[:, -1]  # (N,)
@@ -455,17 +461,20 @@ def model_out_bnn(
 
     vt_last = vt_last[mask]
     mu_last = mu_last[mask]
-    logvar_last = logvar_last[mask]
+    # logvar_last = logvar_last[mask]
+    alea_std = alea_std[mask]
+    epi_std = epi_std[mask]
 
     # std from log-variance (clamp optional for stability)
     # logvar_last = np.clip(logvar_last, -20, 20)
-    std_last = np.exp(0.5 * logvar_last)
+    # std_last = np.exp(0.5 * logvar_last)
 
     pred_df = pd.DataFrame(
         {
             "valid_time": pd.to_datetime(vt_last, unit="ns"),
             "Model forecast": mu_last,
-            "Model std": std_last,
+            "Model alea std": alea_std,
+            "Model epi std": epi_std,
         }
     ).dropna(subset=["valid_time"])
 
@@ -476,12 +485,14 @@ def model_out_bnn(
     df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
 
     # avoid _x/_y collisions
-    for c in ["Model forecast", "Model std"]:
+    for c in ["Model forecast", "Model alea std", "Model epi std"]:
         if c in df_test.columns:
             df_test = df_test.drop(columns=[c])
 
     df_out = df_test.merge(pred_df, on="valid_time", how="left")
-    df_out = df_out[[target, "Model forecast", "Model std", "valid_time"]]
+    df_out = df_out[
+        [target, "Model forecast", "Model alea std", "Model epi std", "valid_time"]
+    ]
 
     # # -----------------------
     # # 2. Align df_test length
@@ -548,7 +559,7 @@ def main(
     time1,
     time2,
     save_path,
-    batch_size=int(500),
+    batch_size=int(100),
     sequence_length=30,
 ):
     print("Am I using GPUS ???", torch.cuda.is_available())
@@ -582,39 +593,39 @@ def main(
     """
     #lstm 
     """
-    for c in lstm_df.columns:
-        print(c)
-    print("Evaluating LSTM")
-    lstm_dataset = SequenceDatasetMultiTask(
-        dataframe=lstm_df,
-        target=target_sensor,
-        features=features,
-        sequence_length=30,
-        forecast_steps=fh,
-        device=device,
-        nwp_model="HRRR",
-        metvar=var,
-    )
-    lstm_loader = torch.utils.data.DataLoader(lstm_dataset, **test_kwargs)
+    # for c in lstm_df.columns:
+    #     print(c)
+    # print("Evaluating LSTM")
+    # lstm_dataset = SequenceDatasetMultiTask(
+    #     dataframe=lstm_df,
+    #     target=target_sensor,
+    #     features=features,
+    #     sequence_length=30,
+    #     forecast_steps=fh,
+    #     device=device,
+    #     nwp_model="HRRR",
+    #     metvar=var,
+    # )
+    # lstm_loader = torch.utils.data.DataLoader(lstm_dataset, **test_kwargs)
 
-    lstm_model = load_lstm(clim_div, var, station, features, device)
+    # lstm_model = load_lstm(clim_div, var, station, features, device)
 
-    lstm_out = model_out_lstm(
-        lstm_df,
-        lstm_dataset,
-        lstm_model,
-        batch_size,
-        target_sensor,
-        features,
-        device,
-        station,
-        og_df,
-        lstm_loader,
-        var,
-        fh,
-    )
+    # lstm_out = model_out_lstm(
+    #     lstm_df,
+    #     lstm_dataset,
+    #     lstm_model,
+    #     batch_size,
+    #     target_sensor,
+    #     features,
+    #     device,
+    #     station,
+    #     og_df,
+    #     lstm_loader,
+    #     var,
+    #     fh,
+    # )
 
-    lstm_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_lstm_output.parquet")
+    # lstm_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_lstm_output.parquet")
 
     print("Evaluating LSTM SUCCESSFUL")
     """
@@ -651,7 +662,7 @@ def main(
         bnn_loader,
     )
 
-    bnn_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_bnn_output.parquet")
+    bnn_out.to_parquet(f"{save_path}/{s}/{s}_{var}_{fh}_bnn_epi_output.parquet")
 
     print("Evaluating BNN SUCCESSFUL")
 
@@ -661,7 +672,7 @@ def main(
 if __name__ == "__main__":
     time1 = datetime(2023, 1, 1, 0, 0, 0)
     time2 = datetime(2025, 12, 31, 23, 59, 59)
-    var_ls = ["tp", "t2m", "u_total"]
+    # var_ls = ["tp", "t2m", "u_total"]
     # var = "u_total"
     save_path = "/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare"
 
@@ -679,12 +690,14 @@ if __name__ == "__main__":
     # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
 
     # stations = nysm_["stid"].unique()
-    for v in var_ls:
-        for s in stations:
-            # try:
-            c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
-            for fh in np.arange(1, 19):
-                main(c, s, fh, v, time1, time2, save_path)
+
+    # stations = ["REDF", "STON", "QUEE"]
+    # for v in var_ls:
+    for s in stations:
+        # try:
+        c = nysm_clim[nysm_clim["stid"] == s]["climate_division_name"].iloc[0]
+        for fh in np.arange(1, 19):
+            main(c, s, fh, "u_total", time1, time2, save_path)
         # except:
         #     print(f"{s}_failed... CONTINUE")
         #     continue

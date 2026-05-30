@@ -25,30 +25,42 @@ from matplotlib.colors import TwoSlopeNorm
 
 import traceback
 
+from matplotlib.colors import TwoSlopeNorm
+from matplotlib.ticker import FuncFormatter
+import matplotlib.pyplot as plt
+import numpy as np
+
+from matplotlib.colors import TwoSlopeNorm
+from matplotlib.ticker import FuncFormatter
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
-    FS = 14  # GLOBAL FONT SIZE (everything)
+    FS = 14
 
     df = final_df.replace(-999, np.nan).copy()
 
-    # 1) HRRR absolute (top row)
-    hrrr = df[["hrrr"]].T  # (1, fh)
-
-    # 2) Other models
+    hrrr = df[["hrrr"]].T
     other_cols = [c for c in df.columns if c != "hrrr"]
+    other_abs = df[other_cols].T
 
-    # Actual model RMSE values for annotation (bottom)
-    other_abs = df[other_cols].T  # (n_models, fh)
+    # ΔRMSE = model - HRRR; negative = better, positive = worse
+    deltas = df[other_cols].sub(df["hrrr"], axis=0).T
 
-    # ΔRMSE for color (model - HRRR; negative = better)
-    deltas = df[other_cols].sub(df["hrrr"], axis=0).T  # (n_models, fh)
-
-    # Color scaling
     hrrr_vmin = np.nanmin(hrrr.values)
     hrrr_vmax = np.nanmax(hrrr.values)
 
     max_abs_delta = np.nanmax(np.abs(deltas.values))
-    delta_norm = TwoSlopeNorm(vmin=-max_abs_delta, vcenter=0.0, vmax=max_abs_delta)
+
+    if max_abs_delta == 0 or np.isnan(max_abs_delta):
+        max_abs_delta = 1e-6
+
+    delta_norm = TwoSlopeNorm(
+        vmin=-max_abs_delta,
+        vcenter=0.0,
+        vmax=max_abs_delta,
+    )
 
     fig, (ax0, ax1) = plt.subplots(
         2,
@@ -58,10 +70,17 @@ def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
         sharex=True,
     )
 
-    # --- Top: HRRR absolute in Greys ---
+    # ----------------------------
+    # Top: HRRR absolute RMSE
+    # ----------------------------
     im0 = ax0.imshow(
-        hrrr.values, aspect="auto", cmap="Greys", vmin=hrrr_vmin, vmax=hrrr_vmax
+        hrrr.values,
+        aspect="auto",
+        cmap="Greys",
+        vmin=hrrr_vmin,
+        vmax=hrrr_vmax,
     )
+
     ax0.set_yticks([0])
     ax0.set_yticklabels(["HRRR"], fontsize=FS)
     ax0.set_title(f"HRRR {metric_label}", fontsize=FS)
@@ -70,32 +89,53 @@ def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
     cbar0.set_label(metric_label, fontsize=FS)
     cbar0.ax.tick_params(labelsize=FS)
 
-    # --- Bottom: ΔRMSE color, RMSE annotations ---
-    im1 = ax1.imshow(deltas.values, aspect="auto", cmap="RdBu_r", norm=delta_norm)
+    # ----------------------------
+    # Bottom: ΔRMSE colors, RMSE annotations
+    # ----------------------------
+    im1 = ax1.imshow(
+        deltas.values,
+        aspect="auto",
+        cmap="RdBu_r",
+        norm=delta_norm,
+    )
+
     ax1.set_yticks(np.arange(len(other_cols)))
     ax1.set_yticklabels([c.upper() for c in other_cols], fontsize=FS)
-    ax1.set_title(f"Δ{metric_label} vs HRRR", fontsize=FS)
+    ax1.set_title(rf"$\Delta${metric_label} vs HRRR", fontsize=FS)
 
     cbar1 = fig.colorbar(im1, ax=ax1, fraction=0.03, pad=0.02)
-    cbar1.set_label(f"Δ{metric_label}", fontsize=FS)
+
+    cbar1.set_label(
+        rf"← Better | $\Delta${metric_label} (Model - HRRR) | Worse →",
+        fontsize=FS,
+    )
+
+    # Force symmetric colorbar ticks and explicit +/- signs
+    tick_vals = np.linspace(-max_abs_delta, max_abs_delta, 5)
+    cbar1.set_ticks(tick_vals)
+
+    cbar1.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:+.2f}"))
+
     cbar1.ax.tick_params(labelsize=FS)
 
     # ----------------------------
-    # Annotations (auto contrast)
+    # Annotations
     # ----------------------------
-    FMT_ABS = "{:.2f}"  # for absolute RMSE annotations (both top + bottom)
+    FMT_ABS = "{:.2f}"
 
     def auto_text_color(rgba):
         r, g, b, _ = rgba
         luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
         return "white" if luminance < 0.5 else "black"
 
-    # Top: annotate HRRR absolute values
     for j in range(hrrr.shape[1]):
         val = hrrr.values[0, j]
+
         if np.isnan(val):
             continue
+
         rgba = im0.cmap(im0.norm(val))
+
         ax0.text(
             j,
             0,
@@ -106,16 +146,16 @@ def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
             color=auto_text_color(rgba),
         )
 
-    # Bottom: annotate with model RMSE, but choose text color based on delta background
     for i in range(deltas.shape[0]):
         for j in range(deltas.shape[1]):
-            delta_val = deltas.values[i, j]  # background color
-            rmse_val = other_abs.values[i, j]  # annotation text
+            delta_val = deltas.values[i, j]
+            rmse_val = other_abs.values[i, j]
 
             if np.isnan(delta_val) or np.isnan(rmse_val):
                 continue
 
             rgba = im1.cmap(im1.norm(delta_val))
+
             ax1.text(
                 j,
                 i,
@@ -126,15 +166,20 @@ def weatherBench_raw(final_df, title, path, metric_label="RMSE"):
                 color=auto_text_color(rgba),
             )
 
+    # ----------------------------
     # X axis
+    # ----------------------------
     fhs = df.index.to_numpy()
+
     ax1.set_xticks(np.arange(len(fhs)))
     ax1.set_xticklabels(fhs, fontsize=FS)
     ax1.set_xlabel("Forecast Hour", fontsize=FS)
 
     fig.suptitle(title, fontsize=int(FS + 4), y=0.98)
+
     plt.tight_layout()
-    plt.savefig(f"{path}/weatherBench_raw.png")
+    plt.savefig(f"{path}/weatherBench_raw.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
 
 def weatherBench_percent(final_df, title, path, metric_label="RMSE"):
@@ -272,11 +317,11 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
     final_ls = []
     for station in stations:
         print(station)
-        try:
-            # load nysm
-            nysm_df = nysm_data.load_nysm_data(gfs=False)
+        # load nysm
+        nysm_df = nysm_data.load_nysm_data(gfs=False)
 
-            for fh in np.arange(1, 19):
+        for fh in np.arange(1, 19):
+            try:
                 # load hrrr
                 hrrr_df = hrrr_data.read_hrrr_data(str(fh).zfill(2))
 
@@ -322,9 +367,16 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
                 # -----------------------
                 bnn_path = Path(
                     f"/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare/{station}/"
-                    f"refitted_{station}_{hrrr_var}_{fh}_bnn_output.parquet"
+                    f"refitted_{station}_{hrrr_var}_{fh}_bnn_epi_output.parquet"
                 )
-                bnn_df = pd.read_parquet(bnn_path)
+                try:
+                    bnn_df = pd.read_parquet(bnn_path)
+                except:
+                    bnn_path = Path(
+                        f"/home/aevans/nwp_bias/src/machine_learning/data/bnn_hybrid_compare/{station}/"
+                        f"refitted_{station}_{hrrr_var}_{fh}_bnn_output.parquet"
+                    )
+                    bnn_df = pd.read_parquet(bnn_path)
                 bnn_df = date_filter(bnn_df, time1, time2)
                 bnn_error = root_mean_squared_error(
                     bnn_df["Model forecast"], bnn_df["target_error"]
@@ -403,9 +455,9 @@ def main(stations, time1, time2, nysm_var, hrrr_var, title, path):
                         "combined": ensemble_error,
                     }
                 )
-        except Exception as e:
-            print(f"Exception at station={station}: {e}")
-            continue
+            except Exception as e:
+                print(f"Exception at station={station}: {e}")
+                continue
 
     station_df = pd.DataFrame(final_ls).fillna(-999)
     print("station")
@@ -439,16 +491,16 @@ if __name__ == "__main__":
     hrrr_var = "t2m"
     time1 = datetime(2025, 6, 21, 0, 0, 0)
     time2 = datetime(2025, 6, 25, 23, 59, 59)
-    title = "Extreme Heatwave"
+    title = "Heat Wave"
     path = (
         "/home/aevans/nwp_bias/src/machine_learning/data/high_impact_weather_ouput/heat"
     )
 
-    # nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+    nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
-    nysm_clim = pd.read_csv(
-        "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
-    )
+    # nysm_clim = pd.read_csv(
+    #     "/home/aevans/nwp_bias/src/machine_learning/notebooks/data/radiometer_network_nysm_stations.csv"
+    # )
 
     # whole nysm
     stations = nysm_clim["stid"].unique()
@@ -459,13 +511,13 @@ if __name__ == "__main__":
     # if s not in ["HFAL", "BUFF", "BELL", "ELLE", "TANN", "WARW", "MANH"]
     # ]
 
-    # temp_ls
-    stations = [
-        r
-        for r in stations
-        if r
-        not in ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
-    ]
+    # # temp_ls
+    # stations = [
+    #     r
+    #     for r in stations
+    #     if r
+    #     not in ["GABR", "MANH", "SARA", "SUFF", "SCHA", "HFAL", "OWEG", "SCHO", "TUPP"]
+    # ]
 
     # # one division
     # c = "Coastal"
@@ -473,12 +525,12 @@ if __name__ == "__main__":
 
     # # # # selection of divisions
     # use_ls = [
-    #     "Hudson Valley",
-    #     "Eastern Plateau",
-    #     "Mohawk Valley",
-    #     "St. Lawrence Valley",
+    #     # "Western Plateau",
     #     "Northern Plateau",
     #     "Champlain Valley",
+    #     # "Central Lakes",
+    #     # "Champlain Valley",
+    #     # "Great Lakes"
     # ]
     # nysm_ = nysm_clim[nysm_clim["climate_division_name"].isin(use_ls)]
 

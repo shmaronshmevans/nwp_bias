@@ -286,181 +286,181 @@ def main(
     print(stations)
     exit()
 
-    # experiment = Experiment(
-    #     api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
-    #     project_name="gpu_effect",
-    #     workspace="shmaronshmevans",
-    # )
+    experiment = Experiment(
+        api_key="leAiWyR5Ck7tkdiHIT7n6QWNa",
+        project_name="gpu_effect",
+        workspace="shmaronshmevans",
+    )
 
-    # train_dataset = SequenceDatasetMultiTask(
-    #     dataframe=df_train,
-    #     target=target,
-    #     features=features,
-    #     sequence_length=sequence_length,
-    #     forecast_steps=fh,
-    #     device=device,
-    #     nwp_model=nwp_model,
-    #     metvar=metvar,
-    # )
+    train_dataset = SequenceDatasetMultiTask(
+        dataframe=df_train,
+        target=target,
+        features=features,
+        sequence_length=sequence_length,
+        forecast_steps=fh,
+        device=device,
+        nwp_model=nwp_model,
+        metvar=metvar,
+    )
 
-    # test_dataset = SequenceDatasetMultiTask(
-    #     dataframe=df_val,
-    #     target=target,
-    #     features=features,
-    #     sequence_length=sequence_length,
-    #     forecast_steps=fh,
-    #     device=device,
-    #     nwp_model=nwp_model,
-    #     metvar=metvar,
-    # )
+    test_dataset = SequenceDatasetMultiTask(
+        dataframe=df_val,
+        target=target,
+        features=features,
+        sequence_length=sequence_length,
+        forecast_steps=fh,
+        device=device,
+        nwp_model=nwp_model,
+        metvar=metvar,
+    )
 
-    # train_kwargs = {
-    #     "batch_size": batch_size,
-    #     "pin_memory": False,
-    #     "shuffle": True,
-    #     "collate_fn": custom_collate,
-    # }
-    # test_kwargs = {
-    #     "batch_size": batch_size,
-    #     "pin_memory": False,
-    #     "shuffle": False,
-    #     "collate_fn": custom_collate,
-    # }
+    train_kwargs = {
+        "batch_size": batch_size,
+        "pin_memory": False,
+        "shuffle": True,
+        "collate_fn": custom_collate,
+    }
+    test_kwargs = {
+        "batch_size": batch_size,
+        "pin_memory": False,
+        "shuffle": False,
+        "collate_fn": custom_collate,
+    }
 
-    # train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
-    # test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
-    # print("!! Data Loaders Succesful !!")
+    train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
+    test_loader = torch.utils.data.DataLoader(test_dataset, **test_kwargs)
+    print("!! Data Loaders Succesful !!")
 
-    # init_start_event = torch.cuda.Event(enable_timing=True)
-    # init_end_event = torch.cuda.Event(enable_timing=True)
+    init_start_event = torch.cuda.Event(enable_timing=True)
+    init_end_event = torch.cuda.Event(enable_timing=True)
 
-    # num_sensors = int(len(features))
-    # hidden_units = int(12 * len(features))
+    num_sensors = int(len(features))
+    hidden_units = int(12 * len(features))
 
-    # # Initialize multi-task learning model with one encoder and decoders for each station
-    # model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
-    #     num_sensors=num_sensors,
-    #     hidden_units=hidden_units,
-    #     num_layers=num_layers,
-    #     mlp_units=1500,
-    #     device=device,
-    #     num_stations=len(stations),
-    # ).to(device)
+    # Initialize multi-task learning model with one encoder and decoders for each station
+    model = encode_decode_multitask.ShallowLSTM_seq2seq_multi_task(
+        num_sensors=num_sensors,
+        hidden_units=hidden_units,
+        num_layers=num_layers,
+        mlp_units=1500,
+        device=device,
+        num_stations=len(stations),
+    ).to(device)
 
-    # if os.path.exists(encoder_path):
-    #     print("Loading Encoder Model")
-    #     model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
-    #     # Example usage for encoder and decoder
-    #     get_model_file_size(encoder_path)
+    if os.path.exists(encoder_path):
+        print("Loading Encoder Model")
+        model.encoder.load_state_dict(torch.load(encoder_path), strict=False)
+        # Example usage for encoder and decoder
+        get_model_file_size(encoder_path)
 
-    # if os.path.exists(decoder_path):
-    #     print("Loading Decoder Model")
-    #     model.decoder.load_state_dict(torch.load(decoder_path), strict=False)
-    #     get_model_file_size(decoder_path)
+    if os.path.exists(decoder_path):
+        print("Loading Decoder Model")
+        model.decoder.load_state_dict(torch.load(decoder_path), strict=False)
+        get_model_file_size(decoder_path)
 
-    # optimizer = torch.optim.AdamW(
-    #     model.parameters(), lr=learning_rate, weight_decay=weight_decay
-    # )
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=learning_rate, weight_decay=weight_decay
+    )
 
-    # loss_function = OutlierFocusedLoss(2.0, device)
+    loss_function = OutlierFocusedLoss(2.0, device)
 
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-    #     optimizer, factor=0.1, patience=4
-    # )
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.1, patience=4
+    )
 
-    # hyper_params = {
-    #     "num_layers": num_layers,
-    #     "learning_rate": learning_rate,
-    #     "sequence_length": sequence_length,
-    #     "num_hidden_units": hidden_units,
-    #     "forecast_lead": fh,
-    #     "batch_size": batch_size,
-    #     "station": station,
-    #     "regularization": weight_decay,
-    #     "forecast_hour": fh,
-    #     "climate_div": clim_div,
-    #     "metvar": metvar,
-    #     "triangulate": stations,
-    # }
-    # print("--- Training LSTM ---")
+    hyper_params = {
+        "num_layers": num_layers,
+        "learning_rate": learning_rate,
+        "sequence_length": sequence_length,
+        "num_hidden_units": hidden_units,
+        "forecast_lead": fh,
+        "batch_size": batch_size,
+        "station": station,
+        "regularization": weight_decay,
+        "forecast_hour": fh,
+        "climate_div": clim_div,
+        "metvar": metvar,
+        "triangulate": stations,
+    }
+    print("--- Training LSTM ---")
 
-    # early_stopper = EarlyStopper(8)
+    early_stopper = EarlyStopper(8)
 
-    # init_start_event.record()
-    # train_loss_ls = []
-    # test_loss_ls = []
-    # for ix_epoch in range(1, epochs + 1):
-    #     gc.collect()
-    #     train_loss = model.train_model(
-    #         data_loader=train_loader,
-    #         loss_func=loss_function,
-    #         optimizer=optimizer,
-    #         epoch=ix_epoch,
-    #         training_prediction="recursive",
-    #         teacher_forcing_ratio=0.5,
-    #     )
-    #     test_loss = model.test_model(
-    #         data_loader=test_loader,
-    #         loss_function=loss_function,
-    #         epoch=ix_epoch,
-    #     )
-    #     scheduler.step(test_loss)
-    #     print(" ")
-    #     train_loss_ls.append(train_loss)
-    #     test_loss_ls.append(test_loss)
-    #     # log info for comet and loss curves
-    #     experiment.set_epoch(ix_epoch)
-    #     experiment.log_metric("val_loss", test_loss)
-    #     experiment.log_metric("train_loss", train_loss)
-    #     experiment.log_metrics(hyper_params, epoch=ix_epoch)
-    #     if early_stopper.early_stop(test_loss):
-    #         print(f"Early stopping at epoch {ix_epoch}")
-    #         break
-    #     if test_loss <= min(test_loss_ls) and ix_epoch > 5:
-    #         print(f"Saving Model Weights... EPOCH {ix_epoch}")
-    #         save_model_weights(model, encoder_path, decoder_path)
-    #         save_model = False
+    init_start_event.record()
+    train_loss_ls = []
+    test_loss_ls = []
+    for ix_epoch in range(1, epochs + 1):
+        gc.collect()
+        train_loss = model.train_model(
+            data_loader=train_loader,
+            loss_func=loss_function,
+            optimizer=optimizer,
+            epoch=ix_epoch,
+            training_prediction="recursive",
+            teacher_forcing_ratio=0.5,
+        )
+        test_loss = model.test_model(
+            data_loader=test_loader,
+            loss_function=loss_function,
+            epoch=ix_epoch,
+        )
+        scheduler.step(test_loss)
+        print(" ")
+        train_loss_ls.append(train_loss)
+        test_loss_ls.append(test_loss)
+        # log info for comet and loss curves
+        experiment.set_epoch(ix_epoch)
+        experiment.log_metric("val_loss", test_loss)
+        experiment.log_metric("train_loss", train_loss)
+        experiment.log_metrics(hyper_params, epoch=ix_epoch)
+        if early_stopper.early_stop(test_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
+        if test_loss <= min(test_loss_ls) and ix_epoch > 5:
+            print(f"Saving Model Weights... EPOCH {ix_epoch}")
+            save_model_weights(model, encoder_path, decoder_path)
+            save_model = False
 
-    # init_end_event.record()
+    init_end_event.record()
 
-    # if save_model == True:
-    #     states = model.state_dict()
-    #     torch.save(model.encoder.state_dict(), f"{encoder_path}")
-    #     torch.save(model.decoder.state_dict(), decoder_path)
+    if save_model == True:
+        states = model.state_dict()
+        torch.save(model.encoder.state_dict(), f"{encoder_path}")
+        torch.save(model.decoder.state_dict(), decoder_path)
 
-    # print("Successful Experiment")
-    # # Seamlessly log your Pytorch model
-    # # log_model(experiment, model, model_name="v9")
-    # experiment.end()
-    # print("... completed ...")
-    # gc.collect()
-    # torch.cuda.empty_cache()
-    # End of MAIN
+    print("Successful Experiment")
+    # Seamlessly log your Pytorch model
+    # log_model(experiment, model, model_name="v9")
+    experiment.end()
+    print("... completed ...")
+    gc.collect()
+    torch.cuda.empty_cache()
+    End of MAIN
 
 
-# metvar_ls = ["u_total", "t2m", "tp"]
-# nwp_model = "HRRR"
-# nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
+metvar_ls = ["u_total", "t2m", "tp"]
+nwp_model = "HRRR"
+nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
 
-# for c in nysm_clim['climate_division_name'].unique()[::-1]:
-#     df = nysm_clim[nysm_clim["climate_division_name"]==c]
-#     stations = df['stid'].unique()
+for c in nysm_clim['climate_division_name'].unique()[::-1]:
+    df = nysm_clim[nysm_clim["climate_division_name"]==c]
+    stations = df['stid'].unique()
 
-#     for s in stations:
-#         for metvar in metvar_ls:
-#             for fh in np.arange(1,19):
-#                 main(
-#                     batch_size=int(1000),
-#                     station=s,
-#                     num_layers=3,
-#                     epochs=5000,
-#                     weight_decay=0.0,
-#                     fh=fh,
-#                     clim_div=c,
-#                     nwp_model=nwp_model,
-#                     metvar=metvar,
-#                 )
-#                 gc.collect()
+    for s in stations:
+        for metvar in metvar_ls:
+            for fh in np.arange(1,19):
+                main(
+                    batch_size=int(1000),
+                    station=s,
+                    num_layers=3,
+                    epochs=5000,
+                    weight_decay=0.0,
+                    fh=fh,
+                    clim_div=c,
+                    nwp_model=nwp_model,
+                    metvar=metvar,
+                )
+                gc.collect()
 
 main(
     batch_size=int(1000),

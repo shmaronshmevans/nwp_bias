@@ -38,7 +38,7 @@ def load_oksm_data(year):
 
 
 def read_data_ok(model, month, year, fh):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/"
+    cleaned_data_path = f"/home/aevans/ai2es2/lstm/{model.upper()}/fh_{fh}/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -60,7 +60,7 @@ def read_data_ok(model, month, year, fh):
 
 
 def read_data_ok_v2(model, month, year, fh):
-    cleaned_data_path = f"/home/aevans/ai2es/lstm/{model.upper()}/fh_{fh}/"
+    cleaned_data_path = f"/home/aevans/ai2es2/lstm/{model.upper()}/fh_{fh}/"
 
     filelist = glob.glob(f"{cleaned_data_path}{year}/{month}/*.parquet")
     filelist.sort()
@@ -243,7 +243,6 @@ def haversine(lon1, lat1, lon2, lat2):
 def get_ball_tree_indices_ok(model_data, oksm_1H_obs):
     locations_a, locations_b = get_locations_for_ball_tree_ok(model_data, oksm_1H_obs)
     # Takes the first group's latitude and longitude values to construct the ball tree.
-
     ball = BallTree(
         locations_a[["latitude_rad", "longitude_rad"]].values, metric="haversine"
     )
@@ -254,6 +253,7 @@ def get_ball_tree_indices_ok(model_data, oksm_1H_obs):
     # get indices in a format where we can query the df
     indices_list = [indices[x][0] for x in range(len(indices))]
     distances_list = [distances[x][0] for x in range(len(distances))]
+    print(distances_list)
     return indices_list
 
 
@@ -733,15 +733,16 @@ def main(month, year, model, fh, mask_water=True):
 ####   END OF MAIN
 
 if __name__ == "__main__":
+    main(str(1).zfill(2), 2018, "hrrr", str(1).zfill(2))
     # # One at a time
-    model = "hrrr"
-    for fh in np.arange(1, 19):
-        print("FH", fh)
-        for year in np.arange(2018, 2025):
-            print("YEAR: ", year)
-            for month in np.arange(1, 13):
-                # try:
-                print("Month: ", month)
-                main(str(month).zfill(2), year, model, str(fh).zfill(2))
-                # except:
-                #     continue
+    # model = "hrrr"
+    # for fh in np.arange(1, 19):
+    #     print("FH", fh)
+    #     for year in np.arange(2018, 2025):
+    #         print("YEAR: ", year)
+    #         for month in np.arange(1, 13):
+    #             # try:
+    #             print("Month: ", month)
+    #             main(str(month).zfill(2), year, model, str(fh).zfill(2))
+    # except:
+    #     continue

@@ -67,6 +67,12 @@ class SequenceDatasetMultiTask(Dataset):
         self.metvar = metvar
         self.y = torch.tensor(dataframe[target].values).float().to(device)
         self.X = torch.tensor(dataframe[features].values).float().to(device)
+        self.valid_time = (
+            pd.to_datetime(dataframe["valid_time"])
+            .astype("datetime64[ns]")
+            .view("int64")
+            .to_numpy()
+        )
 
     def __len__(self):
         return self.X.shape[0]
@@ -78,6 +84,8 @@ class SequenceDatasetMultiTask(Dataset):
         y_end = y_start + self.forecast_steps
         x = self.X[x_start:x_end, :]
         y = self.y[y_start:y_end].unsqueeze(1)
+        vt = self.valid_time[y_start:y_end]
+        vt = torch.from_numpy(vt).long()
 
         if x.shape[0] < (self.sequence_length + self.forecast_steps):
             _x = torch.zeros(
@@ -90,13 +98,18 @@ class SequenceDatasetMultiTask(Dataset):
             x = torch.cat((x, _x), 0)
 
         if y.shape[0] < self.forecast_steps:
+            pad = self.forecast_steps - y.shape[0]
             _y = torch.zeros((self.forecast_steps - y.shape[0], 1), device=self.device)
             y = torch.cat((y, _y), 0)
+            vt = torch.cat(
+                [vt, torch.full((pad,), -1, dtype=torch.int64)],
+                dim=0,
+            )
 
         x[-self.forecast_steps :, -int(4 * 15) :] = x[
             -int(self.forecast_steps + 1), -int(4 * 15) :
         ].clone()
-        return x, y
+        return x, y, vt
 
 
 def find_shift(ldf):
@@ -349,6 +362,105 @@ def align_predictions_with_targets(
     return df_out
 
 
+def model_out_lstm(
+    df_test,
+    test_dataset,
+    model,
+    batch_size,
+    target,
+    features,
+    device,
+    station,
+    test_eval_loader,
+    metvar,
+    fh,
+    clim_div=None,
+):
+    """
+    Executes LSTM predictions on test data, aligns with df_test, renormalizes,
+    applies station-level transforms, and computes diff column.
+    """
+
+    # --------------------------
+    # 1. Run model predictions
+    # --------------------------
+    test_predictions, vt = model.predict(test_eval_loader)
+    test_predictions = test_predictions.cpu().numpy()
+    vt = vt.cpu().numpy()
+
+    # last lead prediction and its matching valid_time
+    pred_last = test_predictions[:, -1, 0]  # (N,)
+    vt_last = vt[:, -1]  # (N,)
+    mask = vt_last != -1
+    vt_last = vt_last[mask]
+    pred_last = pred_last[mask]
+
+    pred_df = pd.DataFrame(
+        {
+            "valid_time": pd.to_datetime(vt_last, unit="ns"),
+            "Model forecast": pred_last,
+        }
+    ).dropna(subset=["valid_time"])
+
+    # --------------------------
+    # 2. Align df_test length
+    # --------------------------
+    df_test = df_test.copy()
+
+    # n_preds = len(y_hat)
+    # n_test = len(df_test)
+
+    # if n_test > n_preds:
+    #     df_test = df_test.iloc[-n_preds:]
+    # elif n_test < n_preds:
+    #     pad_len = n_preds - n_test
+    #     padding_df = pd.DataFrame(
+    #         {col: 0 for col in df_test.columns}, index=range(pad_len)
+    #     )
+    #     df_test = pd.concat([df_test, padding_df], ignore_index=True)
+
+    # --------------------------
+    # 3. Attach predictions
+    # --------------------------
+    # df_test["Model forecast"] = y_hat
+
+    df_test["valid_time"] = pd.to_datetime(df_test["valid_time"])
+
+    df_out = df_test.merge(pred_df, on="valid_time", how="left")
+    df_out = df_out[[target, "Model forecast", "valid_time"]]
+
+    # --------------------------
+    # 4. Renormalize columns
+    # --------------------------
+    # df_out = df_test[["valid_time", target, "Model forecast"]].copy()
+
+    # for col in df_out.columns:
+    #     if col != "valid_time":
+    #         # target_error_lead_0 uses OG normalization
+    #         if col == "target_error":
+    #             vals = og_df["target_error"].to_numpy()
+    #         else:
+    #             vals = df_out[col].to_numpy()
+
+    #         mean = vals.mean()
+    #         std = vals.std()
+
+    #         df_out[col] = df_out[col] * std + mean
+
+    # --------------------------
+    # 5. Shift & linear transform
+    # --------------------------
+    # df_out = find_shift(df_out)
+    # df_out = linear_transform(station, clim_div, metvar, fh, df_out)
+
+    # # --------------------------
+    # # 6. Compute diff
+    # # --------------------------
+    # df_out["diff"] = df_out[target] - df_out["Model forecast"]
+
+    return df_out
+
+
 def main(
     batch_size,
     station,
@@ -437,78 +549,94 @@ def main(
     # # Trim valid_time to match the length of df_out
     # valid_time = nwp_test_df_ls[int((fh) - 1)]["valid_time"]
 
-    df_out = model_out(
-        df_eval, test_dataset, model, batch_size, target, features, device, station
-    ).dropna()
-    valid_time = vt[: len(df_out)]
-    df_out["valid_time"] = valid_time
+    # df_out = model_out(
+    #     df_eval, test_dataset, model, batch_size, target, features, device, station
+    # ).dropna()
+    # valid_time = vt[: len(df_out)]
+    # df_out["valid_time"] = valid_time
+
+    df_out = model_out_lstm(
+        df_eval,
+        test_dataset,
+        model,
+        batch_size,
+        target,
+        features,
+        device,
+        station,
+        test_loader,
+        metvar,
+        fh,
+    )
     # Trim valid_time to match the length of df_out
 
     # df_out = un_normalize_out.un_normalize(station, metvar, df_out, fh)
+    output_dir = f"/home/aevans/nwp_bias/src/machine_learning/data/jacob/{station}"
+    os.makedirs(output_dir, exist_ok=True)
 
     df_out.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
+        f"/home/aevans/nwp_bias/src/machine_learning/data/jacob/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_og.parquet"
     )
 
-    # calculate post processing on validation set
-    time1 = datetime(2023, 1, 1, 0, 0, 0)
-    time2 = datetime(2023, 12, 31, 23, 59, 0)
-    df_calc = date_filter(df_out, time1, time2)
-    df_calc, diff = refit(df_calc)
+    # # calculate post processing on validation set
+    # time1 = datetime(2023, 1, 1, 0, 0, 0)
+    # time2 = datetime(2023, 12, 31, 23, 59, 0)
+    # df_calc = date_filter(df_out, time1, time2)
+    # df_calc, diff = refit(df_calc)
 
-    # # linear fit
-    df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
+    # # # linear fit
+    # df_out_new_linear, multiply = linear_fit(df_calc, df_out, diff)
 
-    # Evaluate model output on test set
-    time3 = datetime(2024, 1, 1, 0, 0, 0)
-    time4 = datetime(2024, 12, 31, 23, 59, 0)
-    df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
+    # # Evaluate model output on test set
+    # time3 = datetime(2024, 1, 1, 0, 0, 0)
+    # time4 = datetime(2024, 12, 31, 23, 59, 0)
+    # df_evaluate_linear = date_filter(df_out_new_linear, time3, time4)
 
-    mae2, mse2 = get_performance_metrics(df_evaluate_linear)
+    # mae2, mse2 = get_performance_metrics(df_evaluate_linear)
 
-    # linear save
-    df_save_linear = pd.DataFrame(
-        {
-            "station": [station],
-            "forecast_hour": [fh],
-            "alpha": [multiply],
-            "diff": [diff],
-            "mae": [mae2],
-            "mse": [mse2],
-        }
-    )
-
-    if os.path.exists(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-    ):
-        df_og_linear = pd.read_csv(
-            f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
-        )
-        df_save_linear = pd.concat([df_og_linear, df_save_linear])
-
-    # df_save_linear.to_csv(
-    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
-    #     index=False,
+    # # linear save
+    # df_save_linear = pd.DataFrame(
+    #     {
+    #         "station": [station],
+    #         "forecast_hour": [fh],
+    #         "alpha": [multiply],
+    #         "diff": [diff],
+    #         "mae": [mae2],
+    #         "mse": [mse2],
+    #     }
     # )
 
-    today_date, today_date_hr = make_dirs.get_time_title(station)
-    df_out_new_linear.to_parquet(
-        f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
-    )
-    gc.collect()
-    torch.cuda.empty_cache()
+    # if os.path.exists(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    # ):
+    #     df_og_linear = pd.read_csv(
+    #         f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv"
+    #     )
+    #     df_save_linear = pd.concat([df_og_linear, df_save_linear])
+
+    # # df_save_linear.to_csv(
+    # #     f"/home/aevans/nwp_bias/src/machine_learning/data/parent_models/{nwp_model}/s2s/{clim_div}_{metvar}_{nwp_model}_lookup_linear.csv",
+    # #     index=False,
+    # # )
+
+    # today_date, today_date_hr = make_dirs.get_time_title(station)
+    # df_out_new_linear.to_parquet(
+    #     f"/home/aevans/nwp_bias/src/machine_learning/data/lstm_eval_csvs/{today_date}/{station}/{station}_fh{fh}_{metvar}_{nwp_model}_ml_output_linear.parquet"
+    # )
+    # gc.collect()
+    # torch.cuda.empty_cache()
     # END OF MAIN
 
 
 nwp = "HRRR"
-metvar_ls = ["t2m", "tp", "u_total"]
+metvar_ls = ["u_total"]
 oksm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/oksm.csv")
 # c = "West Central"
 
 
 # for c in oksm_clim['Climate_division'].unique():
-# stations = df["stid"].unique()
-stations = ["MEDI"]
+stations = oksm_clim["stid"].unique()
+# stations = ["MEDI"]
 
 for m in metvar_ls:
     print(m)

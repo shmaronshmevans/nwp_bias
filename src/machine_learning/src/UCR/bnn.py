@@ -382,6 +382,73 @@ class ShallowLSTM_seq2seq_multi_task_bnn(nn.Module):
 
         return mu[:, -1, :], log_var[:, -1, :], valid_times
 
+    def predict_mc(self, data_loader, mc_samples=50):
+        """
+        Returns:
+            mu_mean: predictive mean (B, T, S)
+            aleatoric_std: predicted aleatoric uncertainty (B, T, S)
+            epistemic_std: epistemic uncertainty from MC sampling (B, T, S)
+            valid_times: corresponding timestamps
+        """
+        self.eval()
+        all_valid_times = []
+        all_mu_samples = []
+        all_logvar_samples = []
+
+        with torch.no_grad():
+            for X, y, v in data_loader:
+                X, y = X.to(self.device), y.to(self.device)
+                B, T, S = X.shape
+
+                # Encoder forward
+                encoder_hidden = self.encoder(X)
+
+                # Store MC outputs
+                mu_mc = torch.zeros(B, mc_samples, T, S).to(self.device)
+                logvar_mc = torch.zeros(B, mc_samples, T, S).to(self.device)
+
+                for mc in range(mc_samples):
+                    outputs = torch.zeros(B, T, S).to(self.device)
+                    decoder_input = X[:, -1, :].unsqueeze(1)
+                    decoder_hidden = encoder_hidden
+
+                    for t in range(T):
+                        decoder_output, decoder_hidden = self.decoder(
+                            decoder_input, decoder_hidden
+                        )
+                        outputs[:, t, :] = decoder_output.squeeze(1)
+                        decoder_input = decoder_output
+
+                    # Stochastic BNN forward
+                    mu, log_var = self.bnn(outputs)
+                    mu = mu.view(B, T, -1)
+                    log_var = log_var.view(B, T, -1)
+
+                    mu_mc[:, mc, :, :] = mu
+                    logvar_mc[:, mc, :, :] = log_var
+
+                all_mu_samples.append(mu_mc.cpu())
+                all_logvar_samples.append(logvar_mc.cpu())
+                all_valid_times.append(v.cpu())
+
+        # Concatenate batches
+        mu_samples = torch.cat(all_mu_samples, dim=0)  # (N, MC, T, S)
+        logvar_samples = torch.cat(all_logvar_samples, dim=0)  # (N, MC, T, S)
+        valid_times = torch.cat(all_valid_times, axis=0)
+
+        # Last timestep
+        mu_last = mu_samples[:, :, -1, :].mean(dim=1).to(self.device)  # (N, S)
+        aleatoric_std_last = torch.sqrt(
+            torch.exp(logvar_samples[:, :, -1, :]).mean(dim=1)
+        ).to(
+            self.device
+        )  # (N, S)
+        epistemic_std_last = (
+            mu_samples[:, :, -1, :].var(dim=1).sqrt().to(self.device)
+        )  # (N, S)
+
+        return mu_last, aleatoric_std_last, epistemic_std_last, valid_times
+
 
 """
 samples = predict_samples(model, test_loader, device, mc_samples=200)

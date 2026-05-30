@@ -386,12 +386,14 @@ nysm_radios = pd.read_csv(
 )
 radios = nysm_radios["stid"].unique()
 
-radios = radios[: int(len(radios) * 0.5)]
+# # radios = radios[3: int(len(radios) * 0.5)]
 # radios = radios[-int(len(radios) * 0.5) :]
 
-windy = ["TUPP", "GABR", "SARA", "ELLE", "CHAZ"]
+# windy = ["TUPP", "GABR", "SARA", "ELLE", "CHAZ"]
 
-radios = [r for r in radios if r not in windy]
+# radios = [r for r in radios if r not in windy]
+
+radios = ["VOOR"]
 
 for r in radios:
     nysm_clim = pd.read_csv("/home/aevans/nwp_bias/src/landtype/data/nysm.csv")
@@ -402,7 +404,7 @@ for r in radios:
     fh = fh_all.copy()
     for fh_r in [1, 6, 12, 18]:
         train_loss = main(
-            batch_size=85,
+            batch_size=75,
             station=r,
             num_layers=3,
             epochs=int(1e2),
@@ -418,7 +420,7 @@ for r in radios:
     while len(fh) > 3:
         fh_r = random.choice(fh)
         train_loss = main(
-            batch_size=85,
+            batch_size=75,
             station=r,
             num_layers=3,
             epochs=int(1e2),

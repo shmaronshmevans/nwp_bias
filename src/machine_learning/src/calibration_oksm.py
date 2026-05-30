@@ -83,17 +83,17 @@ def find_shift(ldf):
     return ldf_, shifter  # Return the modified DataFrame
 
 
-def load_nysm_data(nysm_var, station):
+def load_oksm_data(nysm_var, station):
     # Define the path where NYSM parquet files are stored.
-    nysm_path = "/home/aevans/nwp_bias/data/nysm/"
+    nysm_path = "/home/aevans/nwp_bias/data/oksm/"
 
     # Initialize an empty list to store data for each year.
     nysm_1H = []
 
     # Loop through the years from 2018 to 2022 and read the corresponding
 
-    for year in np.arange(2018, 2026):
-        df = pd.read_parquet(f"{nysm_path}nysm_1H_obs_{year}.parquet")
+    for year in np.arange(2018, 2025):
+        df = pd.read_parquet(f"{nysm_path}oksm_1H_obs_{year}.parquet")
         df.reset_index(inplace=True)
         df = df.rename(columns={"time_1H": "valid_time"})
         df = df[df["station"] == station]
@@ -115,8 +115,8 @@ def read_hrrr_data(fh, hrrr_var, station):
         pandas.DataFrame: of hrrr weather forecast information for each NYSM site.
     """
     fh = str(fh).zfill(2)
-    years = ["2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"]
-    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/fh{fh}/"
+    years = ["2018", "2019", "2020", "2021", "2022", "2023", "2024"]
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/oksm/hrrr_data/fh{fh}/"
 
     # create empty lists to hold dataframes for each model
     hrrr_fcast_and_error = []
@@ -127,12 +127,12 @@ def read_hrrr_data(fh, hrrr_var, station):
             str_month = str(month).zfill(2)
             if (
                 os.path.exists(
-                    f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
+                    f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_oksm_sites_mask_water.parquet"
                 )
                 == True
             ):
                 df = pd.read_parquet(
-                    f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_nysm_sites_mask_water.parquet"
+                    f"{savedir}HRRR_{year}_{str_month}_direct_compare_to_oksm_sites_mask_water.parquet"
                 ).reset_index()
                 df = df[df["station"] == station]
                 hrrr_fcast_and_error.append(df[["valid_time", hrrr_var]])
@@ -149,7 +149,7 @@ def read_hrrr_data(fh, hrrr_var, station):
 
 
 def get_og_df(fh, hrrr_var, nysm_var, station):
-    nysm_df = load_nysm_data(nysm_var, station)
+    nysm_df = load_oksm_data(nysm_var, station)
     hrrr_df = read_hrrr_data(fh, hrrr_var, station)
 
     final_df = hrrr_df.merge(nysm_df, on="valid_time", how="left")
@@ -314,8 +314,8 @@ def calibration(og_df, model_df, hrrr_var, model):
 
 
 def date_filter(ldf):
-    time1 = datetime(2023, 1, 1, 0, 0, 0)
-    time2 = datetime(2025, 12, 31, 23, 59, 59)
+    time1 = datetime(2023, 10, 4, 0, 0, 0)
+    time2 = datetime(2023, 10, 10, 23, 59, 59)
     ldf = ldf[ldf["valid_time"] > time1]
     ldf = ldf[ldf["valid_time"] < time2]
 
@@ -326,21 +326,20 @@ def main(directory, var, nysm_var, model_type):
     # load files to be calibrated
     stations = os.listdir(directory)
 
-    # for s in stations:
-    for s in ["QUEE"]:
+    for s in stations:
         q = f"{directory}/{s}"
         for fh in np.arange(1, 19):
             try:
-                f = f"{s}_fh{fh}_{var}_HRRR_ml_output_og_hybrid.parquet"
-                # f = f"{s}_{var}_{fh}_{model_type}_output.parquet"
+                # f = f'{s}_fh{fh}_{var}_HRRR_ml_output_og_hybrid.parquet'
+                f = f"{s}_fh{fh}_{var}_HRRR_ml_output_og.parquet"
                 o = f"{q}/{f}"
                 print(o)
                 df = pd.read_parquet(o)
                 df = df.rename(columns={"target_error_lead_0": "target_error"})
 
-                df.fillna(0, inplace=True)
-                df, shift = find_shift(df)
-                df.fillna(0, inplace=True)
+                # df.fillna(0, inplace=True)
+                # df, shift = find_shift(df)
+                # df.fillna(0, inplace=True)
 
                 og_df = get_og_df(fh, var, nysm_var, s)
                 # og_df = date_filter(og_df)
@@ -363,8 +362,8 @@ def main(directory, var, nysm_var, model_type):
 if __name__ == "__main__":
     # (directory, var, nysm_var, model_type)
     main(
-        "/home/aevans/nwp_bias/src/machine_learning/data/hybrid_output",
+        "/home/aevans/nwp_bias/src/machine_learning/data/jacob",
         "u_total",
         "wspd_sonic_mean",
-        "hybrid",
+        "lstm",
     )
